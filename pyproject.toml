@@ -1,0 +1,89 @@
+[project]
+name = "earthscope-sfg-workflows"
+version = "0.1.0"
+description = "Workflow orchestration and data management for EarthScope Seafloor Geodesy"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Mike Gottlieb", email = "mike.gottlieb@earthscope.org" },
+  { name = "Franklyn Dunbar", email = "franklyn.dunbar@earthscope.org" },
+  { name = "Rachel Akie", email = "rachel.akie@earthscope.org" }
+]
+dependencies = [
+  "earthscope-sfg-tools[tiledb]>=0.1.0",
+  "boto3>=1.40",
+  "botocore>=1.40",
+  "sqlalchemy>=2.0",
+  "python-dotenv>=1.1",
+  "tqdm>=4.60",
+  "seaborn>=0.13",
+  "earthscope-sdk>=1.1",
+  "earthscope-cli>=1.0",
+  "gnatss>=0.3.1",
+  "cloudpathlib[s3]>=0.20",
+  "pyarrow>=21.0",
+  "scikit-learn>=1.4",
+  "typer>=0.9",
+  "rich>=13.0",
+  "pyyaml>=6.0",
+  "pride-ppp @ git+https://github.com/EarthScope/GNSSommelier.git#subdirectory=packages/pride-ppp"
+]
+
+[project.scripts]
+sfgtools = "earthscope_sfg_cli.__main__:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/earthscope_sfg_workflows", "src/earthscope_sfg_cli"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
+
+[tool.pixi.dependencies]
+python = ">=3.11,<3.14"
+pytest = ">=8"
+ruff = ">=0.4"
+
+[tool.pixi.pypi-dependencies]
+earthscope_sfg_workflows = { path = ".", editable = true }
+# Local sibling dependency for split-repo development in this workspace.
+# If working with this repo in isolation, replace this with a published version.
+earthscope_sfg_tools = { path = "../earthscope-sfg-tools", editable = true }
+
+[tool.pixi.feature.tiledb.dependencies]
+tiledb = ">=2.27"
+
+[tool.pixi.feature.tiledb.pypi-dependencies]
+tiledb = ">=0.30"
+
+[tool.pixi.feature.jupyter.dependencies]
+jupyter = ">=1.1.1"
+
+[tool.pixi.environments]
+default = { features = [], solve-group = "default" }
+tiledb = { features = ["tiledb"], solve-group = "default" }
+geolab = { features = ["jupyter", "tiledb"], solve-group = "default" }
+
+[tool.pixi.tasks]
+test = { cmd = "pytest tests/ -v", description = "Run workflow test suite" }
+lint = { cmd = "ruff check src/ tests/", description = "Lint source and tests" }
+format-check = { cmd = "ruff format --check src/ tests/", description = "Check formatting" }
+format = { cmd = "ruff format src/ tests/", description = "Auto-format source" }
+
+[tool.pixi.activation]
+[tool.pixi.activation.env]
+DYLD_LIBRARY_PATH = "$PIXI_PROJECT_ROOT/.pixi/envs/$PIXI_ENVIRONMENT_NAME/lib:$DYLD_LIBRARY_PATH"
+LD_LIBRARY_PATH = "$PIXI_PROJECT_ROOT/.pixi/envs/$PIXI_ENVIRONMENT_NAME/lib:$LD_LIBRARY_PATH"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
