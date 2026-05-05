@@ -1,8 +1,7 @@
 """SQLite-backed :class:`AssetStore` adapter.
 
-Wraps the existing SQLAlchemy ``Assets`` table from
-``data_mgmt.assetcatalog.tables`` so the new ports & adapters layer can use
-the same on-disk catalog file as the legacy code during migration.
+Defines the SQLAlchemy ORM tables (``Assets`` / ``MergeJobs``) that back the
+on-disk asset catalog and exposes them through the :class:`AssetStore` port.
 
 The asset catalog schema has no ``survey`` column; ``CampaignScope.survey``
 is intentionally not persisted here. Survey-scoped metadata lives at the
@@ -11,16 +10,59 @@ workflow layer.
 
 from __future__ import annotations
 
+import datetime as _dt
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import create_engine, delete, select, update
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    create_engine,
+    delete,
+    select,
+    update,
+)
 from sqlalchemy.engine import Engine
+from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..assetcatalog.tables import Assets, Base, MergeJobs
 from ..model import AssetEntry, AssetKind, CampaignScope
+
+Base = declarative_base()
+
+
+class Assets(Base):
+    """SQLAlchemy ORM model for the ``assets`` table."""
+
+    __tablename__ = "assets"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    network = Column(String)
+    station = Column(String)
+    campaign = Column(String)
+    remote_path = Column(String, nullable=True, unique=True)
+    remote_type = Column(String, nullable=True)
+    local_path = Column(String, nullable=True, unique=False)
+    type = Column(String)
+    timestamp_data_start = Column(DateTime, nullable=True)
+    timestamp_data_end = Column(DateTime, nullable=True)
+    timestamp_created = Column(DateTime, default=lambda: _dt.datetime.now(tz=_dt.UTC))
+    parent_id = Column(Integer, ForeignKey("assets.id"), nullable=True)
+    is_processed = Column(Boolean, default=False)
+
+
+class MergeJobs(Base):
+    """SQLAlchemy ORM model for the ``mergejobs`` table."""
+
+    __tablename__ = "mergejobs"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    child_type = Column(String)
+    parent_ids = Column(String)
+    parent_type = Column(String)
 
 
 def _row_to_entry(row: Assets) -> AssetEntry:

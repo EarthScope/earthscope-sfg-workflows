@@ -380,6 +380,15 @@ class Workspace(AbstractContextManager["Workspace"]):
         return IngestFacade(_ingestor=self._ingestor, _scope=self.scope)
 
     @property
+    def archive(self) -> ArchiveSource:
+        """Return the injected :class:`ArchiveSource` adapter.
+
+        Exposed for callers that need archive operations beyond what
+        :class:`IngestFacade` covers (e.g. metadata loading).
+        """
+        return self._archive
+
+    @property
     def metadata(self) -> MetadataFacade:
         return MetadataFacade(
             site=self._site,

@@ -1133,7 +1133,6 @@ class WorkflowHandler(WorkflowBase):
         qc_pipeline: QCPipeline = QCPipeline(
             directory=self.directory,
             s3_sync_bucket=self.s3_sync_bucket,
-            asset_catalog=None,
             config=config,
         )
         qc_pipeline.set_network_station_campaign(

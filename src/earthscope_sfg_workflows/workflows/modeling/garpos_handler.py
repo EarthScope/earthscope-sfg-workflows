@@ -60,8 +60,8 @@ class GarposHandler(IntermediateDataProcessor):
 
     Attributes
     ----------
-    directory_handler : Workspace
-        Manages the directory structure.
+    workspace : Workspace
+        Manages the directory structure and data layer access.
     site : Site
         The site metadata.
     network : str

@@ -6,8 +6,10 @@ import sys
 import threading
 import time
 from collections import deque
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pride_ppp import PrideProcessor, ProcessingMode, kin_to_kin_position_df, rinex_get_time_range
 from tqdm.auto import tqdm
@@ -26,13 +28,15 @@ from earthscope_sfg_tools.tiledb_integration import (
     TDBShotDataArray,
 )
 
-from ...data_mgmt.assetcatalog.handler import PreProcessCatalogHandler
-from ...data_mgmt.assetcatalog.schemas import AssetEntry, AssetType
+from ...data_mgmt.model import AssetEntry, AssetKind
 from ...data_mgmt.utils import get_merge_signature_shotdata
 from ..base import WorkflowBase, validate_network_station_campaign
 from ..preprocess_ingest.data_handler import _build_default_workspace
 from ..workspace import Workspace
 from .config import QCPipelineConfig
+
+if TYPE_CHECKING:
+    from ..facades import AssetQueryFacade
 from .exceptions import (
     NoKinFound,
     NoLocalData,
@@ -52,7 +56,8 @@ def process_single_qcpin(
     try:
         df = qcjson_to_shotdata(entry.local_path)
         rangea_strings: list[str] = extract_rangea_strings_from_qcpin(entry.local_path)
-        entry.is_processed = True
+        # AssetEntry is frozen; produce a replacement marked as processed.
+        entry = replace(entry, is_processed=True)
         shotdata_tdb.write_df(df)
         rangea_string_queue.extend(rangea_strings)
         processed_asset_queue.append(entry)
@@ -66,7 +71,7 @@ def rangea_string_epoch(
     gnss_obs_tdb: TDBGNSSObsArray,
     rangea_string_queue: deque,
     processed_asset_queue: deque,
-    asset_catalog: PreProcessCatalogHandler,
+    asset_catalog: "AssetQueryFacade",
     entries_to_process: int,
     stop_event: threading.Event,
 ) -> None:
@@ -135,11 +140,10 @@ class QCPipeline(WorkflowBase):
     Attributes
     ----------
     workspace : Workspace
-        Manages the project directory structure and data layer access.
+        Manages the project directory structure and data layer access
+        (catalog reads/writes flow through ``workspace.assets``).
     config : QCPipelineConfig
         Configuration settings for all pipeline steps.
-    asset_catalog : PreProcessCatalogHandler
-        SQLite-based catalog for tracking processed assets.
     qcShotDataPreTDB : TDBShotDataArray
         QC preliminary shotdata (before position refinement).
     qcKinPositionTDB : TDBKinPositionArray
@@ -156,7 +160,6 @@ class QCPipeline(WorkflowBase):
         self,
         directory: Path | str | None = None,
         s3_sync_bucket: str | None = None,
-        asset_catalog: PreProcessCatalogHandler | None = None,
         config: QCPipelineConfig | None = None,
         *,
         workspace: Workspace | None = None,
@@ -170,8 +173,6 @@ class QCPipeline(WorkflowBase):
             :class:`Workspace` when ``workspace`` is not provided.
         s3_sync_bucket : str, optional
             S3 bucket name/URI for sync operations.
-        asset_catalog : PreProcessCatalogHandler, optional
-            Pre-configured asset catalog handler.
         config : QCPipelineConfig, optional
             Configuration settings for the pipeline. If None, uses default
             configuration.
@@ -186,7 +187,6 @@ class QCPipeline(WorkflowBase):
         super().__init__(workspace)
 
         self.s3_sync_bucket: str | None = s3_sync_bucket
-        self.asset_catalog: PreProcessCatalogHandler | None = asset_catalog
         self.config = config if config is not None else QCPipelineConfig()
 
         # Initialize QC-specific TileDB array objects to None
@@ -243,12 +243,7 @@ class QCPipeline(WorkflowBase):
         self.workspace.layout.ensure_campaign()
 
         # Make sure there are files to process
-        if self.asset_catalog is None:
-            raise ValueError(
-                "QCPipeline.asset_catalog must be set before calling "
-                "set_network_station_campaign()."
-            )
-        dtype_counts = self.asset_catalog.get_dtype_counts(network_id, station_id, campaign_id)
+        dtype_counts = self.workspace.assets.dtype_counts()
         if dtype_counts == {}:
             message = f"No local files found for {network_id}/{station_id}/{campaign_id}. Ensure data is ingested before processing."
             ProcessLogger.logerr(message)
@@ -312,11 +307,8 @@ class QCPipeline(WorkflowBase):
         NoQCPinFound
             If no QC PIN files are found for the current context.
         """
-        qcpin_entries: list[AssetEntry] = self.asset_catalog.get_single_entries_to_process(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
-            parent_type=AssetType.QCPIN,
+        qcpin_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
+            parent_kind=AssetKind.QCPIN,
             override=self.config.qcpin_config.override,
         )
         if not qcpin_entries:
@@ -342,7 +334,7 @@ class QCPipeline(WorkflowBase):
                 self.qcGnssObsTDB,
                 rangea_string_queue,
                 processed_asset_queue,
-                self.asset_catalog,
+                self.workspace.assets,
                 len(qcpin_entries),
                 stop_event,
             ),
@@ -392,12 +384,12 @@ class QCPipeline(WorkflowBase):
 
         parent_ids = f"N-{self.current_network_name}|ST-{self.current_station_name}|SV-{self.current_campaign_name}|TDB-{str(self.qcGnssObsTDB.uri)}|YEAR-{year}|QC"
         merge_signature = {
-            "parent_type": AssetType.GNSSOBSTDB.value,
-            "child_type": AssetType.RINEX2.value,
+            "parent_type": AssetKind.GNSSOBSTDB.value,
+            "child_type": AssetKind.RINEX2.value,
             "parent_ids": [parent_ids],
         }
 
-        if self.config.rinex_config.override or not self.asset_catalog.is_merge_complete(
+        if self.config.rinex_config.override or not self.workspace.assets.is_merge_complete(
             **merge_signature
         ):
             try:
@@ -419,23 +411,25 @@ class QCPipeline(WorkflowBase):
 
                 rinex_entries: list[AssetEntry] = []
                 uploadCount = 0
+                scope = self.workspace.scope
                 for rinex_path in rinex_paths:
                     rinex_time_start, rinex_time_end = rinex_get_time_range(rinex_path)
                     rinex_entry = AssetEntry(
+                        kind=AssetKind.RINEX2,
+                        scope=scope,
                         local_path=rinex_path,
-                        network=self.current_network_name,
-                        station=self.current_station_name,
-                        campaign=self.current_campaign_name,
                         timestamp_data_start=rinex_time_start,
                         timestamp_data_end=rinex_time_end,
-                        type=AssetType.RINEX2,
                         timestamp_created=datetime.datetime.now(tz=datetime.UTC),
                     )
-                    rinex_entries.append(rinex_entry)
-                    if self.asset_catalog.add_entry(rinex_entry):
+                    persisted = self.workspace.assets.add_or_update(rinex_entry)
+                    if persisted is not None:
+                        rinex_entries.append(persisted)
                         uploadCount += 1
+                    else:
+                        rinex_entries.append(rinex_entry)
 
-                self.asset_catalog.add_merge_job(**merge_signature)
+                self.workspace.assets.add_merge_job(**merge_signature)
 
                 ProcessLogger.loginfo(
                     f"Generated {len(rinex_entries)} QC Rinex files spanning {rinex_entries[0].timestamp_data_start} to {rinex_entries[-1].timestamp_data_end}"
@@ -454,12 +448,7 @@ class QCPipeline(WorkflowBase):
                     print(message)
                 sys.exit(1)
         else:
-            rinex_entries = self.asset_catalog.get_local_assets(
-                self.current_network_name,
-                self.current_station_name,
-                self.current_campaign_name,
-                AssetType.RINEX2,
-            )
+            rinex_entries = self.workspace.assets.local(AssetKind.RINEX2)
             num_rinex_entries = len(rinex_entries)
             ProcessLogger.logdebug(
                 f"QC RINEX files have already been generated for {self.current_network_name}, {self.current_station_name}, and {year}. Found {num_rinex_entries} entries."
@@ -486,12 +475,9 @@ class QCPipeline(WorkflowBase):
         prideDir = self.workspace.layout.pride_directory
         intermediateDir = self.workspace.layout.campaign().intermediate
 
-        rinex_entries: list[AssetEntry] = self.asset_catalog.get_single_entries_to_process(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
-            parent_type=AssetType.RINEX2,
-            child_type=AssetType.KIN,
+        rinex_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
+            parent_kind=AssetKind.RINEX2,
+            child_kind=AssetKind.KIN,
             override=self.config.pride_config.override,
         )
         if not rinex_entries:
@@ -523,35 +509,34 @@ class QCPipeline(WorkflowBase):
             rinex_entry = rinex_path_entry_map.get(result.rinex_path)
             if result.kin_path is not None:
                 kin_count += 1
-                rinex_entry.is_processed = True
-                self.asset_catalog.add_or_update(rinex_entry)
+                rinex_entry = self.workspace.assets.update(
+                    rinex_entry, is_processed=True
+                )
 
                 kin_entry = AssetEntry(
+                    kind=AssetKind.KIN,
+                    scope=self.workspace.scope,
                     local_path=result.kin_path,
-                    network=self.current_network_name,
-                    station=self.current_station_name,
-                    campaign=self.current_campaign_name,
+                    parent_id=rinex_entry.id,
                     timestamp_data_start=rinex_entry.timestamp_data_start,
                     timestamp_data_end=rinex_entry.timestamp_data_end,
-                    type=AssetType.KIN,
                     timestamp_created=datetime.datetime.now(tz=datetime.UTC),
                 )
-                if self.asset_catalog.add_or_update(kin_entry):
+                if self.workspace.assets.add_or_update(kin_entry):
                     uploadCount += 1
 
                 if result.residual_path is not None:
                     res_count += 1
                     res_entry = AssetEntry(
+                        kind=AssetKind.KINRESIDUALS,
+                        scope=self.workspace.scope,
                         local_path=result.residual_path,
-                        network=self.current_network_name,
-                        station=self.current_station_name,
-                        campaign=self.current_campaign_name,
+                        parent_id=rinex_entry.id,
                         timestamp_data_start=rinex_entry.timestamp_data_start,
                         timestamp_data_end=rinex_entry.timestamp_data_end,
-                        type=AssetType.KINRESIDUALS,
                         timestamp_created=datetime.datetime.now(tz=datetime.UTC),
                     )
-                    if self.asset_catalog.add_or_update(res_entry):
+                    if self.workspace.assets.add_or_update(res_entry):
                         uploadCount += 1
 
         response = f"Generated {kin_count} Kin Files and {res_count} Residual Files From {len(rinex_entries)} QC Rinex Files, Added {uploadCount} to the Catalog"
@@ -576,11 +561,8 @@ class QCPipeline(WorkflowBase):
             f"Looking for QC Kin Files to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
         )
 
-        kin_entries: list[AssetEntry] = self.asset_catalog.get_single_entries_to_process(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
-            parent_type=AssetType.KIN,
+        kin_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
+            parent_kind=AssetKind.KIN,
             override=self.config.rinex_config.override,
         )
 
@@ -597,8 +579,7 @@ class QCPipeline(WorkflowBase):
                 kin_position_df = kin_to_kin_position_df(kin_entry.local_path)
                 if kin_position_df is not None:
                     processed_count += 1
-                    kin_entry.is_processed = True
-                    self.asset_catalog.add_or_update(kin_entry)
+                    self.workspace.assets.update(kin_entry, is_processed=True)
                     self.qcKinPositionTDB.write_df(kin_position_df)
             except Exception as e:
                 ProcessLogger.logerr(f"Error processing {kin_entry.local_path}: {e}")
@@ -630,13 +611,13 @@ class QCPipeline(WorkflowBase):
             return
 
         merge_job = {
-            "parent_type": AssetType.KINPOSITION.value,
-            "child_type": AssetType.SHOTDATA.value,
+            "parent_type": AssetKind.KINPOSITION.value,
+            "child_type": AssetKind.SHOTDATA.value,
             "parent_ids": merge_signature,
         }
 
         if (
-            not self.asset_catalog.is_merge_complete(**merge_job)
+            not self.workspace.assets.is_merge_complete(**merge_job)
             or self.config.position_update_config.override
         ):
             dates.append(dates[-1] + datetime.timedelta(days=1))
@@ -646,7 +627,7 @@ class QCPipeline(WorkflowBase):
                 kin_position=self.qcKinPositionTDB,
                 dates=dates,
             )
-            self.asset_catalog.add_merge_job(**merge_job)
+            self.workspace.assets.add_merge_job(**merge_job)
 
     @validate_network_station_campaign
     def run_pipeline(self) -> None:

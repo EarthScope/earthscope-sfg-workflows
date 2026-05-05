@@ -26,8 +26,7 @@ from earthscope_sfg_tools.tiledb_integration import (
 
 
 # Local imports
-from ...data_mgmt.assetcatalog.handler import PreProcessCatalogHandler
-from ...data_mgmt.assetcatalog.schemas import AssetEntry, AssetType
+from ...data_mgmt.model import AssetEntry, AssetKind
 from ...data_mgmt.utils import (
     get_merge_signature_shotdata,
 )
@@ -90,13 +89,11 @@ class SV3Pipeline(WorkflowBase):
     Attributes
     ----------
     workspace : Workspace
-        Manages the project directory structure and data layer access.
+        Manages the project directory structure and data layer access
+        (catalog reads/writes flow through ``workspace.assets``).
     config : SV3PipelineConfig
         Configuration settings for all pipeline steps, including Novatel,
         RINEX, PRIDE, DFOP00, and position update configs.
-    asset_catalog : PreProcessCatalogHandler
-        SQLite-based catalog for tracking processed assets and their
-        relationships (parent-child, merge jobs).
     shotDataPreTDB : TDBShotDataArray
         Preliminary shotdata (before position refinement).
     kinPositionTDB : TDBKinPositionArray
@@ -141,7 +138,6 @@ class SV3Pipeline(WorkflowBase):
         self,
         directory: Path | str | None = None,
         s3_sync_bucket: str | None = None,
-        asset_catalog: PreProcessCatalogHandler | None = None,
         config: SV3PipelineConfig | None = None,
         *,
         workspace: Workspace | None = None,
@@ -155,8 +151,6 @@ class SV3Pipeline(WorkflowBase):
             :class:`Workspace` when ``workspace`` is not provided.
         s3_sync_bucket : str, optional
             S3 bucket name/URI for sync operations.
-        asset_catalog : Optional[PreProcessCatalogHandler], optional
-            Pre-configured asset catalog.
         config : Optional[SV3PipelineConfig], optional
             Configuration settings for the pipeline. If None, uses default
             configuration. Defaults to None.
@@ -171,7 +165,6 @@ class SV3Pipeline(WorkflowBase):
         super().__init__(workspace)
 
         self.s3_sync_bucket: str | None = s3_sync_bucket
-        self.asset_catalog: PreProcessCatalogHandler | None = asset_catalog
         self.config = config if config is not None else SV3PipelineConfig()
 
         # Initialize TileDB array objects to None
@@ -228,12 +221,7 @@ class SV3Pipeline(WorkflowBase):
         self.workspace.layout.ensure_campaign()
 
         # Make sure there are files to process
-        if self.asset_catalog is None:
-            raise ValueError(
-                "SV3Pipeline.asset_catalog must be set before calling "
-                "set_network_station_campaign()."
-            )
-        dtype_counts = self.asset_catalog.get_dtype_counts(network_id, station_id, campaign_id)
+        dtype_counts = self.workspace.assets.dtype_counts()
         if dtype_counts == {}:
             message = f"No local files found for {network_id}/{station_id}/{campaign_id}. Ensure data is ingested before processing."
             ProcessLogger.logerr(message)
@@ -323,12 +311,7 @@ class SV3Pipeline(WorkflowBase):
         found_novatel_770 = False
         found_novatel_000 = False
 
-        novatel_770_entries: list[AssetEntry] = self.asset_catalog.get_local_assets(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
-            type=AssetType.NOVATEL770,
-        )
+        novatel_770_entries: list[AssetEntry] = self.workspace.assets.local(AssetKind.NOVATEL770)
 
         if novatel_770_entries:
             found_novatel_770 = True
@@ -336,11 +319,11 @@ class SV3Pipeline(WorkflowBase):
                 f"Processing {len(novatel_770_entries)} Novatel 770 files for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}. This may take a few minutes..."
             )
             merge_signature = {
-                "parent_type": AssetType.NOVATEL770.value,
-                "child_type": AssetType.GNSSOBSTDB.value,
+                "parent_type": AssetKind.NOVATEL770.value,
+                "child_type": AssetKind.GNSSOBSTDB.value,
                 "parent_ids": [x.id for x in novatel_770_entries],
             }
-            if self.config.novatel_config.override or not self.asset_catalog.is_merge_complete(
+            if self.config.novatel_config.override or not self.workspace.assets.is_merge_complete(
                 **merge_signature
             ):
                 try:
@@ -350,7 +333,7 @@ class SV3Pipeline(WorkflowBase):
                         n_procs=self.config.novatel_config.n_processes,
                     )
 
-                    self.asset_catalog.add_merge_job(**merge_signature)
+                    self.workspace.assets.add_merge_job(**merge_signature)
                     response = f"Added merge job for {len(novatel_770_entries)} Novatel 770 Entries to the catalog"
                     ProcessLogger.loginfo(response)
                 except Exception as e:
@@ -378,21 +361,16 @@ class SV3Pipeline(WorkflowBase):
         ProcessLogger.loginfo(
             f"Processing Novatel 000 data for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
         )
-        novatel_000_entries: list[AssetEntry] = self.asset_catalog.get_local_assets(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
-            type=AssetType.NOVATEL000,
-        )
+        novatel_000_entries: list[AssetEntry] = self.workspace.assets.local(AssetKind.NOVATEL000)
 
         if novatel_000_entries:
             found_novatel_000 = True
             merge_signature = {
-                "parent_type": AssetType.NOVATEL000.value,
-                "child_type": AssetType.GNSSOBSTDB.value,
+                "parent_type": AssetKind.NOVATEL000.value,
+                "child_type": AssetKind.GNSSOBSTDB.value,
                 "parent_ids": [x.id for x in novatel_000_entries],
             }
-            if self.config.novatel_config.override or not self.asset_catalog.is_merge_complete(
+            if self.config.novatel_config.override or not self.workspace.assets.is_merge_complete(
                 **merge_signature
             ):
                 try:
@@ -403,7 +381,7 @@ class SV3Pipeline(WorkflowBase):
                         n_procs=self.config.novatel_config.n_processes,
                     )
 
-                    self.asset_catalog.add_merge_job(**merge_signature)
+                    self.workspace.assets.add_merge_job(**merge_signature)
                     ProcessLogger.loginfo(
                         f"Added merge job for {len(novatel_000_entries)} Novatel 000 Entries to the catalog"
                     )
@@ -465,12 +443,12 @@ class SV3Pipeline(WorkflowBase):
         )
         parent_ids = f"N-{self.current_network_name}|ST-{self.current_station_name}|SV-{self.current_campaign_name}|TDB-{gnss_obs_data_dest}|YEAR-{year}"
         merge_signature = {
-            "parent_type": AssetType.GNSSOBSTDB.value,
-            "child_type": AssetType.RINEX2.value,
+            "parent_type": AssetKind.GNSSOBSTDB.value,
+            "child_type": AssetKind.RINEX2.value,
             "parent_ids": [parent_ids],
         }
 
-        if self.config.rinex_config.override or not self.asset_catalog.is_merge_complete(
+        if self.config.rinex_config.override or not self.workspace.assets.is_merge_complete(
             **merge_signature
         ):
             """
@@ -501,25 +479,27 @@ class SV3Pipeline(WorkflowBase):
 
                 rinex_entries: list[AssetEntry] = []
                 uploadCount = 0
+                scope = self.workspace.scope
                 for rinex_path in rinex_paths:
                     # Get the start and end time from the RINEX file for metadata
                     rinex_time_start, rinex_time_end = rinex_get_time_range(rinex_path)
                     rinex_qc(rinex_path)
                     rinex_entry = AssetEntry(
+                        kind=AssetKind.RINEX2,
+                        scope=scope,
                         local_path=rinex_path,
-                        network=self.current_network_name,
-                        station=self.current_station_name,
-                        campaign=self.current_campaign_name,
                         timestamp_data_start=rinex_time_start,
                         timestamp_data_end=rinex_time_end,
-                        type=AssetType.RINEX2,
                         timestamp_created=datetime.datetime.now(tz=datetime.UTC),
                     )
-                    rinex_entries.append(rinex_entry)
-                    if self.asset_catalog.add_or_update(rinex_entry):
+                    persisted = self.workspace.assets.add_or_update(rinex_entry)
+                    if persisted is not None:
+                        rinex_entries.append(persisted)
                         uploadCount += 1
+                    else:
+                        rinex_entries.append(rinex_entry)
 
-                self.asset_catalog.add_merge_job(**merge_signature)
+                self.workspace.assets.add_merge_job(**merge_signature)
 
                 ProcessLogger.loginfo(
                     f"Generated {len(rinex_entries)} Rinex files spanning {rinex_entries[0].timestamp_data_start} to {rinex_entries[-1].timestamp_data_end}"
@@ -538,12 +518,7 @@ class SV3Pipeline(WorkflowBase):
                     print(message)
 
         else:
-            rinex_entries = self.asset_catalog.get_local_assets(
-                self.current_network_name,
-                self.current_station_name,
-                self.current_campaign_name,
-                AssetType.RINEX2,
-            )
+            rinex_entries = self.workspace.assets.local(AssetKind.RINEX2)
             num_rinex_entries = len(rinex_entries)
             ProcessLogger.logdebug(
                 f"RINEX files have already been generated for {self.current_network_name}, {self.current_station_name}, and {year} Found {num_rinex_entries} entries."
@@ -571,12 +546,9 @@ class SV3Pipeline(WorkflowBase):
         intermediateDir = self.workspace.layout.campaign().intermediate
 
         # Get the Rinex files to process
-        rinex_entries: list[AssetEntry] = self.asset_catalog.get_single_entries_to_process(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
-            parent_type=AssetType.RINEX2,
-            child_type=AssetType.KIN,
+        rinex_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
+            parent_kind=AssetKind.RINEX2,
+            child_kind=AssetKind.KIN,
             override=self.config.pride_config.override,
         )
         if not rinex_entries:
@@ -632,37 +604,34 @@ class SV3Pipeline(WorkflowBase):
                 ProcessLogger.loginfo(
                     f"Generated KIN file for {result.rinex_path.name} at {result.kin_path}"
                 )
+                rinex_entry = self.workspace.assets.update(
+                    rinex_entry, is_processed=True
+                )
                 kin_entry = AssetEntry(
+                    kind=AssetKind.KIN,
+                    scope=self.workspace.scope,
                     local_path=result.kin_path,
-                    network=self.current_network_name,
-                    station=self.current_station_name,
-                    campaign=self.current_campaign_name,
                     timestamp_data_start=rinex_entry.timestamp_data_start,
                     timestamp_data_end=rinex_entry.timestamp_data_end,
-                    type=AssetType.KIN,
                     timestamp_created=datetime.datetime.now(tz=datetime.UTC),
                     parent_id=rinex_entry.id,
                 )
-                rinex_entry.is_processed = True
                 kin_count += 1
-                self.asset_catalog.add_or_update(rinex_entry)
-                if self.asset_catalog.add_or_update(kin_entry):
+                if self.workspace.assets.add_or_update(kin_entry):
                     uploadCount += 1
             if result.res_path is not None:
                 resfile = AssetEntry(
+                    kind=AssetKind.KINRESIDUALS,
+                    scope=self.workspace.scope,
                     local_path=result.res_path,
-                    network=self.current_network_name,
-                    station=self.current_station_name,
-                    campaign=self.current_campaign_name,
                     timestamp_data_start=rinex_entry.timestamp_data_start,
                     timestamp_data_end=rinex_entry.timestamp_data_end,
-                    type=AssetType.KINRESIDUALS,
                     timestamp_created=datetime.datetime.now(tz=datetime.UTC),
                     parent_id=rinex_entry.id,
                 )
 
                 res_count += 1
-                if self.asset_catalog.add_or_update(resfile):
+                if self.workspace.assets.add_or_update(resfile):
                     uploadCount += 1
 
         response = f"Generated {kin_count} Kin Files and {res_count} Residual Files From {len(rinex_entries)} Rinex Files, Added {uploadCount} to the Catalog"
@@ -683,18 +652,12 @@ class SV3Pipeline(WorkflowBase):
             f"Looking for Kin Files to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
         )
 
-        kin_entries: list[AssetEntry] = self.asset_catalog.get_single_entries_to_process(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
-            parent_type=AssetType.KIN,
+        kin_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
+            parent_kind=AssetKind.KIN,
             override=self.config.rinex_config.override,
         )
-        self.asset_catalog.get_single_entries_to_process(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
-            parent_type=AssetType.KINRESIDUALS,
+        self.workspace.assets.single_to_process(
+            parent_kind=AssetKind.KINRESIDUALS,
             override=self.config.rinex_config.override,
         )
         if not kin_entries:
@@ -711,8 +674,7 @@ class SV3Pipeline(WorkflowBase):
                 kin_position_df = kin_to_kin_position_df(kin_entry.local_path)
                 if kin_position_df is not None:
                     processed_count += 1
-                    kin_entry.is_processed = True
-                    self.asset_catalog.add_or_update(kin_entry)
+                    self.workspace.assets.update(kin_entry, is_processed=True)
                     self.kinPositionTDB.write_df(kin_position_df)
             except Exception as e:
                 ProcessLogger.logerr(f"Error processing {kin_entry.local_path}: {e}")
@@ -736,11 +698,8 @@ class SV3Pipeline(WorkflowBase):
         """
 
         # 1. Get the DFOP00 files to process
-        dfop00_entries: list[AssetEntry] = self.asset_catalog.get_single_entries_to_process(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
-            parent_type=AssetType.DFOP00,
+        dfop00_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
+            parent_kind=AssetKind.DFOP00,
             override=self.config.dfop00_config.override,
         )
         if not dfop00_entries:
@@ -763,8 +722,7 @@ class SV3Pipeline(WorkflowBase):
                 if shotdata_df is not None and not shotdata_df.empty:
                     self.shotDataPreTDB.write_df(shotdata_df)  # write to pre-shotdata
                     count += 1
-                    dfo_entry.is_processed = True  # mark as processed
-                    self.asset_catalog.add_or_update(dfo_entry)
+                    self.workspace.assets.update(dfo_entry, is_processed=True)  # mark as processed
                     ProcessLogger.logdebug(f" Processed {dfo_entry.local_path}")
                 else:
                     ProcessLogger.logerr(f"Failed to Process {dfo_entry.local_path}")
@@ -800,13 +758,13 @@ class SV3Pipeline(WorkflowBase):
             ProcessLogger.logerr(e)
             return
         merge_job = {
-            "parent_type": AssetType.KINPOSITION.value,
-            "child_type": AssetType.SHOTDATA.value,
+            "parent_type": AssetKind.KINPOSITION.value,
+            "child_type": AssetKind.SHOTDATA.value,
             "parent_ids": merge_signature,
         }
         # 2. Check if processing is needed
         if (
-            not self.asset_catalog.is_merge_complete(**merge_job)
+            not self.workspace.assets.is_merge_complete(**merge_job)
             or self.config.position_update_config.override
         ):
             # 3. Merge shotdata with interpolated kinematic positions
@@ -817,7 +775,7 @@ class SV3Pipeline(WorkflowBase):
                 position_data=self.imuPositionTDB,
                 dates=dates,
             )
-            self.asset_catalog.add_merge_job(**merge_job)
+            self.workspace.assets.add_merge_job(**merge_job)
 
     @validate_network_station_campaign
     def process_svp(self, override: bool = False) -> None:
@@ -842,18 +800,8 @@ class SV3Pipeline(WorkflowBase):
             return
 
         # Get the CTD and Seabird files to process
-        ctd_entries: list[AssetEntry] = self.asset_catalog.get_local_assets(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
-            type=AssetType.CTD,
-        )
-        seabird_entries: list[AssetEntry] = self.asset_catalog.get_local_assets(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
-            type=AssetType.SEABIRD,
-        )
+        ctd_entries: list[AssetEntry] = self.workspace.assets.local(AssetKind.CTD)
+        seabird_entries: list[AssetEntry] = self.workspace.assets.local(AssetKind.SEABIRD)
 
         if not ctd_entries and not seabird_entries:
             response = f"No CTD or SEABIRD Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
@@ -869,8 +817,7 @@ class SV3Pipeline(WorkflowBase):
                     svp_df = function(ctd_entry.local_path)
                     if not svp_df.empty:
                         svp_df.to_csv(svp_df_destination, index=False)
-                        ctd_entry.is_processed = True
-                        self.asset_catalog.add_or_update(ctd_entry)  # mark as processed
+                        self.workspace.assets.update(ctd_entry, is_processed=True)
                         ProcessLogger.loginfo(
                             f"Processed SVP data from CTD file {ctd_entry.local_path} to dataframe with {function.__name__}"
                         )
@@ -888,8 +835,7 @@ class SV3Pipeline(WorkflowBase):
                 svp_df = seabird_to_soundvelocity(seabird_entry.local_path)
                 if not svp_df.empty:
                     svp_df.to_csv(svp_df_destination, index=False)
-                    seabird_entry.is_processed = True
-                    self.asset_catalog.add_or_update(seabird_entry)
+                    self.workspace.assets.update(seabird_entry, is_processed=True)
                     ProcessLogger.loginfo(
                         f"Processed SVP data from Seabird file {seabird_entry.local_path} and saved to {str(svp_df_destination)}"
                     )

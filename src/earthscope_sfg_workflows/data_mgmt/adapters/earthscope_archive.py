@@ -115,6 +115,84 @@ class EarthScopeArchive:
                 if chunk:
                     f.write(chunk)
 
+    def download_to_dir(self, file_url: str, dest_dir: Path) -> Path:
+        """Download ``file_url`` into ``dest_dir`` using the URL's basename.
+
+        Returns the resulting local path. ``dest_dir`` is created if missing.
+        """
+        dest_dir = Path(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / Path(file_url).name
+        self.download_file(file_url, dest_path)
+        return dest_path
+
+    # -- metadata ----------------------------------------------------------
+
+    @staticmethod
+    def _site_json_url(network: str, station: str) -> str:
+        from .._archive_urls import ARCHIVE_PREFIX
+
+        return f"{ARCHIVE_PREFIX}/metadata/{network}/{station}.json"
+
+    @staticmethod
+    def _vessel_json_url(vessel_code: str) -> str:
+        from .._archive_urls import ARCHIVE_PREFIX
+
+        return f"{ARCHIVE_PREFIX}/metadata/vessels/{vessel_code}.json"
+
+    def load_vessel_metadata(self, vessel_code: str, local_path: Path | str | None = None):
+        """Load a :class:`Vessel` from the archive (or a local JSON file)."""
+        from earthscope_sfg_tools.datamodels.metadata import import_vessel
+
+        if local_path is not None:
+            json_file_path = Path(local_path)
+            if not json_file_path.exists():
+                raise FileNotFoundError(
+                    f"Local vessel metadata file {json_file_path} does not exist."
+                )
+            return import_vessel(json_file_path)
+
+        url = self._vessel_json_url(vessel_code)
+        local = self.download_to_dir(url, Path("./"))
+        try:
+            return import_vessel(local)
+        finally:
+            try:
+                local.unlink()
+            except Exception:
+                pass
+
+    def load_site_metadata(
+        self, network: str, station: str, local_path: Path | str | None = None
+    ):
+        """Load a :class:`Site` from the archive, populating per-campaign vessels."""
+        from earthscope_sfg_tools.datamodels.metadata import import_site
+
+        if local_path is not None:
+            json_file_path = Path(local_path)
+            if not json_file_path.exists():
+                raise FileNotFoundError(
+                    f"Local site metadata file {json_file_path} does not exist."
+                )
+            site = import_site(json_file_path)
+        else:
+            url = self._site_json_url(network, station)
+            local = self.download_to_dir(url, Path("./"))
+            try:
+                site = import_site(local)
+            finally:
+                try:
+                    local.unlink()
+                except Exception:
+                    pass
+
+        for campaign in site.campaigns:
+            try:
+                campaign.vessel = self.load_vessel_metadata(campaign.vesselCode)
+            except (ArchiveError, FileNotFoundError, ValueError):
+                campaign.vessel = None
+        return site
+
     def close(self) -> None:
         self._token = None
 

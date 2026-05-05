@@ -50,12 +50,6 @@ from ...data_mgmt.adapters.s3_fs import S3FileStore
 from ...data_mgmt.adapters.sql import SqlAssetStore
 from ...data_mgmt.core import FileTypeDetector
 from ...data_mgmt.model import AssetEntry, AssetKind
-# Legacy archive helpers (still used for site/vessel metadata; the legacy
-# subpackage is deleted in the final cleanup session).
-from ...data_mgmt.ingestion.archive_pull import (
-    download_file_from_archive,
-    load_site_metadata,
-)
 
 from ..base import (
     WorkflowBase,
@@ -517,7 +511,7 @@ class DataHandler(WorkflowBase):
     def _HTTP_download_file(self, remote_url: str, local_dir: Path) -> Path | None:
         try:
             local_path = local_dir / Path(remote_url).name
-            download_file_from_archive(url=remote_url, dest_dir=local_path.parent)
+            self.workspace.archive.download_to_dir(remote_url, local_path.parent)
             if not local_path.exists():
                 raise Exception
             logger.logdebug(f"Downloaded {remote_url} to {local_path}")
@@ -597,7 +591,7 @@ class DataHandler(WorkflowBase):
 
             if source is None:
                 try:
-                    site = load_site_metadata(
+                    site = self.workspace.archive.load_site_metadata(
                         network=self.workspace.network_name,
                         station=self.workspace.station_name,
                     )

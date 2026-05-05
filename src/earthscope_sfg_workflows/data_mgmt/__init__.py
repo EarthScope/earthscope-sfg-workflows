@@ -1,10 +1,6 @@
 """Public surface of the data_mgmt package.
 
-Phase 1 of RFC A — the new ports & adapters layer lives alongside the
-existing ``assetcatalog/``, ``directorymgmt/``, and ``ingestion/``
-sub-packages. Callers can opt in to the new API without breaking the old
-one.
-
+Ports & adapters layer for managing seafloor-geodesy data assets.
 See ``plans/rfc-a-data-mgmt-ports-and-adapters.md``.
 """
 

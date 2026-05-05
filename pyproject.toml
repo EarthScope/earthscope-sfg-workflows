@@ -101,5 +101,13 @@ PYTHONPATH = "$PIXI_PROJECT_ROOT/.pixi/garpos/bin:$PYTHONPATH"
 [tool.ruff]
 line-length = 100
 
+[tool.ruff.lint]
+extend-select = ["TID251"]
+
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"earthscope_sfg_workflows.data_mgmt.assetcatalog".msg = "Removed in RFC-A. Use `workspace.assets` (AssetQueryFacade) or `data_mgmt.adapters.sql.SqlAssetStore` directly."
+"earthscope_sfg_workflows.data_mgmt.directorymgmt".msg = "Removed in RFC-A. Use `workspace.layout` (LayoutFacade) or `data_mgmt.model` layout dataclasses."
+"earthscope_sfg_workflows.data_mgmt.ingestion".msg = "Removed in RFC-A. Use `workspace.ingest` (IngestFacade) or `data_mgmt.adapters.earthscope_archive.EarthScopeArchive`."
