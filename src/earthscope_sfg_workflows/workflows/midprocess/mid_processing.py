@@ -1,23 +1,29 @@
-"""
-This module defines the IntermediateDataProcessor class, which is responsible for post-processing of data.
+"""IntermediateDataProcessor — mid-process workflow class.
+
+Migrated to :class:`WorkflowBase` + :class:`Workspace` (RFC-A Phase 4).
 """
 
-from concurrent.futures import ThreadPoolExecutor
+from __future__ import annotations
+
 import datetime
 import json
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from cloudpathlib import CloudPath
 
-from earthscope_sfg_workflows.binary_ops.crinex_operations import crinex_compress
-from earthscope_sfg_workflows.logging import GarposLogger as logger
+from earthscope_sfg_tools.datamodels.metadata import Campaign, Site, Survey
 from earthscope_sfg_tools.tiledb_integration import (
     TDBIMUPositionArray,
     TDBKinPositionArray,
     TDBShotDataArray,
 )
+
+from earthscope_sfg_workflows.binary_ops.crinex_operations import crinex_compress
+from earthscope_sfg_workflows.logging import GarposLogger as logger
 from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
 
 from ...config.env_config import Environment
@@ -26,9 +32,7 @@ from ...config.loadconfigs import (
     get_garpos_site_config,
     get_survey_filter_config,
 )
-from ...data_mgmt.directorymgmt import GARPOSSurveyDir
-from earthscope_sfg_tools.datamodels.metadata import Survey
-from earthscope_sfg_tools.datamodels.metadata import Site
+from ...data_mgmt.model import GARPOSLayout
 from ...modeling.garpos_tools.data_prep import (
     GP_Transponders_from_benchmarks,
     apply_survey_config,
@@ -36,21 +40,24 @@ from ...modeling.garpos_tools.data_prep import (
     prepare_garpos_input_from_survey,
     prepare_shotdata_for_garpos,
 )
-from ...modeling.garpos_tools.functions import (
-    CoordTransformer,
-)
+from ...modeling.garpos_tools.functions import CoordTransformer
 from ...modeling.garpos_tools.schemas import GarposFixed, GarposInput
 from ...prefiltering import filter_shotdata
-from ..utils.protocols import (
-    WorkflowABC,
+from ..base import (
+    WorkflowBase,
     validate_network_station,
     validate_network_station_campaign,
 )
+from ..preprocess_ingest.data_handler import _build_default_workspace
+from ..workspace import Workspace
 
 
-class IntermediateDataProcessor(WorkflowABC):
-    """
-    A class to handle post-processing of data.
+class IntermediateDataProcessor(WorkflowBase):
+    """Mid-process workflow class. Parses surveys, filters shotdata, and
+    writes GARPOS input files.
+
+    Composes a :class:`Workspace` and reaches the data layer only via
+    ``self.workspace.{layout,metadata,assets,ingest}``.
     """
 
     mid_process_workflow: bool = True
@@ -58,33 +65,121 @@ class IntermediateDataProcessor(WorkflowABC):
     def __init__(
         self,
         station_metadata: Site | None = None,
-        directory: Path | str = None,
+        directory: Path | str | None = None,
         s3_sync_bucket: str | None = None,
-    ):
-        """Initializes the IntermediateDataProcessor.
+        *,
+        workspace: Workspace | None = None,
+    ) -> None:
+        if workspace is None:
+            import os
 
-        Parameters
-        ----------
-        station_metadata : Site, optional
-            The station metadata. Required for processing workflows; may be None
-            for sync-only operations.
-        directory : Path | str, optional
-            Root path of the data tree.
-        s3_sync_bucket : str, optional
-            S3 bucket name/URI for sync operations.
-        """
-        super().__init__(
-            directory=directory,
-            s3_sync_bucket=s3_sync_bucket,
-            station_metadata=station_metadata,
-        )
+            if directory is None:
+                directory = os.environ.get("MAIN_DIRECTORY", ".")
+            workspace = _build_default_workspace(directory)
 
+        super().__init__(workspace)
+        self.s3_sync_bucket: str | None = s3_sync_bucket
         if station_metadata is not None:
+            self.workspace.load_site_metadata(station_metadata)
+
+        if self.workspace.metadata.site is not None:
+            site = self.workspace.metadata.site
             self.coordTransformer = CoordTransformer(
-                latitude=station_metadata.arrayCenter.latitude,
-                longitude=station_metadata.arrayCenter.longitude,
-                elevation=-float(station_metadata.localGeoidHeight),
+                latitude=site.arrayCenter.latitude,
+                longitude=site.arrayCenter.longitude,
+                elevation=-float(site.localGeoidHeight),
             )
+
+    # ------------------------------------------------------------------
+    # Backwards-compat scope/metadata aliases (forward to workspace).
+    # ------------------------------------------------------------------
+
+    @property
+    def current_network_name(self) -> str | None:
+        return self.workspace.network_name
+
+    @property
+    def current_station_name(self) -> str | None:
+        return self.workspace.station_name
+
+    @property
+    def current_campaign_name(self) -> str | None:
+        return self.workspace.campaign_name
+
+    @property
+    def current_survey_name(self) -> str | None:
+        return self.workspace.survey_name
+
+    @property
+    def current_station_metadata(self) -> Site | None:
+        return self.workspace.metadata.site  # type: ignore[return-value]
+
+    @current_station_metadata.setter
+    def current_station_metadata(self, value: Site | None) -> None:
+        if value is not None:
+            self.workspace.load_site_metadata(value)
+            self.coordTransformer = CoordTransformer(
+                latitude=value.arrayCenter.latitude,
+                longitude=value.arrayCenter.longitude,
+                elevation=-float(value.localGeoidHeight),
+            )
+        else:
+            self.workspace._site = None
+
+    @property
+    def current_campaign_metadata(self) -> Campaign | None:
+        return self.workspace.metadata.campaign  # type: ignore[return-value]
+
+    # ------------------------------------------------------------------
+    # Scope mutators
+    # ------------------------------------------------------------------
+
+    def set_network(self, network_id: str) -> None:
+        self.workspace.set_network(network_id)
+        self.workspace.bootstrap()
+        self.workspace.ensure_network_dir(network_id)
+
+    def set_station(self, station_id: str) -> None:
+        self.workspace.set_station(station_id)
+        self.workspace.ensure_station_dir(
+            self.workspace.network_name,  # type: ignore[arg-type]
+            station_id,
+        )
+        self.workspace.try_load_site_metadata_from_disk()
+        if self.mid_process_workflow:
+            assert self.workspace.metadata.site is not None, (
+                f"Site metadata file not found for station {station_id}; "
+                "cannot proceed with mid-process workflow."
+            )
+            site = self.workspace.metadata.site
+            self.coordTransformer = CoordTransformer(
+                latitude=site.arrayCenter.latitude,
+                longitude=site.arrayCenter.longitude,
+                elevation=-float(site.localGeoidHeight),
+            )
+
+    def set_campaign(self, campaign_id: str) -> None:
+        if self.mid_process_workflow and self.workspace.metadata.site is not None:
+            self.workspace.select_campaign_from_metadata(campaign_id)
+        else:
+            self.workspace.set_campaign(campaign_id)
+        self.workspace.layout.ensure_campaign()
+
+    def set_survey(self, survey_id: str) -> None:
+        if (
+            self.mid_process_workflow
+            and self.workspace.metadata.campaign is not None
+        ):
+            self.workspace.select_survey_from_metadata(survey_id)
+        else:
+            self.workspace.set_survey(survey_id)
+        # Materialize survey directory.
+        survey_dir = self.workspace.layout.survey
+        self.workspace._files.mkdir(survey_dir)
+
+    # ------------------------------------------------------------------
+    # Survey parsing
+    # ------------------------------------------------------------------
 
     @validate_network_station_campaign
     def parse_surveys(
@@ -92,124 +187,94 @@ class IntermediateDataProcessor(WorkflowABC):
         survey_id: str | None = None,
         override: bool = False,
         write_intermediate: bool = False,
-    ):
-        """Parses the surveys from the current campaign and adds them to the directory structure.
+    ) -> None:
+        """Parse surveys for the active campaign and write CSVs into survey dirs."""
+        campaign_meta = self.workspace.metadata.campaign
+        if campaign_meta is None:
+            raise ValueError("Campaign metadata must be loaded before parse_surveys")
 
-        Parameters
-        ----------
-        survey_id : Optional[str], optional
-            The ID of the survey to parse. If None, all surveys are parsed, by default None.
-        override : bool, optional
-            Whether to override existing files, by default False.
-        write_intermediate : bool, optional
-            Whether to write intermediate files, by default False.
-        """
+        tiledb = self.workspace.layout.tiledb()
+        campaign = self.workspace.layout.ensure_campaign()
 
-        tileDBDir = self.current_station_dir.tiledb_directory
+        shotDataTDB = TDBShotDataArray(tiledb.shotdata)
 
-        shotDataTDB = TDBShotDataArray(tileDBDir.shot_data)
+        with open(campaign.metadata_file, "w") as f:
+            json.dump(campaign_meta.model_dump(mode="json"), f, indent=4)
 
-        with open(
-            self.current_campaign_dir.campaign_metadata,
-            "w",
-        ) as f:
-            json.dump(self.current_campaign_metadata.model_dump(mode="json"), f, indent=4)
-
-        surveys_to_process: list[Survey] = []
-        for survey in self.current_campaign_metadata.surveys:
-            if survey_id is None or survey_id == survey.id:
-                surveys_to_process.append(survey)
+        surveys_to_process: list[Survey] = [
+            s for s in campaign_meta.surveys if survey_id is None or survey_id == s.id
+        ]
         if not surveys_to_process:
             raise ValueError(
-                f"Survey {survey_id} not found in campaign {self.current_campaign_metadata.name}."
+                f"Survey {survey_id} not found in campaign {campaign_meta.name}."
             )
 
         for survey in surveys_to_process:
             self.set_survey(survey_id=survey.id)
+            survey_root = self.workspace.layout.survey
 
-            # Prepare shotdata
-            shotdata_file_name_unfiltered = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(
-                " ", ""
+            shotdata_file_name = (
+                f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
             )
-            shotdata_file_dest = self.current_survey_dir.location / shotdata_file_name_unfiltered
-            self.current_survey_dir.shotdata = shotdata_file_dest
+            shotdata_dest = survey_root / shotdata_file_name
+
             if (
-                not shotdata_file_dest.exists()
-                or shotdata_file_dest.stat().st_size == 0
+                not shotdata_dest.exists()
+                or shotdata_dest.stat().st_size == 0
                 or override
             ):
-                shot_data_queried = shotDataTDB.read_df(
-                    start=survey.start,
-                    end=survey.end,
-                )
-                if shot_data_queried.empty:
+                df = shotDataTDB.read_df(start=survey.start, end=survey.end)
+                if df.empty:
                     logger.logwarn(
-                        f"No shot data found for survey {survey.id} from {survey.start} to {survey.end}, skipping survey."
+                        f"No shot data found for survey {survey.id} from "
+                        f"{survey.start} to {survey.end}, skipping survey."
                     )
                     continue
-                else:
-                    shot_data_queried.to_csv(shotdata_file_dest)
+                df.to_csv(shotdata_dest)
 
             if write_intermediate:
-                # Prepare PPP kinematic Position Data
-                kinpositiondata_file_name = (
+                kin_name = (
                     f"{survey.id}_{survey.type.value}_kinpositiondata.csv".replace(" ", "")
                 )
-                kinpositiondata_file_dest = (
-                    self.current_survey_dir.location / kinpositiondata_file_name
-                )
-
+                kin_dest = survey_root / kin_name
                 if (
-                    not kinpositiondata_file_dest.exists()
-                    or kinpositiondata_file_dest.stat().st_size == 0
+                    not kin_dest.exists()
+                    or kin_dest.stat().st_size == 0
                     or override
                 ):
-                    kinPositionTDB = TDBKinPositionArray(tileDBDir.kin_position_data)
-                    kinposition_data_queried = kinPositionTDB.read_df(
-                        start=survey.start,
-                        end=survey.end,
-                    )
-                    if kinposition_data_queried.empty:
+                    kin_tdb = TDBKinPositionArray(tiledb.kin_position)
+                    kin_df = kin_tdb.read_df(start=survey.start, end=survey.end)
+                    if kin_df.empty:
                         logger.logwarn(
-                            f"No kinposition data found for survey {survey.id} from {survey.start} to {survey.end}"
+                            f"No kinposition data found for survey {survey.id}"
                         )
-
                     else:
-                        kinposition_data_queried.to_csv(kinpositiondata_file_dest)
-                        self.current_survey_dir.kinpositiondata = kinpositiondata_file_dest
+                        kin_df.to_csv(kin_dest)
 
-                # Prepare IMU Position Data
-                imupositiondata_file_name = (
+                imu_name = (
                     f"{survey.id}_{survey.type.value}_imupositiondata.csv".replace(" ", "")
                 )
-                imupositiondata_file_dest = (
-                    self.current_survey_dir.location / imupositiondata_file_name
-                )
+                imu_dest = survey_root / imu_name
                 if (
-                    not imupositiondata_file_dest.exists()
-                    or imupositiondata_file_dest.stat().st_size == 0
+                    not imu_dest.exists()
+                    or imu_dest.stat().st_size == 0
                     or override
                 ):
-                    imuPositionTDB = TDBIMUPositionArray(tileDBDir.imu_position_data)
-                    imuposition_data_queried = imuPositionTDB.read_df(
-                        start=survey.start,
-                        end=survey.end,
-                    )
-                    if imuposition_data_queried.empty:
+                    imu_tdb = TDBIMUPositionArray(tiledb.imu_position)
+                    imu_df = imu_tdb.read_df(start=survey.start, end=survey.end)
+                    if imu_df.empty:
                         logger.logwarn(
-                            f"No imuposition data found for survey {survey.id} from {survey.start} to {survey.end}"
+                            f"No imuposition data found for survey {survey.id}"
                         )
                     else:
-                        imuposition_data_queried.to_csv(imupositiondata_file_dest)
-                        self.current_survey_dir.imupositiondata = imupositiondata_file_dest
+                        imu_df.to_csv(imu_dest)
 
-            with open(
-                self.current_survey_dir.metadata,
-                "w",
-            ) as f:
+            with open(self.workspace.layout.survey_metadata_file, "w") as f:
                 json.dump(survey.model_dump(mode="json"), f, indent=4)
 
-        self.directory_handler.save()
+    # ------------------------------------------------------------------
+    # GARPOS preparation
+    # ------------------------------------------------------------------
 
     @validate_network_station_campaign
     def prepare_shotdata_garpos(
@@ -219,40 +284,31 @@ class IntermediateDataProcessor(WorkflowABC):
         custom_filters: dict | None = None,
         overwrite: bool = False,
     ) -> None:
-        """Prepares shotdata for GARPOS processing.
-
-        Parameters
-        ----------
-        campaign_id : Optional[str], optional
-            The ID of the campaign, by default None.
-        survey_id : Optional[str], optional
-            The ID of the survey, by default None.
-        custom_filters : Optional[dict], optional
-            Custom filters to apply, by default None.
-        overwrite : bool, optional
-            Whether to overwrite existing files, by default False.
-        """
-
-        if campaign_id is None:
-            if self.current_campaign_metadata is None:
-                raise ValueError("Campaign must be set before preparing GARPOS shotdata.")
-        else:
-            # load the campaign
+        """Prepares shotdata for GARPOS processing for the active campaign."""
+        if campaign_id is not None:
             self.set_campaign(campaign_id=campaign_id)
 
-        surveys_to_process = []
-        for survey in self.current_campaign_metadata.surveys:
-            if survey_id is None or survey.id == survey_id:
-                surveys_to_process.append(survey)
+        campaign_meta = self.workspace.metadata.campaign
+        if campaign_meta is None:
+            raise ValueError("Campaign must be set before preparing GARPOS shotdata.")
+
+        surveys_to_process = [
+            s
+            for s in campaign_meta.surveys
+            if survey_id is None or s.id == survey_id
+        ]
         if not surveys_to_process:
-            raise ValueError(f"Survey {survey_id} not found in campaign {campaign_id}.")
+            raise ValueError(
+                f"Survey {survey_id} not found in campaign {campaign_meta.name}."
+            )
 
         for survey in surveys_to_process:
             self.set_survey(survey_id=survey.id)
             logger.loginfo(f"Processing survey {survey.id}")
-
             self.prepare_single_garpos_survey(
-                survey=survey, custom_filters=custom_filters, overwrite=overwrite
+                survey=survey,
+                custom_filters=custom_filters,
+                overwrite=overwrite,
             )
 
     @validate_network_station_campaign
@@ -261,52 +317,50 @@ class IntermediateDataProcessor(WorkflowABC):
         survey: Survey,
         custom_filters: dict | None = None,
         overwrite: bool = False,
-    ):
-        """Prepares a single survey for GARPOS processing.
+    ) -> None:
+        """Prepare a single survey for GARPOS processing."""
+        site = self.workspace.metadata.site
+        campaign_meta = self.workspace.metadata.campaign
+        assert site is not None and campaign_meta is not None
 
-        Parameters
-        ----------
-        survey : Survey
-            The survey metadata.
-        custom_filters : dict, optional
-            Custom filters to apply, by default None.
-        overwrite : bool, optional
-            Whether to overwrite existing files, by default False.
-        """
-        if not self.current_survey_dir.shotdata.exists():
+        survey_root = self.workspace.layout.survey
+        campaign = self.workspace.layout.ensure_campaign()
+        tiledb = self.workspace.layout.tiledb()
+
+        # Find the canonical shotdata file written by parse_surveys.
+        shotdata_file_name = (
+            f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
+        )
+        shotdata_path = survey_root / shotdata_file_name
+        if not shotdata_path.exists():
             raise FileNotFoundError(
-                f"Shotdata file {self.current_survey_dir.shotdata} does not exist. Please run parse_surveys first."
+                f"Shotdata file {shotdata_path} does not exist. "
+                "Please run parse_surveys first."
             )
-        shotDataRaw = pd.read_csv(self.current_survey_dir.shotdata)
-        if shotDataRaw.empty:
+
+        shot_data_raw = pd.read_csv(shotdata_path)
+        if shot_data_raw.empty:
             logger.logwarn(
-                f"No shot data found for survey {str(self.current_survey_dir.shotdata)}, skipping shot data preparation."
+                f"No shot data found for survey {shotdata_path}, "
+                "skipping shot data preparation."
             )
             return
 
-        garposDir: GARPOSSurveyDir = self.current_survey_dir.garpos
-        garposDir.build()
+        garpos_layout = self.workspace.layout.ensure_garpos_survey()
 
-        if not garposDir.default_settings.exists() or overwrite:
-            GarposFixed()._to_datafile(garposDir.default_settings)
+        if not garpos_layout.settings_file.exists() or overwrite:
+            GarposFixed()._to_datafile(garpos_layout.settings_file)
 
-        file_name_filtered = (
-            self.current_survey_dir.shotdata.parent
-            / f"{self.current_survey_dir.shotdata.stem}_filtered.csv"
+        filtered_path = (
+            shotdata_path.parent / f"{shotdata_path.stem}_filtered.csv"
         )
-        garposDir.shotdata_filtered = file_name_filtered
-        self.current_survey_dir.shotdata_filtered = file_name_filtered
-
-        if file_name_filtered.exists():
-            shot_data_filtered = pd.read_csv(file_name_filtered)
-
+        if filtered_path.exists():
+            shot_data_filtered = pd.read_csv(filtered_path)
         else:
             shot_data_filtered = pd.DataFrame()
 
         if shot_data_filtered.empty or overwrite:
-            filter_config = get_survey_filter_config(
-                survey_type=survey.type,
-            )
+            filter_config = get_survey_filter_config(survey_type=survey.type)
             if custom_filters is not None:
                 filter_config = validate_and_merge_config(
                     base_class=filter_config,
@@ -314,173 +368,165 @@ class IntermediateDataProcessor(WorkflowABC):
                 )
             shot_data_filtered = filter_shotdata(
                 survey_type=survey.type,
-                site=self.current_station_metadata,
-                shot_data=shotDataRaw,
-                kinPostionTDBUri=self.current_station_dir.tiledb_directory.kin_position_data,
+                site=site,
+                shot_data=shot_data_raw,
+                kinPostionTDBUri=tiledb.kin_position,
                 start_time=survey.start.replace(tzinfo=datetime.UTC),
                 end_time=survey.end.replace(tzinfo=datetime.UTC),
                 custom_filters=custom_filters,
             )
             if shot_data_filtered.empty:
                 logger.logwarn(
-                    f"No shot data remaining after filtering for survey {survey.id}, skipping survey."
+                    f"No shot data remaining after filtering for survey "
+                    f"{survey.id}, skipping survey."
                 )
                 return
+            shot_data_filtered.to_csv(filtered_path)
 
-            shot_data_filtered.to_csv(file_name_filtered)
-
-        GPtransponders = GP_Transponders_from_benchmarks(
+        gp_transponders = GP_Transponders_from_benchmarks(
             coord_transformer=self.coordTransformer,
             survey=survey,
-            site=self.current_station_metadata,
+            site=site,
         )
-        array_dpos_center = get_array_dpos_center(self.coordTransformer, GPtransponders)
+        array_dpos_center = get_array_dpos_center(
+            self.coordTransformer, gp_transponders
+        )
 
-        shotdata_out_path = garposDir.location / f"{file_name_filtered.stem}_rectified.csv"
-        garposDir.shotdata_rectified = shotdata_out_path
-
-        if shotdata_out_path.exists():
-            shot_data_rectified = pd.read_csv(shotdata_out_path)
+        rectified_path = (
+            garpos_layout.root / f"{filtered_path.stem}_rectified.csv"
+        )
+        if rectified_path.exists():
+            shot_data_rectified = pd.read_csv(rectified_path)
         else:
             shot_data_rectified = pd.DataFrame()
+
         if shot_data_rectified.empty or overwrite:
             shot_data_rectified = prepare_shotdata_for_garpos(
                 coord_transformer=self.coordTransformer,
-                shodata_out_path=shotdata_out_path,
+                shodata_out_path=rectified_path,
                 shot_data=shot_data_filtered,
-                GPtransponders=GPtransponders,
+                GPtransponders=gp_transponders,
             )
             if shot_data_rectified.empty:
                 logger.logwarn(
-                    f"No shot data remaining after rectification for survey {survey.id}, skipping survey."
+                    f"No shot data remaining after rectification for survey "
+                    f"{survey.id}, skipping survey."
                 )
                 return
-            shot_data_rectified.to_csv(shotdata_out_path)
+            shot_data_rectified.to_csv(rectified_path)
 
-        # Copy the campaign svp file to the garpos directory if it doesn't exist
-        if not garposDir.svp_file.exists():
-            if self.current_campaign_dir.svp_file.exists():
-                shutil.copy(self.current_campaign_dir.svp_file, garposDir.svp_file)
+        # Copy campaign SVP into garpos dir if missing.
+        if not garpos_layout.svp_file.exists():
+            if campaign.svp_file.exists():
+                shutil.copy(campaign.svp_file, garpos_layout.svp_file)
             else:
                 logger.logwarn(
-                    f"No sound speed profile file found for campaign {self.current_campaign_metadata.name}, GARPOS processing may fail."
+                    f"No sound speed profile file found for campaign "
+                    f"{campaign_meta.name}, GARPOS processing may fail."
                 )
-        obsfile_out_path = garposDir.default_obsfile
-        if not obsfile_out_path.exists() or overwrite:
+
+        if not garpos_layout.obs_file.exists() or overwrite:
             garpos_input = prepare_garpos_input_from_survey(
-                shot_data_path=shotdata_out_path,
+                shot_data_path=rectified_path,
                 survey=survey,
-                site=self.current_station_metadata,
-                campaign=self.current_campaign_metadata,
-                ss_path=garposDir.svp_file,
+                site=site,
+                campaign=campaign_meta,
+                ss_path=garpos_layout.svp_file,
                 array_dpos_center=array_dpos_center,
                 num_of_shots=len(shot_data_rectified),
-                GPtransponders=GPtransponders,
+                GPtransponders=gp_transponders,
             )
-            # Apply survey-type-specific configuration to garpos_input
             site_config_update: GarposSiteConfig = get_garpos_site_config(survey.type)
             garpos_input_configured: GarposInput = apply_survey_config(
                 site_config_update, garpos_input
             )
+            garpos_input_configured.to_datafile(garpos_layout.obs_file)
 
-            garpos_input_configured.to_datafile(garposDir.default_obsfile)
+    # ------------------------------------------------------------------
+    # S3 sync (uses cloudpathlib directly until the legacy
+    # directorymgmt subpackage is removed).
+    # ------------------------------------------------------------------
 
-        self.directory_handler.save()
+    def _s3_root(self) -> CloudPath | None:
+        """Return the configured S3 root as a CloudPath, or None if unset."""
+        bucket = Environment.s3_sync_bucket()
+        if bucket is None:
+            return None
+        if not bucket.startswith("s3://"):
+            bucket = f"s3://{bucket}"
+        return CloudPath(bucket)
 
     @validate_network_station
-    def midprocess_sync_station_data_s3(self,overwrite:bool=False):
-        """Uploads the current station directory to S3 for synchronization.
-
-        SFGMain/cascadia-gorda/NCC1/2025_A_1126 -->
-        s3://<bucket_name>/cascadia-gorda/NCC1/2025_A_1126
-
-        """
-        if Environment.s3_sync_bucket() is None:
+    def midprocess_sync_station_data_s3(self, overwrite: bool = False) -> None:
+        """Upload the active station's TileDB arrays to S3."""
+        s3_root = self._s3_root()
+        if s3_root is None:
             logger.logwarn("S3 synchronization skipped: s3_sync_bucket not configured")
             return
 
-        s3_bucket = Environment.s3_sync_bucket()
-        if not s3_bucket.startswith("s3://"):
-            s3_bucket = f"s3://{s3_bucket}"
-        s3_directory_handler = self.directory_handler.point_to_s3(s3_bucket)
-        s3_station_dir = s3_directory_handler.networks[self.current_network_name].stations[
-            self.current_station_name
-        ]
+        s3_station = (
+            s3_root / self.workspace.network_name / self.workspace.station_name
+        )
+        local_tdb = self.workspace.layout.tiledb()
+        s3_tdb = s3_station / "TileDB"
 
-        # map the current station directory to s3
-        local_tdb = self.current_station_dir.tiledb_directory
-        s3_tdb = s3_station_dir.tiledb_directory
-
-        tdb_arrays = [
-            "shot_data",
-            "kin_position_data",
-            "imu_position_data",
-            "gnss_obs_data",
-        ]
-
-        for tdb_array in tdb_arrays:
+        for tdb_attr, tdb_basename in [
+            ("shotdata", "shotdata.tdb"),
+            ("kin_position", "kin_position.tdb"),
+            ("imu_position", "imu_position.tdb"),
+            ("gnss_obs", "gnss_obs.tdb"),
+        ]:
+            local_array: Path = getattr(local_tdb, tdb_attr)
+            s3_array = s3_tdb / tdb_basename
+            print(f"Syncing {local_array} to {s3_array}")
             upload_counter = 0
-            local_tdb_array = getattr(local_tdb, tdb_array)
-            s3_tdb_array = getattr(s3_tdb, tdb_array)
-            print(f"Syncing {str(local_tdb_array)} to {str(s3_tdb_array)}")
-            for tdb_file in local_tdb_array.rglob("*"):
-                relative_path = tdb_file.relative_to(local_tdb_array)
-                s3_file_path = s3_tdb_array / relative_path
+            for tdb_file in local_array.rglob("*"):
+                if not tdb_file.is_file():
+                    continue
+                relative = tdb_file.relative_to(local_array)
+                s3_file = s3_array / relative
                 try:
-                    if not s3_file_path.exists() or overwrite:
-                        s3_file_path.upload_from(tdb_file, force_overwrite_to_cloud=overwrite)
+                    if not s3_file.exists() or overwrite:
+                        s3_file.upload_from(
+                            tdb_file, force_overwrite_to_cloud=overwrite
+                        )
                         upload_counter += 1
                 except Exception as e:
                     logger.logerr(f"Failed to upload {tdb_file} to S3: {e}")
-            print(f"Uploaded {upload_counter} files to {str(s3_tdb_array)}")
+            print(f"Uploaded {upload_counter} files to {s3_array}")
 
     @validate_network_station_campaign
-    def midprocess_sync_campaign_data_s3(self, overwrite: bool = False):
-        """Uploads the current campaign directory to S3 for synchronization.
-
-        SFGMain/cascadia-gorda/NCC1/2025_A_1126 -->
-        s3://<bucket_name>/cascadia-gorda/NCC1/2025_A_1126
-
-        """
-        if Environment.s3_sync_bucket() is None:
+    def midprocess_sync_campaign_data_s3(self, overwrite: bool = False) -> None:
+        """Upload SVP and intermediate RINEX files for the active campaign to S3."""
+        s3_root = self._s3_root()
+        if s3_root is None:
             logger.logwarn("S3 synchronization skipped: s3_sync_bucket not configured")
             return
 
-        s3_bucket = Environment.s3_sync_bucket()
-        if not s3_bucket.startswith("s3://"):
-            s3_bucket = f"s3://{s3_bucket}"
-        s3_directory_handler = self.directory_handler.point_to_s3(s3_bucket)
-        s3_campaign_dir = s3_directory_handler.networks[self.current_network_name].stations[
-            self.current_station_name
-        ].campaigns[self.current_campaign_name]
+        s3_campaign = (
+            s3_root
+            / self.workspace.network_name
+            / self.workspace.station_name
+            / self.workspace.campaign_name
+        )
+        campaign = self.workspace.layout.ensure_campaign()
 
-        local_campaign_dir = self.current_campaign_dir
-
-        # upload svp file
-        local_svp = local_campaign_dir.svp_file
-        s3_svp = s3_campaign_dir.svp_file
+        local_svp = campaign.svp_file
+        s3_svp = s3_campaign / "processed" / "svp.csv"
         try:
             if local_svp.exists() and not s3_svp.exists():
                 s3_svp.upload_from(local_svp, force_overwrite_to_cloud=overwrite)
         except Exception as e:
             logger.logerr(f"Failed to upload {local_svp} to S3: {e}")
 
-        # Sync rinex files in the intermediate directory
+        local_intermediate = campaign.intermediate
+        s3_rinex_dest_dir = s3_campaign / "processed" / "rinex"
+        station_name = self.workspace.station_name
 
-        local_intermediate_dir = local_campaign_dir.intermediate
-        s3_rinex_dest_dir = s3_campaign_dir.processed / "rinex"
-
-        def upload_rinex_file(rinex_file: Path,
-                              local_intermediate_dir: Path=local_intermediate_dir, 
-                              s3_rinex_dest_dir: Path=s3_rinex_dest_dir, 
-                              overwrite: bool = overwrite):
-
+        def upload_rinex_file(rinex_file: Path) -> None:
             if ".crx" in rinex_file.suffix:
-                # Skip already compressed files
                 return
             if not any(ext in rinex_file.suffix for ext in ["S", "d", ".gz"]):
-                # Compress the RINEX file to gzipped CRINEX (Hatanaka) using
-                # the bundled `sfg` Go binary in a single step.
                 old_suffix = rinex_file.suffix
                 new_suffix = old_suffix[:-1] + "d"
                 source = rinex_file.with_suffix(new_suffix + ".gz")
@@ -490,143 +536,138 @@ class IntermediateDataProcessor(WorkflowABC):
                         f"CRINEX compression failed for {rinex_file}"
                     )
             else:
-                # Teq style qc files
-                source = rinex_file 
-            relative_path = source.relative_to(local_intermediate_dir)
-            s3_rinex_file = s3_rinex_dest_dir / relative_path
+                source = rinex_file
+            relative = source.relative_to(local_intermediate)
+            s3_file = s3_rinex_dest_dir / relative
             try:
-                if not s3_rinex_file.exists() or overwrite:
-                    s3_rinex_file.upload_from(source, force_overwrite_to_cloud=overwrite)
-                    print(f"Uploaded {source} to {s3_rinex_file}")
+                if not s3_file.exists() or overwrite:
+                    s3_file.upload_from(source, force_overwrite_to_cloud=overwrite)
+                    print(f"Uploaded {source} to {s3_file}")
             except Exception as e:
                 logger.logerr(f"Failed to upload {source} to S3: {e}")
 
-        if local_intermediate_dir.exists():
-            print(f"Syncing intermediate Rinex files from {local_intermediate_dir} to {s3_rinex_dest_dir}...")
-            rinex_files = list(local_intermediate_dir.rglob(f"*{self.current_station_name}*"))
+        if local_intermediate.exists():
+            print(
+                f"Syncing intermediate Rinex files from {local_intermediate} "
+                f"to {s3_rinex_dest_dir}..."
+            )
+            rinex_files = list(local_intermediate.rglob(f"*{station_name}*"))
             with ThreadPoolExecutor(max_workers=25) as executor:
                 executor.map(upload_rinex_file, rinex_files)
 
     @validate_network_station_campaign
-    def midprocess_sync_s3(self, overwrite: bool = False):
-        """Uploads the current station directory to S3 for synchronization.
-
-
-        SFGMain/cascadia-gorda/NCC1/2025_A_1126 -->
-        s3://<bucket_name>/cascadia-gorda/NCC1/2025_A_1126
-
-        """
-        if Environment.s3_sync_bucket() is None:
+    def midprocess_sync_s3(self, overwrite: bool = False) -> None:
+        """Upload station TileDB arrays + per-campaign SVP/log files to S3."""
+        s3_root = self._s3_root()
+        if s3_root is None:
             logger.logwarn("S3 synchronization skipped: s3_sync_bucket not configured")
             return
 
-        s3_bucket = Environment.s3_sync_bucket()
-        if not s3_bucket.startswith("s3://"):
-            s3_bucket = f"s3://{s3_bucket}"
-        s3_directory_handler = self.directory_handler.point_to_s3(s3_bucket)
-        s3_station_dir = s3_directory_handler.networks[self.current_network_name].stations[
-            self.current_station_name
-        ]
+        s3_station = (
+            s3_root / self.workspace.network_name / self.workspace.station_name
+        )
+        local_tdb = self.workspace.layout.tiledb()
+        s3_tdb = s3_station / "TileDB"
 
-        # map the current station directory to s3
-        local_tdb = self.current_station_dir.tiledb_directory
-        s3_tdb = s3_station_dir.tiledb_directory
-
-        tdb_arrays = [
-            "shot_data",
-            "kin_position_data",
-            "imu_position_data",
-            "gnss_obs_data",
-        ]
-
-        for tdb_array in tdb_arrays:
-            local_tdb_array = getattr(local_tdb, tdb_array)
-            s3_tdb_array = getattr(s3_tdb, tdb_array)
-
-            for tdb_file in local_tdb_array.rglob("*"):
-                relative_path = tdb_file.relative_to(local_tdb_array)
-                s3_file_path = s3_tdb_array / relative_path
+        for tdb_attr, tdb_basename in [
+            ("shotdata", "shotdata.tdb"),
+            ("kin_position", "kin_position.tdb"),
+            ("imu_position", "imu_position.tdb"),
+            ("gnss_obs", "gnss_obs.tdb"),
+        ]:
+            local_array: Path = getattr(local_tdb, tdb_attr)
+            s3_array = s3_tdb / tdb_basename
+            for tdb_file in local_array.rglob("*"):
+                if not tdb_file.is_file():
+                    continue
+                relative = tdb_file.relative_to(local_array)
+                s3_file = s3_array / relative
                 try:
-                    if not s3_file_path.exists() or overwrite:
-                        s3_file_path.upload_from(tdb_file, force_overwrite_to_cloud=overwrite)
+                    if not s3_file.exists() or overwrite:
+                        s3_file.upload_from(
+                            tdb_file, force_overwrite_to_cloud=overwrite
+                        )
                 except Exception as e:
                     logger.logerr(f"Failed to upload {tdb_file} to S3: {e}")
 
-        for s3_campaign_dir, local_campaign_dir in zip(
-            s3_station_dir.campaigns.values(),
-            self.current_station_dir.campaigns.values(),
-            strict=False,
-        ):
-            # upload svp file
-            local_svp = local_campaign_dir.svp_file
-            s3_svp = s3_campaign_dir.svp_file
+        # Sync per-campaign svp + logs
+        for campaign_name in self.workspace.layout.list_campaigns():
+            local_campaign_dir = (
+                self.workspace.root
+                / self.workspace.network_name
+                / self.workspace.station_name
+                / campaign_name
+            )
+            s3_campaign = s3_station / campaign_name
+
+            local_svp = local_campaign_dir / "processed" / "svp.csv"
+            s3_svp = s3_campaign / "processed" / "svp.csv"
             try:
                 if local_svp.exists() and not s3_svp.exists():
                     s3_svp.upload_from(local_svp, force_overwrite_to_cloud=overwrite)
             except Exception as e:
                 logger.logerr(f"Failed to upload {local_svp} to S3: {e}")
 
-            # upload log directory files
-            local_log_dir = local_campaign_dir.log_directory
-            s3_log_dir = s3_campaign_dir.log_directory
+            local_log_dir = local_campaign_dir / "logs"
+            s3_log_dir = s3_campaign / "logs"
             if local_log_dir.exists():
                 for log_file in local_log_dir.rglob("*"):
                     if log_file.is_file():
-                        relative_path = log_file.relative_to(local_log_dir)
-                        s3_log_file = s3_log_dir / relative_path
+                        relative = log_file.relative_to(local_log_dir)
+                        s3_log_file = s3_log_dir / relative
                         try:
-                            s3_log_file.upload_from(log_file, force_overwrite_to_cloud=overwrite)
+                            s3_log_file.upload_from(
+                                log_file, force_overwrite_to_cloud=overwrite
+                            )
                         except Exception as e:
                             logger.logerr(f"Failed to upload {log_file} to S3: {e}")
 
-    def get_pseudo_surveys(self, shotdatatdb: TDBShotDataArray) -> list[Survey]:
-        """Generates pseudo-surveys based on shotdata timestamps.
+    # ------------------------------------------------------------------
+    # QC pseudo-survey parsing
+    # ------------------------------------------------------------------
 
-        Parameters
-        ----------
-        shotdatatdb : TDBShotDataArray
-            The TileDB shotdata array.
-
-        Returns
-        -------
-        List[Survey]
-            A list of pseudo-surveys.
-        """
+    def get_pseudo_surveys(
+        self, shotdatatdb: TDBShotDataArray
+    ) -> list[Survey]:
+        """Generate pseudo-surveys from unique shotdata dates."""
         pseudo_surveys: list[Survey] = []
         dates: list[np.datetime64] = shotdatatdb.get_unique_dates().tolist()
         if not dates:
             logger.logwarn("No shotdata dates found to generate pseudo-surveys.")
             return pseudo_surveys
 
-        # Filter by current campaign date range
-        current_year = int(self.current_campaign_name.split("_")[0])
-        filtered_dates = [date for date in dates if date.year == current_year]
+        campaign_name = self.workspace.campaign_name
+        if campaign_name is None:
+            return pseudo_surveys
+        current_year = int(campaign_name.split("_")[0])
+        filtered_dates = [d for d in dates if d.year == current_year]
         if not filtered_dates:
             logger.logwarn(
-                f"No shotdata dates found for campaign year {current_year} to generate pseudo-surveys."
+                f"No shotdata dates found for campaign year {current_year} "
+                "to generate pseudo-surveys."
             )
             return pseudo_surveys
 
-        filtered_dates = sorted(filtered_dates)
-        for idx, date in enumerate(filtered_dates):
+        for idx, date in enumerate(sorted(filtered_dates)):
             start_time = (
                 pd.Timestamp(date)
                 .tz_localize("UTC")
                 .to_pydatetime()
                 .replace(hour=0, minute=0, second=0, microsecond=0)
             )
-            end_time = datetime.datetime.combine(start_time.date(), datetime.time.max).replace(
-                tzinfo=datetime.UTC
-            )
+            end_time = datetime.datetime.combine(
+                start_time.date(), datetime.time.max
+            ).replace(tzinfo=datetime.UTC)
             year, month, day = start_time.year, start_time.month, start_time.day
-            pseudo_survey = Survey(
-                id=f"{year}_{month}_{day}_{idx + 1}",
-                type="unknown",
-                start=start_time,
-                end=end_time,
-                benchmarkIDs=[],
+            pseudo_surveys.append(
+                Survey(
+                    id=f"{year}_{month}_{day}_{idx + 1}",
+                    type="unknown",
+                    start=start_time,
+                    end=end_time,
+                    benchmarkIDs=[],
+                )
             )
-            pseudo_surveys.append(pseudo_survey)
         return pseudo_surveys
 
     @validate_network_station_campaign
@@ -634,125 +675,107 @@ class IntermediateDataProcessor(WorkflowABC):
         self,
         shotdata_uri: str | Path,
         override: bool = False,
-    ) -> list[GARPOSSurveyDir] | None:
-        """Parses the surveys from the current campaign and adds them to the directory structure.
+    ) -> list[GARPOSLayout] | None:
+        """Parse QC pseudo-surveys and produce GARPOS input files."""
+        site = self.workspace.metadata.site
+        campaign_meta = self.workspace.metadata.campaign
+        assert site is not None
+        campaign = self.workspace.layout.ensure_campaign()
 
-        Parameters
-        ----------
-        shotdata_uri : str or pathlib.Path
-            URI or filesystem path to the TileDB shotdata array to be processed.
-        override : bool, optional
-            Whether to override existing files, by default False.
-        """
-        garposDir_list: list[GARPOSSurveyDir] = []
+        garpos_layouts: list[GARPOSLayout] = []
         shotDataTDB = TDBShotDataArray(Path(shotdata_uri))
         surveys_to_process: list[Survey] = self.get_pseudo_surveys(shotDataTDB)
 
         for survey in surveys_to_process:
-            survey_dir = self.current_campaign_dir.qc / survey.id
+            survey_dir = campaign.qc / survey.id
             survey_dir.mkdir(parents=True, exist_ok=True)
 
-            # Prepare shotdata
-            shotdata_file_name_unfiltered = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(
-                " ", ""
+            shotdata_file_name = (
+                f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
             )
-            shotdata_file_dest = survey_dir / shotdata_file_name_unfiltered
+            shotdata_dest = survey_dir / shotdata_file_name
 
             if (
-                not shotdata_file_dest.exists()
-                or shotdata_file_dest.stat().st_size == 0
+                not shotdata_dest.exists()
+                or shotdata_dest.stat().st_size == 0
                 or override
             ):
-                shot_data_queried = shotDataTDB.read_df(
-                    start=survey.start,
-                    end=survey.end,
-                )
-                if shot_data_queried.empty:
+                df = shotDataTDB.read_df(start=survey.start, end=survey.end)
+                if df.empty:
                     logger.logwarn(
-                        f"No shot data found for survey {survey.id} from {survey.start} to {survey.end}, skipping survey."
+                        f"No shot data found for survey {survey.id} from "
+                        f"{survey.start} to {survey.end}, skipping survey."
                     )
                     continue
-                else:
-                    shot_data_queried.to_csv(shotdata_file_dest)
+                df.to_csv(shotdata_dest)
             else:
-                shot_data_queried = pd.read_csv(shotdata_file_dest)
+                df = pd.read_csv(shotdata_dest)
 
-            garposDir: GARPOSSurveyDir = GARPOSSurveyDir(
-                survey_dir=survey_dir,
-                log_directory=survey_dir / "logs",
+            garpos_layout = GARPOSLayout.for_survey(survey_dir)
+            for d in garpos_layout.standard_dirs:
+                d.mkdir(parents=True, exist_ok=True)
+
+            if not garpos_layout.svp_file.exists():
+                if campaign.svp_file.exists():
+                    shutil.copy(campaign.svp_file, garpos_layout.svp_file)
+
+            if not garpos_layout.settings_file.exists() or override:
+                GarposFixed()._to_datafile(garpos_layout.settings_file)
+
+            rectified_path = (
+                garpos_layout.root / f"{shotdata_dest.stem}_rectified.csv"
             )
-            garposDir.build()
 
-            # transfer svp file from main campaign dir to qc garpos dir
-            if not garposDir.svp_file.exists():
-                campaign_svp = self.current_campaign_dir.svp_file
-                if campaign_svp.exists():
-                    shutil.copy(campaign_svp, garposDir.svp_file)
-
-            if not garposDir.default_settings.exists() or override:
-                GarposFixed()._to_datafile(garposDir.default_settings)
-
-            shotdata_out_path = garposDir.location / f"{shotdata_file_dest.stem}_rectified.csv"
-            garposDir.shotdata_rectified = shotdata_out_path
-
-            if not shotdata_out_path.exists() or override:
-                GPtransponders = GP_Transponders_from_benchmarks(
+            if not rectified_path.exists() or override:
+                gp_transponders = GP_Transponders_from_benchmarks(
                     coord_transformer=self.coordTransformer,
                     survey=survey,
-                    site=self.current_station_metadata,
+                    site=site,
                     is_qc=True,
                 )
-                array_dpos_center = get_array_dpos_center(self.coordTransformer, GPtransponders)
-                garposDir.shotdata_rectified = shotdata_out_path
+                array_dpos_center = get_array_dpos_center(
+                    self.coordTransformer, gp_transponders
+                )
 
-                if shotdata_out_path.exists():
-                    shotdata_rectified = pd.read_csv(shotdata_out_path)
+                if rectified_path.exists():
+                    shotdata_rectified = pd.read_csv(rectified_path)
                 else:
                     shotdata_rectified = pd.DataFrame()
 
                 if shotdata_rectified.empty or override:
                     shotdata_rectified = prepare_shotdata_for_garpos(
                         coord_transformer=self.coordTransformer,
-                        shodata_out_path=shotdata_out_path,
-                        shot_data=shot_data_queried,
-                        GPtransponders=GPtransponders,
+                        shodata_out_path=rectified_path,
+                        shot_data=df,
+                        GPtransponders=gp_transponders,
                     )
                     if shotdata_rectified.empty:
                         logger.logwarn(
-                            f"No shot data remaining after rectification for survey {survey.id}, skipping survey."
+                            f"No shot data remaining after rectification for "
+                            f"survey {survey.id}, skipping survey."
                         )
-                        return
-                    shotdata_rectified.to_csv(shotdata_out_path)
+                        return None
+                    shotdata_rectified.to_csv(rectified_path)
 
-            # Copy the campaign svp file to the garpos directory if it doesn't exist
-            if not garposDir.svp_file.exists():
-                if self.current_campaign_dir.svp_file.exists():
-                    shutil.copy(self.current_campaign_dir.svp_file, garposDir.svp_file)
-                else:
-                    logger.logwarn(
-                        f"No sound speed profile file found for campaign {self.current_campaign_metadata.name}, GARPOS processing may fail."
-                    )
-            obsfile_out_path = garposDir.default_obsfile
-            if not obsfile_out_path.exists() or override:
+            if not garpos_layout.obs_file.exists() or override:
                 garpos_input = prepare_garpos_input_from_survey(
-                    shot_data_path=shotdata_out_path,
+                    shot_data_path=rectified_path,
                     survey=survey,
-                    site=self.current_station_metadata,
-                    campaign=self.current_campaign_metadata,
-                    ss_path=garposDir.svp_file,
+                    site=site,
+                    campaign=campaign_meta,
+                    ss_path=garpos_layout.svp_file,
                     array_dpos_center=array_dpos_center,
                     num_of_shots=len(shotdata_rectified),
-                    GPtransponders=GPtransponders,
+                    GPtransponders=gp_transponders,
                 )
-                # Apply survey-type-specific configuration to garpos_input
-                site_config_update: GarposSiteConfig = get_garpos_site_config(survey.type)
+                site_config_update: GarposSiteConfig = get_garpos_site_config(
+                    survey.type
+                )
                 garpos_input_configured: GarposInput = apply_survey_config(
                     site_config_update, garpos_input
                 )
+                garpos_input_configured.to_datafile(garpos_layout.obs_file)
 
-                garpos_input_configured.to_datafile(garposDir.default_obsfile)
+            garpos_layouts.append(garpos_layout)
 
-            garposDir_list.append(garposDir)
-
-        self.directory_handler.save()
-        return garposDir_list
+        return garpos_layouts

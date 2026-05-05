@@ -31,7 +31,9 @@ from ...data_mgmt.assetcatalog.schemas import AssetEntry, AssetType
 from ...data_mgmt.utils import (
     get_merge_signature_shotdata,
 )
-from ..utils.protocols import WorkflowABC, validate_network_station_campaign
+from ..base import WorkflowBase, validate_network_station_campaign
+from ..preprocess_ingest.data_handler import _build_default_workspace
+from ..workspace import Workspace
 from .config import SV3PipelineConfig
 from .exceptions import (
     NoDFOP00Found,
@@ -45,7 +47,7 @@ from .exceptions import (
 from .shotdata_gnss_refinement import merge_shotdata_kinposition
 
 
-class SV3Pipeline(WorkflowABC):
+class SV3Pipeline(WorkflowBase):
     """Orchestrates the end-to-end processing of Sonardyne SV3 and Novatel GNSS data for seafloor geodesy.
 
     This class manages a comprehensive workflow for processing seafloor geodesy
@@ -87,27 +89,14 @@ class SV3Pipeline(WorkflowABC):
 
     Attributes
     ----------
-    directory_handler : Workspace
-        Manages the project directory structure, including network, station,
-        and campaign directories.
+    workspace : Workspace
+        Manages the project directory structure and data layer access.
     config : SV3PipelineConfig
         Configuration settings for all pipeline steps, including Novatel,
         RINEX, PRIDE, DFOP00, and position update configs.
-    asset_catalog : PreProcessCatalog
+    asset_catalog : PreProcessCatalogHandler
         SQLite-based catalog for tracking processed assets and their
         relationships (parent-child, merge jobs).
-    current_network : str
-        Current network identifier (e.g., "cascadia-gorda").
-    current_station : str
-        Current station identifier (e.g., "NCC1").
-    current_campaign : str
-        Current campaign identifier (e.g., "2023_A_1126").
-    current_network_dir : NetworkDir
-        Directory object for current network.
-    current_station_dir : StationDir
-        Directory object for current station.
-    current_campaign_dir : CampaignDir
-        Directory object for current campaign.
     shotDataPreTDB : TDBShotDataArray
         Preliminary shotdata (before position refinement).
     kinPositionTDB : TDBKinPositionArray
@@ -150,31 +139,39 @@ class SV3Pipeline(WorkflowABC):
 
     def __init__(
         self,
-        directory: Path | str = None,
+        directory: Path | str | None = None,
         s3_sync_bucket: str | None = None,
         asset_catalog: PreProcessCatalogHandler | None = None,
-        config: SV3PipelineConfig = None,
+        config: SV3PipelineConfig | None = None,
+        *,
+        workspace: Workspace | None = None,
     ):
-        """Initializes the SV3Pipeline with a directory and configuration.
+        """Initializes the SV3Pipeline with a workspace and configuration.
 
         Parameters
         ----------
         directory : Path | str, optional
-            Root path of the data tree.
+            Root path of the data tree. Used to build a default
+            :class:`Workspace` when ``workspace`` is not provided.
         s3_sync_bucket : str, optional
             S3 bucket name/URI for sync operations.
         asset_catalog : Optional[PreProcessCatalogHandler], optional
-            Pre-configured asset catalog. If None, created automatically.
+            Pre-configured asset catalog.
         config : Optional[SV3PipelineConfig], optional
             Configuration settings for the pipeline. If None, uses default
             configuration. Defaults to None.
+        workspace : Workspace, optional
+            Pre-constructed workspace. Preferred over ``directory``.
         """
-        super().__init__(
-            directory=directory,
-            s3_sync_bucket=s3_sync_bucket,
-            asset_catalog=asset_catalog,
-        )
+        if workspace is None:
+            import os as _os
+            workspace = _build_default_workspace(
+                directory if directory is not None else _os.environ.get("MAIN_DIRECTORY", ".")
+            )
+        super().__init__(workspace)
 
+        self.s3_sync_bucket: str | None = s3_sync_bucket
+        self.asset_catalog: PreProcessCatalogHandler | None = asset_catalog
         self.config = config if config is not None else SV3PipelineConfig()
 
         # Initialize TileDB array objects to None
@@ -221,10 +218,21 @@ class SV3Pipeline(WorkflowABC):
             self.imuPositionTDB = None
             self.shotDataFinalTDB = None
 
-        # Call parent method with correct parameter names
-        super().set_network_station_campaign(network_id, station_id, campaign_id)
+        # Forward scope to the workspace and materialize campaign dirs.
+        if network_id != self.workspace.network_name:
+            self.workspace.set_network(network_id)
+        if station_id != self.workspace.station_name:
+            self.workspace.set_station(station_id)
+        if campaign_id != self.workspace.campaign_name:
+            self.workspace.set_campaign(campaign_id)
+        self.workspace.layout.ensure_campaign()
 
         # Make sure there are files to process
+        if self.asset_catalog is None:
+            raise ValueError(
+                "SV3Pipeline.asset_catalog must be set before calling "
+                "set_network_station_campaign()."
+            )
         dtype_counts = self.asset_catalog.get_dtype_counts(network_id, station_id, campaign_id)
         if dtype_counts == {}:
             message = f"No local files found for {network_id}/{station_id}/{campaign_id}. Ensure data is ingested before processing."
@@ -232,7 +240,7 @@ class SV3Pipeline(WorkflowABC):
             raise NoLocalData(message)
 
         # Update all log directories
-        change_all_logger_dirs(self.current_campaign_dir.log_directory)
+        change_all_logger_dirs(self.workspace.layout.campaign().logs)
 
         for dtype, count in dtype_counts.items():
             ProcessLogger.loginfo(
@@ -244,20 +252,20 @@ class SV3Pipeline(WorkflowABC):
 
     def _build_tiledb_arrays(self) -> None:
         """Initialize TileDB arrays for the current station context."""
-        tiledb_dir = self.current_station_dir.tiledb_directory
+        tiledb = self.workspace.layout.ensure_station()
 
         if self.shotDataPreTDB is None:
-            self.shotDataPreTDB = TDBShotDataArray(tiledb_dir.shot_data_pre)
+            self.shotDataPreTDB = TDBShotDataArray(tiledb.shotdata_pre)
         if self.kinPositionTDB is None:
-            self.kinPositionTDB = TDBKinPositionArray(tiledb_dir.kin_position_data)
+            self.kinPositionTDB = TDBKinPositionArray(tiledb.kin_position)
         if self.imuPositionTDB is None:
-            self.imuPositionTDB = TDBIMUPositionArray(tiledb_dir.imu_position_data)
+            self.imuPositionTDB = TDBIMUPositionArray(tiledb.imu_position)
         if self.shotDataFinalTDB is None:
-            self.shotDataFinalTDB = TDBShotDataArray(tiledb_dir.shot_data)
+            self.shotDataFinalTDB = TDBShotDataArray(tiledb.shotdata)
 
         # Store GNSS URIs for later use
-        self.gnssObsTDBURI = tiledb_dir.gnss_obs_data
-        self.gnssObsTDB_secondaryURI = tiledb_dir.gnss_obs_data_secondary
+        self.gnssObsTDBURI = tiledb.gnss_obs
+        self.gnssObsTDB_secondaryURI = tiledb.gnss_obs_secondary
 
         self._build_rinex_meta()
 
@@ -273,8 +281,10 @@ class SV3Pipeline(WorkflowABC):
         """
 
         # Get the RINEX metadata
-        rinex_metav2 = self.current_campaign_dir.metadata_directory / "rinex_metav2.json"
-        rinex_metav1 = self.current_campaign_dir.metadata_directory / "rinex_metav1.json"
+        meta_dir = self.workspace.layout.campaign().root / "metadata"
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        rinex_metav2 = meta_dir / "rinex_metav2.json"
+        rinex_metav1 = meta_dir / "rinex_metav1.json"
         if not rinex_metav2.exists():
             with open(rinex_metav2, "w") as f:
                 json.dump(get_metadatav2(site=self.current_station_name), f)
@@ -433,7 +443,7 @@ class SV3Pipeline(WorkflowABC):
             If an error occurs during RINEX file generation.
         """
 
-        rinexDestination = self.current_campaign_dir.intermediate
+        rinexDestination = self.workspace.layout.campaign().intermediate
 
         if self.config.rinex_config.use_secondary:
             ProcessLogger.loginfo(
@@ -557,8 +567,8 @@ class SV3Pipeline(WorkflowABC):
         ProcessLogger.loginfo(response)
 
         # Get the PRIDE directory and intermediate directory
-        prideDir = self.directory_handler.pride_directory
-        intermediateDir = self.current_campaign_dir.intermediate
+        prideDir = self.workspace.layout.pride_directory
+        intermediateDir = self.workspace.layout.campaign().intermediate
 
         # Get the Rinex files to process
         rinex_entries: list[AssetEntry] = self.asset_catalog.get_single_entries_to_process(
@@ -827,7 +837,7 @@ class SV3Pipeline(WorkflowABC):
             If True, forces reprocessing even if SVP file exists. Default is
             False.
         """
-        svp_df_destination = self.current_campaign_dir.svp_file
+        svp_df_destination = self.workspace.layout.campaign().svp_file
         if svp_df_destination.exists() and not override:
             return
 

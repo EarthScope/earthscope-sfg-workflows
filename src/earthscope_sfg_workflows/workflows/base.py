@@ -45,6 +45,23 @@ class WorkflowBase(ABC):
         """Workspace root directory. Backwards-compat helper."""
         return self.workspace.root
 
+    # ------------------------------------------------------------------
+    # Backwards-compat scope accessors. New code should use
+    # ``self.workspace.{network,station,campaign}_name`` directly.
+    # ------------------------------------------------------------------
+
+    @property
+    def current_network_name(self) -> str | None:
+        return self.workspace.network_name
+
+    @property
+    def current_station_name(self) -> str | None:
+        return self.workspace.station_name
+
+    @property
+    def current_campaign_name(self) -> str | None:
+        return self.workspace.campaign_name
+
     def close(self) -> None:
         self.workspace.close()
 

@@ -116,6 +116,47 @@ class LayoutFacade:
     def find_master_xml(self) -> Path | None:
         return self._inspector.find_master_xml(self.campaign())
 
+    # -- discovery: list children of station / campaign --------------------
+
+    def list_campaigns(self) -> list[str]:
+        """Names of campaign directories under the active station (year-prefixed)."""
+        import re
+        station_dir = self.station
+        try:
+            return sorted(
+                p.name for p in station_dir.iterdir()
+                if p.is_dir() and re.match(r"^\d{4}", p.name)
+            )
+        except (OSError, AttributeError):
+            return []
+
+    def list_surveys(self) -> list[str]:
+        """Names of survey directories under the active campaign."""
+        campaign_dir = self.campaign().root
+        try:
+            return sorted(p.name for p in campaign_dir.iterdir() if p.is_dir())
+        except (OSError, AttributeError):
+            return []
+
+    # -- legacy-named accessors (paths) -----------------------------------
+
+    @property
+    def site_metadata_file(self) -> Path:
+        """Path to the site metadata JSON for the active station."""
+        return self.station / "site_metadata.json"
+
+    @property
+    def campaign_metadata_file(self) -> Path:
+        return self.campaign().metadata_file
+
+    @property
+    def survey_metadata_file(self) -> Path:
+        return self.survey / "survey_meta.json"
+
+    @property
+    def pride_directory(self) -> Path:
+        return self._tree.pride_dir
+
 
 # ---------------------------------------------------------------------------
 # AssetQueryFacade — scoped catalog reads + writeback
@@ -164,6 +205,113 @@ class AssetQueryFacade:
         if not self._catalog.update(new_entry):
             raise LookupError(f"No catalog row for asset id={entry.id}")
         return new_entry
+
+    # -- legacy-style composition helpers ---------------------------------
+
+    def local(self, kind: AssetKind) -> list[AssetEntry]:
+        """Assets of ``kind`` in scope that have a non-null local_path."""
+        return [a for a in self._catalog.assets_for(self._scope, kind) if a.local_path]
+
+    def dtype_counts(self) -> dict[str, int]:
+        """:meth:`count_by_kind` keyed by string (legacy ``get_dtype_counts``)."""
+        return {k.value: v for k, v in self._catalog.count_by_kind(self._scope).items()}
+
+    def update_local_path(self, asset_id: int, local_path: Path | str) -> bool:
+        """Set the local_path of the asset with ``asset_id``."""
+        existing = self._catalog.by_id(asset_id)
+        if existing is None:
+            return False
+        new_entry = replace(existing, local_path=Path(local_path))
+        return self._catalog.update(new_entry)
+
+    def remote_file_exists_locally(
+        self,
+        kind: AssetKind,
+        remote_path: str,
+    ) -> bool:
+        """Has any cataloged asset already stored a local copy of this remote file?
+
+        Mirrors legacy ``remote_file_exist``: matches by basename of the
+        remote URL against ``local_path`` of in-scope, in-kind assets.
+        """
+        from os.path import basename
+        target = basename(remote_path)
+        for a in self._catalog.assets_for(self._scope, kind):
+            if a.local_path and target in str(a.local_path):
+                return True
+        return False
+
+    def add_or_update(self, entry: AssetEntry) -> AssetEntry | None:
+        """Insert if no entry with the same ``local_path`` exists; else update.
+
+        Mirrors legacy ``add_or_update``: idempotent ingestion. Returns the
+        persisted entry, or ``None`` if the input was ``None``.
+        """
+        if entry is None:
+            return None
+        if entry.local_path is not None:
+            existing = self._catalog.by_local_path(entry.local_path)
+            if existing:
+                # Update the first match; preserve its id.
+                replaced = replace(entry, id=existing[0].id)
+                self._catalog.update(replaced)
+                return replaced
+        return self._catalog.add(entry)
+
+    def single_to_process(
+        self,
+        parent_kind: AssetKind,
+        child_kind: AssetKind | None = None,
+        *,
+        override: bool = False,
+        local_only: bool = False,
+    ) -> list[AssetEntry]:
+        """Parent-kind entries lacking a child-kind result.
+
+        Mirrors legacy ``get_single_entries_to_process``. When ``child_kind``
+        is None, falls back to ``is_processed``.
+        """
+        parents = self._catalog.assets_for(self._scope, parent_kind)
+        if child_kind is None:
+            if override:
+                candidates = parents
+            else:
+                candidates = [p for p in parents if not p.is_processed]
+        else:
+            children = self._catalog.assets_for(self._scope, child_kind)
+            parent_id_map = {p.id: p for p in parents if p.id is not None}
+            if not override:
+                for c in children:
+                    if c.parent_id in parent_id_map:
+                        parent_id_map.pop(c.parent_id, None)
+            candidates = list(parent_id_map.values())
+
+        if local_only:
+            candidates = [e for e in candidates if e.local_path is not None]
+
+        # Dedupe by local_path (same fallback as legacy).
+        seen: dict[Path | None, AssetEntry] = {}
+        for e in candidates:
+            seen[e.local_path] = e
+        return list(seen.values())
+
+    # -- merge job tracking (delegates to AssetStore) ---------------------
+
+    def add_merge_job(
+        self,
+        parent_type: str,
+        child_type: str,
+        parent_ids: list[int] | list[str],
+    ) -> None:
+        self._catalog.add_merge_job(parent_type, child_type, parent_ids)
+
+    def is_merge_complete(
+        self,
+        parent_type: str,
+        child_type: str,
+        parent_ids: list[int] | list[str],
+    ) -> bool:
+        return self._catalog.is_merge_complete(parent_type, child_type, parent_ids)
 
 
 # ---------------------------------------------------------------------------

@@ -126,6 +126,7 @@ _GARPOS_LOGS_DIR = "logs"
 _GARPOS_OBS_FILE = "observation.ini"
 _GARPOS_SETTINGS_FILE = "default_settings.ini"
 _GARPOS_SVP_FILE = "svp.csv"
+_CAMPAIGN_SVP_FILE = "svp.csv"
 _CAMPAIGN_META_FILE = "campaign_meta.json"
 _SURVEY_META_FILE = "survey_meta.json"
 _CATALOG_DB_FILE = "catalog.sqlite"
@@ -208,17 +209,20 @@ class CampaignLayout:
     logs: Path
     qc: Path
     metadata_file: Path
+    svp_file: Path
 
     @staticmethod
     def for_campaign(campaign_dir: Path) -> "CampaignLayout":
+        processed = campaign_dir / _PROCESSED_DIR
         return CampaignLayout(
             root=campaign_dir,
             raw=campaign_dir / _RAW_DIR,
-            processed=campaign_dir / _PROCESSED_DIR,
+            processed=processed,
             intermediate=campaign_dir / _INTERMEDIATE_DIR,
             logs=campaign_dir / _LOGS_DIR,
             qc=campaign_dir / _QC_DIR,
             metadata_file=campaign_dir / _CAMPAIGN_META_FILE,
+            svp_file=processed / _CAMPAIGN_SVP_FILE,
         )
 
     @property

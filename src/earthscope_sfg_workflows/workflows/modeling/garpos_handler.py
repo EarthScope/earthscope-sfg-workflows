@@ -17,8 +17,9 @@ from matplotlib.colors import Normalize
 
 sns.set_theme(style="whitegrid")
 
-from ...data_mgmt.directorymgmt import GARPOSSurveyDir  # noqa: E402
 from earthscope_sfg_tools.datamodels.metadata import Site  # noqa: E402
+
+from ...data_mgmt.model import GARPOSLayout  # noqa: E402
 from ...modeling.garpos_tools.schemas import (  # noqa: E402
     GarposFixed,
     GarposInput,
@@ -35,7 +36,7 @@ from earthscope_sfg_workflows.utils.model_update import validate_and_merge_confi
 
 from ...modeling.garpos_tools.functions import process_garpos_results  # noqa: E402
 from ...modeling.garpos_tools.schemas import ObservationData  # noqa: E402
-from ..utils.protocols import WorkflowABC  # noqa: E402
+from ..midprocess.mid_processing import IntermediateDataProcessor  # noqa: E402
 
 colors = [
     "blue",
@@ -51,7 +52,7 @@ colors = [
 ]
 
 
-class GarposHandler(WorkflowABC):
+class GarposHandler(IntermediateDataProcessor):
     """Handles the processing and preparation of shot data for the GARPOS model.
 
     This class provides a high-level interface for running the GARPOS model,
@@ -99,7 +100,7 @@ class GarposHandler(WorkflowABC):
 
         self.garpos_fixed = GarposFixed()
 
-        self.current_garpos_survey_dir: GARPOSSurveyDir = None
+        self.current_garpos_survey_dir: GARPOSLayout | None = None
 
     def set_network(self, network_id: str):
         """Sets the current network.
@@ -165,24 +166,40 @@ class GarposHandler(WorkflowABC):
 
         super().set_survey(survey_id=survey_id)
 
-        if (
-            self.current_survey_dir.shotdata is None
-            or not self.current_survey_dir.shotdata.exists()
-        ):
+        # Resolve the shotdata file produced by IntermediateDataProcessor.
+        campaign_meta = self.workspace.metadata.campaign
+        survey_type = None
+        if campaign_meta is not None:
+            for s in campaign_meta.surveys:
+                if s.id == survey_id:
+                    survey_type = s.type.value
+                    break
+        if survey_type is None:
             raise ValueError(
-                f"Shotdata for survey {survey_id} not found in directory handler. Please run intermediate data processing to create shotdata file."
+                f"Survey {survey_id} not found in campaign metadata; cannot locate shotdata."
             )
 
-        try:
-            if self.current_survey_dir.garpos.shotdata_rectified.exists():
-                self.current_garpos_survey_dir = self.current_survey_dir.garpos
-                logger.set_dir(self.current_garpos_survey_dir.log_directory)
-                return
-        except Exception:
-            pass
-        raise ValueError(
-            f"Rectified shotdata for survey {survey_id} not found in directory handler. Please run intermediate data processing to create rectified shotdata file."
+        survey_root = self.workspace.layout.survey
+        shotdata_file = (
+            survey_root
+            / f"{survey_id}_{survey_type}_shotdata.csv".replace(" ", "")
         )
+        if not shotdata_file.exists():
+            raise ValueError(
+                f"Shotdata for survey {survey_id} not found at {shotdata_file}. "
+                "Please run intermediate data processing to create shotdata file."
+            )
+
+        garpos_layout = self.workspace.layout.ensure_garpos_survey()
+        rectified = self.workspace.layout.find_rectified_shotdata()
+        if rectified is None or not rectified.exists():
+            raise ValueError(
+                f"Rectified shotdata for survey {survey_id} not found in "
+                f"{garpos_layout.root}. Please run intermediate data processing "
+                "to create rectified shotdata file."
+            )
+        self.current_garpos_survey_dir = garpos_layout
+        logger.set_dir(garpos_layout.logs)
 
     def set_inversion_params(self, parameters: dict | InversionParams):
         """Set inversion parameters for the model.
@@ -265,7 +282,7 @@ class GarposHandler(WorkflowABC):
 
     def _run_garpos_survey_dir(
         self,
-        garpos_survey_dir: GARPOSSurveyDir,
+        garpos_survey_dir: GARPOSLayout,
         custom_settings: dict | InversionParams | None = None,
         run_id: int | str = 0,
         iterations: int = 1,
@@ -292,10 +309,10 @@ class GarposHandler(WorkflowABC):
             If the observation file does not exist.
         """
         logger.loginfo(
-            f"Running GARPOS model for survey {garpos_survey_dir.location.parent.stem}. Run ID: {run_id}"
+            f"Running GARPOS model for survey {garpos_survey_dir.root.parent.name}. Run ID: {run_id}"
         )
 
-        results_dir_main = garpos_survey_dir.results_dir
+        results_dir_main = garpos_survey_dir.results
         results_dir = results_dir_main / f"run_{run_id}"
         if results_dir.exists() and override:
             # Remove existing results directory if override is True
@@ -311,7 +328,7 @@ class GarposHandler(WorkflowABC):
             return
         results_dir.mkdir(parents=True, exist_ok=True)
 
-        obsfile_path = garpos_survey_dir.default_obsfile
+        obsfile_path = garpos_survey_dir.obs_file
 
         if not obsfile_path.exists():
             raise ValueError(f"Observation file not found at {obsfile_path}")
@@ -320,7 +337,7 @@ class GarposHandler(WorkflowABC):
 
         for i in range(iterations):
             logger.loginfo(
-                f"Iteration {i + 1} of {iterations} for survey {garpos_survey_dir.location.parent.stem}"
+                f"Iteration {i + 1} of {iterations} for survey {garpos_survey_dir.root.parent.name}"
             )
 
             obsfile_path = self._run_garpos(
@@ -380,7 +397,7 @@ class GarposHandler(WorkflowABC):
             logger.logwarn(f"Skipping survey {survey_id}: {e}")
             return
 
-        results_dir_main = self.current_garpos_survey_dir.results_dir
+        results_dir_main = self.current_garpos_survey_dir.results
         results_dir = results_dir_main / f"run_{run_id}"
         if results_dir.exists() and override:
             # Remove existing results directory if override is True
@@ -391,7 +408,7 @@ class GarposHandler(WorkflowABC):
 
         results_dir.mkdir(parents=True, exist_ok=True)
 
-        obsfile_path = self.current_garpos_survey_dir.default_obsfile
+        obsfile_path = self.current_garpos_survey_dir.obs_file
 
         if not obsfile_path.exists():
             raise ValueError(f"Observation file not found at {obsfile_path}")
@@ -431,7 +448,7 @@ class GarposHandler(WorkflowABC):
         iterations: int = 1,
         override: bool = False,
         custom_settings: dict | InversionParams | None = None,
-        surveys: list[GARPOSSurveyDir] | None = None,
+        surveys: list[GARPOSLayout] | None = None,
     ) -> None:
         """Run the GARPOS model for a specific date or for all dates.
 
@@ -456,7 +473,7 @@ class GarposHandler(WorkflowABC):
                 if survey_id is None
                 else [survey_id]
             )
-        elif all(isinstance(s, GARPOSSurveyDir) for s in surveys):
+        elif all(isinstance(s, GARPOSLayout) for s in surveys):
             for garpos_survey_dir in surveys:
                 self._run_garpos_survey_dir(
                     garpos_survey_dir=garpos_survey_dir,
@@ -528,8 +545,9 @@ class GarposHandler(WorkflowABC):
         shotdata_time_windows = {}
         shotdata_dfs = {}
         shotdata_filtered_dfs = {}
-        for survey_name in sorted(self.current_campaign_dir.surveys):
-            if survey_name in [survey.id for survey in metadata_surveys]:
+        survey_id_to_type = {s.id: s.type.value for s in metadata_surveys}
+        for survey_name in sorted(self.workspace.layout.list_surveys()):
+            if survey_name in survey_id_to_type:
                 for survey in metadata_surveys:
                     if survey.id == survey_name:
                         metadata_start = survey.start.replace(tzinfo=UTC)
@@ -540,7 +558,14 @@ class GarposHandler(WorkflowABC):
                         )
                     continue
                 try:
-                    shotdata_filepath = self.current_campaign_dir.surveys[survey_name].shotdata
+                    survey_root = (
+                        self.workspace.layout.campaign().root / survey_name
+                    )
+                    survey_type = survey_id_to_type[survey_name]
+                    shotdata_filepath = (
+                        survey_root
+                        / f"{survey_name}_{survey_type}_shotdata.csv".replace(" ", "")
+                    )
                     shotdata_df = pd.read_csv(shotdata_filepath, sep=",", header=0, index_col=0)
                     shotdata_dfs[survey_name] = shotdata_df
                     # use utc
@@ -548,9 +573,10 @@ class GarposHandler(WorkflowABC):
                     end = datetime.fromtimestamp(shotdata_df["pingTime"].iloc[-1], tz=UTC)
                     shotdata_time_windows[survey_name] = (start, end)
 
-                    shotdata_filtered_filepath = self.current_campaign_dir.surveys[
-                        survey_name
-                    ].shotdata_filtered
+                    shotdata_filtered_filepath = (
+                        survey_root
+                        / f"{shotdata_filepath.stem}_filtered.csv"
+                    )
                     shotdata_filtered_df = pd.read_csv(
                         shotdata_filtered_filepath, sep=",", header=0, index_col=0
                     )
@@ -641,7 +667,7 @@ class GarposHandler(WorkflowABC):
         if showfig:
             plt.show()
 
-        fig_path = f"{self.current_campaign_dir.location}/{self.current_station_name}_{self.current_campaign_name}_shotdata_replies.png"
+        fig_path = f"{self.workspace.layout.campaign().root}/{self.current_station_name}_{self.current_campaign_name}_shotdata_replies.png"
         if savefig:
             logger.loginfo(f"Saving figure to {fig_path}")
             plt.savefig(
@@ -691,7 +717,7 @@ class GarposHandler(WorkflowABC):
             savefig (bool, optional): If True, save the figure, by default False.
             showfig (bool, optional): If True, display the figure, by default True.
         """
-        results_dir: Path = self.current_garpos_survey_dir.results_dir
+        results_dir: Path = self.current_garpos_survey_dir.results
         run_dir = results_dir / f"run_{run_id}"
         if not run_dir.exists():
             raise FileNotFoundError(f"Run directory {run_dir} does not exist.")
@@ -770,7 +796,7 @@ class GarposHandler(WorkflowABC):
         for ax in axs:
             ax.grid()
         plt.tight_layout()
-        fig_path = f"{self.current_garpos_survey_dir.results_dir}/{self.current_station_name}_{survey_id}_flagged_residuals.png"
+        fig_path = f"{self.current_garpos_survey_dir.results}/{self.current_station_name}_{survey_id}_flagged_residuals.png"
         if savefig:
             logger.loginfo(f"Saving figure to {fig_path}")
             plt.savefig(
@@ -834,7 +860,7 @@ class GarposHandler(WorkflowABC):
             savefig (bool, optional): If True, save the figure, by default False.
             showfig (bool, optional): If True, display the figure, by default True.
         """
-        results_dir: Path = self.current_garpos_survey_dir.results_dir
+        results_dir: Path = self.current_garpos_survey_dir.results
         run_dir = results_dir / f"run_{run_id}"
         if not run_dir.exists():
             raise FileNotFoundError(f"Run directory {run_dir} does not exist.")
@@ -919,7 +945,7 @@ class GarposHandler(WorkflowABC):
             # add gridlines
             ax.grid()
         plt.tight_layout()
-        fig_path = f"{self.current_garpos_survey_dir.results_dir}/{self.current_station_name}_{survey_id}_garpos_residuals.png"
+        fig_path = f"{self.current_garpos_survey_dir.results}/{self.current_station_name}_{survey_id}_garpos_residuals.png"
         if savefig:
             logger.loginfo(f"Saving figure to {fig_path}")
             plt.savefig(
@@ -1009,7 +1035,7 @@ class GarposHandler(WorkflowABC):
         # plt.clf()
 
         results_dir: Path = (
-            self.current_garpos_survey_dir.results_dir if results_dir is None else results_dir
+            self.current_garpos_survey_dir.results if results_dir is None else results_dir
         )
         run_dir = results_dir / f"run_{run_id}"
         if not run_dir.exists():
@@ -1090,7 +1116,7 @@ class GarposHandler(WorkflowABC):
         total_height = (total_rows + extra_rows) * ts_row_height_in
 
         plt.figure(figsize=(20, total_height))
-        title = f"{self.current_campaign_dir.location.parent.stem}"
+        title = f"{self.current_station_name}"
         if survey_type is not None:
             title += f" {survey_type}"
         title += f" Survey {survey_id} Results"

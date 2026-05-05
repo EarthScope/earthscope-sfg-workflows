@@ -89,8 +89,32 @@ class AssetStore(Protocol):
         """Delete assets matching the scope (and optional kind). Return count."""
         ...
 
+    def delete_by_id(self, asset_id: int) -> bool:
+        """Delete one asset by id. Return True if deleted."""
+        ...
+
     def count_by_kind(self, scope: CampaignScope) -> dict[AssetKind, int]:
         """Aggregate count of assets per kind in ``scope``."""
+        ...
+
+    # -- merge job tracking (carried over from legacy MergeJobs table) ----
+
+    def add_merge_job(
+        self,
+        parent_type: str,
+        child_type: str,
+        parent_ids: list[int] | list[str],
+    ) -> None:
+        """Record a merge job (deterministic by sorted, dash-joined parent ids)."""
+        ...
+
+    def is_merge_complete(
+        self,
+        parent_type: str,
+        child_type: str,
+        parent_ids: list[int] | list[str],
+    ) -> bool:
+        """Check whether a previously recorded merge job exists for this signature."""
         ...
 
     def close(self) -> None:

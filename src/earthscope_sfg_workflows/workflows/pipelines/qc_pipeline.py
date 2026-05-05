@@ -29,7 +29,9 @@ from earthscope_sfg_tools.tiledb_integration import (
 from ...data_mgmt.assetcatalog.handler import PreProcessCatalogHandler
 from ...data_mgmt.assetcatalog.schemas import AssetEntry, AssetType
 from ...data_mgmt.utils import get_merge_signature_shotdata
-from ..utils.protocols import WorkflowABC, validate_network_station_campaign
+from ..base import WorkflowBase, validate_network_station_campaign
+from ..preprocess_ingest.data_handler import _build_default_workspace
+from ..workspace import Workspace
 from .config import QCPipelineConfig
 from .exceptions import (
     NoKinFound,
@@ -100,7 +102,7 @@ def rangea_string_epoch(
             sleep_time = remainder
 
 
-class QCPipeline(WorkflowABC):
+class QCPipeline(WorkflowBase):
     """Orchestrates the QC data processing pipeline for seafloor geodesy.
 
     This class manages a workflow for processing QC (Quality Control) data
@@ -132,8 +134,8 @@ class QCPipeline(WorkflowABC):
 
     Attributes
     ----------
-    directory_handler : Workspace
-        Manages the project directory structure.
+    workspace : Workspace
+        Manages the project directory structure and data layer access.
     config : QCPipelineConfig
         Configuration settings for all pipeline steps.
     asset_catalog : PreProcessCatalogHandler
@@ -152,32 +154,39 @@ class QCPipeline(WorkflowABC):
 
     def __init__(
         self,
-        directory: Path | str = None,
+        directory: Path | str | None = None,
         s3_sync_bucket: str | None = None,
         asset_catalog: PreProcessCatalogHandler | None = None,
-        config: QCPipelineConfig = None,
+        config: QCPipelineConfig | None = None,
+        *,
+        workspace: Workspace | None = None,
     ):
-        """Initialize the QCPipeline with a directory and configuration.
+        """Initialize the QCPipeline with a workspace and configuration.
 
         Parameters
         ----------
         directory : Path | str, optional
-            Root path of the data tree.
+            Root path of the data tree. Used to build a default
+            :class:`Workspace` when ``workspace`` is not provided.
         s3_sync_bucket : str, optional
             S3 bucket name/URI for sync operations.
         asset_catalog : PreProcessCatalogHandler, optional
-            Pre-configured asset catalog handler. If not provided, will be
-            created automatically.
+            Pre-configured asset catalog handler.
         config : QCPipelineConfig, optional
             Configuration settings for the pipeline. If None, uses default
             configuration.
+        workspace : Workspace, optional
+            Pre-constructed workspace. Preferred over ``directory``.
         """
-        super().__init__(
-            directory=directory,
-            s3_sync_bucket=s3_sync_bucket,
-            asset_catalog=asset_catalog,
-        )
+        if workspace is None:
+            import os as _os
+            workspace = _build_default_workspace(
+                directory if directory is not None else _os.environ.get("MAIN_DIRECTORY", ".")
+            )
+        super().__init__(workspace)
 
+        self.s3_sync_bucket: str | None = s3_sync_bucket
+        self.asset_catalog: PreProcessCatalogHandler | None = asset_catalog
         self.config = config if config is not None else QCPipelineConfig()
 
         # Initialize QC-specific TileDB array objects to None
@@ -224,10 +233,21 @@ class QCPipeline(WorkflowABC):
             self.qcShotDataFinalTDB = None
             self.qcGnssObsTDB = None
 
-        # Call parent method with correct parameter names
-        super().set_network_station_campaign(network_id, station_id, campaign_id)
+        # Forward scope to the workspace and materialize campaign dirs.
+        if network_id != self.workspace.network_name:
+            self.workspace.set_network(network_id)
+        if station_id != self.workspace.station_name:
+            self.workspace.set_station(station_id)
+        if campaign_id != self.workspace.campaign_name:
+            self.workspace.set_campaign(campaign_id)
+        self.workspace.layout.ensure_campaign()
 
         # Make sure there are files to process
+        if self.asset_catalog is None:
+            raise ValueError(
+                "QCPipeline.asset_catalog must be set before calling "
+                "set_network_station_campaign()."
+            )
         dtype_counts = self.asset_catalog.get_dtype_counts(network_id, station_id, campaign_id)
         if dtype_counts == {}:
             message = f"No local files found for {network_id}/{station_id}/{campaign_id}. Ensure data is ingested before processing."
@@ -235,7 +255,7 @@ class QCPipeline(WorkflowABC):
             raise NoLocalData(message)
 
         # Update all log directories
-        change_all_logger_dirs(self.current_campaign_dir.log_directory)
+        change_all_logger_dirs(self.workspace.layout.campaign().logs)
 
         for dtype, count in dtype_counts.items():
             ProcessLogger.loginfo(
@@ -248,26 +268,27 @@ class QCPipeline(WorkflowABC):
 
     def _build_tiledb_arrays(self) -> None:
         """Initialize QC-specific TileDB arrays for the current station context."""
-        tiledb_dir = self.current_station_dir.tiledb_directory
-        tiledb_dir.build()  # Ensure the directory exists
+        tiledb = self.workspace.layout.ensure_station()
 
         if self.qcShotDataPreTDB is None:
-            self.qcShotDataPreTDB = TDBShotDataArray(tiledb_dir.qc_shot_data_pre)
+            self.qcShotDataPreTDB = TDBShotDataArray(tiledb.qc_shotdata_pre)
             self.qcShotDataPreTDB.consolidate()
         if self.qcKinPositionTDB is None:
-            self.qcKinPositionTDB = TDBKinPositionArray(tiledb_dir.qc_kin_position_data)
+            self.qcKinPositionTDB = TDBKinPositionArray(tiledb.qc_kin_position)
             self.qcKinPositionTDB.consolidate()
         if self.qcShotDataFinalTDB is None:
-            self.qcShotDataFinalTDB = TDBShotDataArray(tiledb_dir.qc_shot_data)
+            self.qcShotDataFinalTDB = TDBShotDataArray(tiledb.qc_shotdata)
             self.qcShotDataFinalTDB.consolidate()
         if self.qcGnssObsTDB is None:
-            self.qcGnssObsTDB = TDBGNSSObsArray(tiledb_dir.qc_gnss_obs_data)
+            self.qcGnssObsTDB = TDBGNSSObsArray(tiledb.qc_gnss_obs)
             self.qcGnssObsTDB.consolidate()
 
     def _build_rinex_meta(self) -> None:
         """Build RINEX metadata files for the current campaign if they don't exist."""
-        rinex_metav2 = self.current_campaign_dir.metadata_directory / "rinex_metav2.json"
-        rinex_metav1 = self.current_campaign_dir.metadata_directory / "rinex_metav1.json"
+        meta_dir = self.workspace.layout.campaign().root / "metadata"
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        rinex_metav2 = meta_dir / "rinex_metav2.json"
+        rinex_metav1 = meta_dir / "rinex_metav1.json"
         if not rinex_metav2.exists():
             with open(rinex_metav2, "w") as f:
                 json.dump(get_metadatav2(site=self.current_station_name), f)
@@ -358,7 +379,7 @@ class QCPipeline(WorkflowABC):
         NoRinexBuilt
             If no RINEX files could be generated.
         """
-        rinexDestination = self.current_campaign_dir.intermediate
+        rinexDestination = self.workspace.layout.campaign().intermediate
 
         if self.config.rinex_config.processing_year != -1:
             year = self.config.rinex_config.processing_year
@@ -462,8 +483,8 @@ class QCPipeline(WorkflowABC):
         response = f"Running PRIDE-PPPAR on QC Rinex Data for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}. This may take a few minutes..."
         ProcessLogger.loginfo(response)
 
-        prideDir = self.directory_handler.pride_directory
-        intermediateDir = self.current_campaign_dir.intermediate
+        prideDir = self.workspace.layout.pride_directory
+        intermediateDir = self.workspace.layout.campaign().intermediate
 
         rinex_entries: list[AssetEntry] = self.asset_catalog.get_single_entries_to_process(
             network=self.current_network_name,

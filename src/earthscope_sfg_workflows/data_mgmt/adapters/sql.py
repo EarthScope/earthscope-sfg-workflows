@@ -19,7 +19,7 @@ from sqlalchemy import create_engine, delete, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..assetcatalog.tables import Assets, Base
+from ..assetcatalog.tables import Assets, Base, MergeJobs
 from ..model import AssetEntry, AssetKind, CampaignScope
 
 
@@ -149,6 +149,11 @@ class SqlAssetStore:
         with self._Session.begin() as session:
             return session.execute(stmt).rowcount or 0
 
+    def delete_by_id(self, asset_id: int) -> bool:
+        with self._Session.begin() as session:
+            result = session.execute(delete(Assets).where(Assets.id == asset_id))
+            return (result.rowcount or 0) > 0
+
     def count_by_kind(self, scope: CampaignScope) -> dict[AssetKind, int]:
         with self._Session() as session:
             rows = session.execute(
@@ -169,6 +174,46 @@ class SqlAssetStore:
 
     def close(self) -> None:
         self._engine.dispose()
+
+    # -- merge job tracking ----------------------------------------------
+
+    @staticmethod
+    def _merge_signature(parent_ids: list[int] | list[str]) -> str:
+        ids = sorted(str(x) for x in parent_ids)
+        return "-".join(ids)
+
+    def add_merge_job(
+        self,
+        parent_type: str,
+        child_type: str,
+        parent_ids: list[int] | list[str],
+    ) -> None:
+        sig = self._merge_signature(parent_ids)
+        with self._Session.begin() as session:
+            session.add(
+                MergeJobs(
+                    parent_type=parent_type,
+                    child_type=child_type,
+                    parent_ids=sig,
+                )
+            )
+
+    def is_merge_complete(
+        self,
+        parent_type: str,
+        child_type: str,
+        parent_ids: list[int] | list[str],
+    ) -> bool:
+        sig = self._merge_signature(parent_ids)
+        with self._Session() as session:
+            row = session.execute(
+                select(MergeJobs).where(
+                    MergeJobs.parent_type == parent_type,
+                    MergeJobs.child_type == child_type,
+                    MergeJobs.parent_ids == sig,
+                )
+            ).first()
+            return row is not None
 
 
 __all__ = ["SqlAssetStore"]

@@ -13,10 +13,15 @@ from earthscope_sfg_workflows.utils.model_update import validate_and_merge_confi
 from ..config.file_config import (
     DEFAULT_FILE_TYPES_TO_DOWNLOAD,
     DEFAULT_INTERMEDIATE_FILE_TYPES_TO_DOWNLOAD,
+    AssetType,
 )
-from ..data_mgmt.assetcatalog.schemas import AssetType
 from earthscope_sfg_tools.datamodels.metadata import Site
 from ..modeling.garpos_tools.schemas import InversionParams
+from .base import (
+    WorkflowBase,
+    validate_network_station,
+    validate_network_station_campaign,
+)
 from .midprocess.mid_processing import IntermediateDataProcessor
 from .modeling.garpos_handler import GarposHandler
 from .pipelines import exceptions as pipeline_exceptions
@@ -31,12 +36,7 @@ from .pipelines.config import (
 )
 from .pipelines.qc_pipeline import QCPipeline
 from .pipelines.sv3_pipeline import SV3Pipeline
-from .preprocess_ingest.data_handler import DataHandler
-from .utils.protocols import (
-    WorkflowABC,
-    validate_network_station,
-    validate_network_station_campaign,
-)
+from .preprocess_ingest.data_handler import DataHandler, _build_default_workspace
 
 pipeline_jobs = [
     "all",
@@ -60,19 +60,19 @@ qc_pipeline_jobs = [
 ]
 
 
-class WorkflowHandler(WorkflowABC):
-    """
-    Handles data operations including searching, adding, downloading, and processing.
+class WorkflowHandler(WorkflowBase):
+    """Handles data operations including searching, adding, downloading, and processing.
 
-    This class extends WorkflowABC to provide comprehensive workflow management
-    capabilities including data ingestion, processing pipelines, and analysis
-    tools for seafloor geodesy workflows.
+    Owns a single :class:`Workspace` and composes :class:`DataHandler`,
+    sharing the workspace. All scope state lives on ``self.workspace``.
     """
 
     def __init__(
         self,
-        directory: Path | str = None,
+        directory: Path | str | None = None,
         s3_sync_bucket: str | None = None,
+        *,
+        workspace=None,
     ) -> None:
         """
         Parameters
@@ -81,11 +81,51 @@ class WorkflowHandler(WorkflowABC):
             Root path of the data tree. Auto-detected from environment when omitted.
         s3_sync_bucket : str, optional
             S3 bucket name/URI for sync operations.
+        workspace : Workspace, optional
+            Pre-constructed workspace. Preferred over ``directory``.
         """
+        if workspace is None:
+            import os
+            if directory is None:
+                directory = os.environ.get("MAIN_DIRECTORY", ".")
+            workspace = _build_default_workspace(directory)
+
+        super().__init__(workspace)
+        self.s3_sync_bucket: str | None = s3_sync_bucket
         self.data_handler = DataHandler(
-            directory=directory, s3_sync_bucket=s3_sync_bucket
+            workspace=self.workspace, s3_sync_bucket=s3_sync_bucket
         )
-        super().__init__(directory=directory, s3_sync_bucket=s3_sync_bucket)
+
+    # ------------------------------------------------------------------
+    # Backwards-compat scope/metadata aliases (forward to workspace).
+    # ------------------------------------------------------------------
+
+    @property
+    def current_network_name(self) -> str | None:
+        return self.workspace.network_name
+
+    @property
+    def current_station_name(self) -> str | None:
+        return self.workspace.station_name
+
+    @property
+    def current_campaign_name(self) -> str | None:
+        return self.workspace.campaign_name
+
+    @property
+    def current_survey_name(self) -> str | None:
+        return self.workspace.survey_name
+
+    @property
+    def current_station_metadata(self) -> Site | None:
+        return self.workspace.metadata.site  # type: ignore[return-value]
+
+    @current_station_metadata.setter
+    def current_station_metadata(self, value: Site | None) -> None:
+        if value is not None:
+            self.workspace.load_site_metadata(value)
+        else:
+            self.workspace._site = None
 
     def set_network_station_campaign(
         self,
@@ -107,27 +147,14 @@ class WorkflowHandler(WorkflowABC):
         campaign_id : str, optional
             The ID of the campaign to set. If None, campaign context is not set.
         """
-        # Call only the levels that changed, using data_handler's state as the
-        # reference so cascading resets (e.g. network change clearing station)
-        # are detected correctly.
-        if network_id != self.data_handler.current_network_name:
+        # DataHandler shares the workspace, so its scope mutators update
+        # everything WorkflowHandler observes. No state-sync loop required.
+        if network_id != self.workspace.network_name:
             self.data_handler.set_network(network_id)
-        if (
-            station_id is not None
-            and station_id != self.data_handler.current_station_name
-        ):
+        if station_id is not None and station_id != self.workspace.station_name:
             self.data_handler.set_station(station_id)
-        if (
-            campaign_id is not None
-            and campaign_id != self.data_handler.current_campaign_name
-        ):
+        if campaign_id is not None and campaign_id != self.workspace.campaign_name:
             self.data_handler.set_campaign(campaign_id)
-
-        # Sync WorkflowHandler state from DataHandler
-        for key, value in self.data_handler.__dict__.items():
-            if value is not None and hasattr(self, key):
-                setattr(self, key, value)
-                logger.logdebug(f"WorkflowHandler state updated: {key} = {value}")
 
     @validate_network_station
     def list_campaign_directories(self) -> list[str]:
@@ -151,9 +178,14 @@ class WorkflowHandler(WorkflowABC):
         ['2022_A_1065','2023_A_1063','2025_A_1126']
         """
       
+        station_dir = (
+            Path(self.workspace.root)
+            / self.workspace.network_name
+            / self.workspace.station_name
+        )
         campaign_dirs: List[Path] = [
             x
-            for x in self.current_station_dir.location.iterdir()
+            for x in station_dir.iterdir()
             if x.is_dir() and re.match(r"^\d{4}", x.name)
         ]
         return campaign_dirs
@@ -732,8 +764,8 @@ class WorkflowHandler(WorkflowABC):
             If site metadata cannot be loaded or is not provided.
         """
         if site_metadata is None:
-            if self.data_handler.current_station_metadata is not None:
-                site_metadata = self.data_handler.current_station_metadata
+            if self.workspace.metadata.site is not None:
+                site_metadata = self.workspace.metadata.site
             else:
                 site_metadata: Site | None = self.data_handler.get_site_metadata(
                     site_metadata=site_metadata
@@ -827,10 +859,6 @@ class WorkflowHandler(WorkflowABC):
         """
         if self.s3_sync_bucket is not None:
             self.data_handler.sync_from_s3(overwrite=override)
-            for key, value in self.data_handler.__dict__.items():
-                if value is not None and hasattr(self, key):
-                    setattr(self, key, value)
-                    logger.logdebug(f"WorkflowHandler state updated: {key} = {value}")
 
         dataPostProcessor: IntermediateDataProcessor = self.midprocess_get_processor(
             site_metadata=site_metadata
@@ -1105,7 +1133,7 @@ class WorkflowHandler(WorkflowABC):
         qc_pipeline: QCPipeline = QCPipeline(
             directory=self.directory,
             s3_sync_bucket=self.s3_sync_bucket,
-            asset_catalog=self.asset_catalog,
+            asset_catalog=None,
             config=config,
         )
         qc_pipeline.set_network_station_campaign(
@@ -1165,10 +1193,6 @@ class WorkflowHandler(WorkflowABC):
 
         # Get the GARPOS handler and run GARPOS
         qc_garpos_handler = self.modeling_get_garpos_handler()
-        qc_garpos_handler.current_campaign_dir.location = (
-            qc_garpos_handler.current_campaign_dir.qc
-        )
-        qc_garpos_handler.current_campaign_dir.build()
         qc_garpos_handler.run_garpos(
             surveys=gp_dir_list,
             run_id=run_id,
@@ -1176,14 +1200,14 @@ class WorkflowHandler(WorkflowABC):
             override=garpos_override,
             custom_settings=garpos_settings,
         )
-        for survey_dir in gp_dir_list:
+        for garpos_layout in gp_dir_list:
             qc_garpos_handler._plot_ts_results(
-                survey_id=survey_dir.survey_dir.name,
+                survey_id=garpos_layout.root.parent.name,
                 run_id=run_id,
                 res_filter=10,
                 savefig=True,
                 showfig=False,
-                results_dir=survey_dir.results_dir,
+                results_dir=garpos_layout.results,
             )
 
     @validate_network_station_campaign

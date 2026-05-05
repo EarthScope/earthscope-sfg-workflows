@@ -30,6 +30,7 @@ class InMemoryAssetStore:
         self._lock = threading.RLock()
         self._rows: dict[int, AssetEntry] = {}
         self._ids = count(start=1)
+        self._merge_jobs: set[tuple[str, str, str]] = set()
 
     def add(self, asset: AssetEntry) -> AssetEntry:
         with self._lock:
@@ -93,6 +94,36 @@ class InMemoryAssetStore:
                 if a.scope.tuple == scope.tuple:
                     counts[a.kind] += 1
             return dict(counts)
+
+    def delete_by_id(self, asset_id: int) -> bool:
+        with self._lock:
+            return self._rows.pop(asset_id, None) is not None
+
+    # -- merge job tracking -----------------------------------------------
+
+    @staticmethod
+    def _merge_signature(parent_ids: list[int] | list[str]) -> str:
+        return "-".join(sorted(str(x) for x in parent_ids))
+
+    def add_merge_job(
+        self,
+        parent_type: str,
+        child_type: str,
+        parent_ids: list[int] | list[str],
+    ) -> None:
+        sig = (parent_type, child_type, self._merge_signature(parent_ids))
+        with self._lock:
+            self._merge_jobs.add(sig)
+
+    def is_merge_complete(
+        self,
+        parent_type: str,
+        child_type: str,
+        parent_ids: list[int] | list[str],
+    ) -> bool:
+        sig = (parent_type, child_type, self._merge_signature(parent_ids))
+        with self._lock:
+            return sig in self._merge_jobs
 
     def close(self) -> None:  # no-op
         return None

@@ -281,6 +281,84 @@ class Workspace(AbstractContextManager["Workspace"]):
         self._survey_meta = survey
 
     # ------------------------------------------------------------------
+    # Filesystem-driven metadata bootstrapping (for mid-process workflows)
+    # ------------------------------------------------------------------
+
+    def try_load_site_metadata_from_disk(self) -> bool:
+        """Read the site metadata JSON from disk into the workspace.
+
+        Returns ``True`` if a file was found and parsed. Used by mid-process
+        callers that need to set scope from a station's metadata file.
+
+        Only requires network and station to be set; the campaign may be
+        unset (this method is typically called immediately after
+        :meth:`set_station`).
+        """
+        from earthscope_sfg_tools.datamodels.metadata import Site
+
+        if self._network is None or self._station is None:
+            return False
+        path = (
+            self._root_dir / self._network / self._station / "site_metadata.json"
+        )
+        if self._files.is_file(path):
+            self._site = Site.from_json(path)
+            return True
+        return False
+
+    def select_campaign_from_metadata(self, campaign_id: str) -> None:
+        """Find ``campaign_id`` in the loaded site metadata and activate it.
+
+        Sets both the campaign name and the cached campaign metadata. Caller
+        must have loaded site metadata first.
+        """
+        if self._site is None:
+            raise ValueError(
+                "Site metadata must be loaded before select_campaign_from_metadata()"
+            )
+        for campaign in self._site.campaigns:
+            if campaign.name == campaign_id:
+                self.set_campaign(campaign.name)
+                self._campaign_meta = campaign
+                return
+        raise ValueError(f"Campaign {campaign_id!r} not found in site metadata")
+
+    def select_survey_from_metadata(self, survey_id: str) -> None:
+        """Find ``survey_id`` in the loaded campaign metadata and activate it."""
+        if self._campaign_meta is None:
+            raise ValueError(
+                "Campaign metadata must be loaded before select_survey_from_metadata()"
+            )
+        for survey in self._campaign_meta.surveys:
+            if survey.id == survey_id:
+                self.set_survey(survey_id)
+                self._survey_meta = survey
+                return
+        raise ValueError(
+            f"Survey {survey_id!r} not found in campaign {self._campaign_meta.name!r}"
+        )
+
+    # ------------------------------------------------------------------
+    # Bootstrapping (no scope required)
+    # ------------------------------------------------------------------
+
+    def bootstrap(self) -> None:
+        """Materialize the workspace root and pride dir. Scope-free."""
+        self._builder.ensure_workspace()
+
+    def ensure_network_dir(self, network: str) -> Path:
+        """Materialize ``<root>/<network>``. Scope-free."""
+        path = self._tree.network_dir(network)
+        self._files.mkdir(path)
+        return path
+
+    def ensure_station_dir(self, network: str, station: str) -> Path:
+        """Materialize ``<root>/<network>/<station>``. Scope-free."""
+        path = self._tree.network_dir(network) / station
+        self._files.mkdir(path)
+        return path
+
+    # ------------------------------------------------------------------
     # Façade properties
     # ------------------------------------------------------------------
 

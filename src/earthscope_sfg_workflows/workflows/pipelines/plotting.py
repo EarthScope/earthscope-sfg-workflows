@@ -6,7 +6,7 @@ import numpy as np
 
 from earthscope_sfg_tools.tiledb_integration import TDBKinPositionArray
 
-from ...data_mgmt.assetcatalog import AssetEntry
+from ...data_mgmt.model import AssetEntry
 
 UNIX_EPOCH = np.datetime64("1970-01-01T00:00:00Z")
 
