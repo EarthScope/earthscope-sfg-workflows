@@ -8,7 +8,7 @@ one.
 See ``plans/rfc-a-data-mgmt-ports-and-adapters.md``.
 """
 
-from .core import DEFAULT_PATTERNS, FileTypeDetector, Ingestor, TreeBuilder
+from .core import DEFAULT_PATTERNS, FileTypeDetector, Ingestor, LayoutInspector, TreeBuilder
 from .model import (
     ArchiveFile,
     AssetEntry,
@@ -54,4 +54,5 @@ __all__ = [
     "DEFAULT_PATTERNS",
     "TreeBuilder",
     "Ingestor",
+    "LayoutInspector",
 ]

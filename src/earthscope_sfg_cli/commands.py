@@ -19,7 +19,13 @@ def run_manifest(manifest_object):
         AssertionError: If a directory listed in an ingestion job does not exist.
     """
     from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
-    from earthscope_sfg_workflows.data_mgmt.ingestion.archive_pull import list_campaign_files
+    from earthscope_sfg_workflows.data_mgmt import CampaignScope
+    from earthscope_sfg_workflows.data_mgmt._archive_urls import (
+        list_campaign_archive_urls,
+    )
+    from earthscope_sfg_workflows.data_mgmt.adapters.earthscope_archive import (
+        EarthScopeArchive,
+    )
     from earthscope_sfg_workflows.modeling.garpos_tools.load_utils import load_lib
     from earthscope_sfg_workflows.workflows.workflow_handler import WorkflowHandler
 
@@ -29,6 +35,7 @@ def run_manifest(manifest_object):
     display_pipelinemanifest(manifest_object)
     load_lib()
     wfh = WorkflowHandler(directory=manifest_object.main_directory)
+    archive = EarthScopeArchive()
 
     for ingest_job in manifest_object.ingestion_jobs:
         wfh.set_network_station_campaign(
@@ -40,7 +47,10 @@ def run_manifest(manifest_object):
         wfh.ingest_add_local_data(ingest_job.directory)
 
     for job in manifest_object.download_jobs:
-        urls = list_campaign_files(**job.model_dump())
+        scope = CampaignScope(
+            network=job.network, station=job.station, campaign=job.campaign
+        )
+        urls = list_campaign_archive_urls(archive, scope)
         if not urls:
             print(f"No Remote Assets Found For {job.model_dump()}")
         wfh.set_network_station_campaign(

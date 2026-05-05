@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+from ._archive_urls import canonical_campaign_urls, list_campaign_archive_urls
 from .model import (
     ArchiveFile,
     AssetEntry,
@@ -247,6 +248,44 @@ class Ingestor:
             errors=tuple(errors),
         )
 
+    # -- canonical campaign discovery -------------------------------------
+
+    def discover_campaign(self, scope: CampaignScope) -> IngestReport:
+        """Discover the four canonical EarthScope campaign URLs in one call.
+
+        Composes raw, metadata, RINEX 1Hz, and RINEX 10Hz URLs for ``scope``
+        (see :mod:`data_mgmt._archive_urls`), lists each, and catalogs every
+        recognized remote file. Replaces the legacy
+        ``data_mgmt.ingestion.archive_pull.list_campaign_files`` flow with a
+        single domain-level operation.
+
+        Errors from individual URLs are collected into the returned
+        :class:`IngestReport` rather than raised; partial success is the
+        common case (e.g. RINEX 10Hz absent for a campaign).
+        """
+        cataloged = 0
+        skipped = 0
+        errors: list[str] = []
+
+        for url in canonical_campaign_urls(scope):
+            sub = self.discover_archive(scope, url)
+            cataloged += sub.cataloged
+            skipped += sub.skipped
+            errors.extend(sub.errors)
+
+        return IngestReport(
+            cataloged=cataloged,
+            skipped=skipped,
+            errors=tuple(errors),
+        )
+
+    def list_archive_urls(self, scope: CampaignScope) -> list[str]:
+        """Enumerate every archive file URL for ``scope`` without writing to the catalog.
+
+        Side-effect-free counterpart to :meth:`discover_campaign`.
+        """
+        return list_campaign_archive_urls(self._archive, scope)
+
     # -- download cataloged remotes ---------------------------------------
 
     def download(
@@ -303,9 +342,98 @@ class Ingestor:
         return out
 
 
+# ---------------------------------------------------------------------------
+# LayoutInspector — FileStore-backed I/O queries over pure layouts
+# ---------------------------------------------------------------------------
+
+
+class LayoutInspector:
+    """File-store-backed introspection of pure :mod:`data_mgmt.model` layouts.
+
+    Replaces the I/O methods that used to live on the legacy Pydantic
+    directory schemas (``GARPOSSurveyDir.is_garpos_directory``,
+    ``find_rectified_shotdata``, etc.). Decouples *describing* a layout
+    (pure paths) from *probing* it on a backing store (local FS, S3,
+    in-memory).
+
+    All methods are total: missing files return ``None`` / ``False`` / ``[]``
+    rather than raising. Exceptions propagate only when the underlying
+    :class:`FileStore` itself fails.
+    """
+
+    def __init__(self, files: FileStore) -> None:
+        self._files = files
+
+    # -- GARPOS ------------------------------------------------------------
+
+    def is_garpos_directory(self, layout: GARPOSLayout) -> bool:
+        """A directory is a GARPOS dir if it has both default GARPOS files."""
+        return self._files.is_file(layout.obs_file) and self._files.is_file(
+            layout.settings_file
+        )
+
+    def find_rectified_shotdata(self, layout: GARPOSLayout) -> Path | None:
+        """Locate the first ``*_rectified.csv`` directly under the GARPOS dir."""
+        return self._first_match(layout.root, "_rectified.csv")
+
+    def find_filtered_shotdata(self, survey_dir: Path) -> Path | None:
+        """Locate the first ``*_filtered.csv`` in the parent survey directory."""
+        return self._first_match(survey_dir, "_filtered.csv")
+
+    # -- Campaign ----------------------------------------------------------
+
+    def is_campaign_directory(self, layout: CampaignLayout) -> bool:
+        """Heuristic: a campaign dir exists and has the standard subdirs."""
+        if not self._files.is_dir(layout.root):
+            return False
+        return all(self._files.is_dir(p) for p in (layout.raw, layout.processed))
+
+    def find_master_xml(self, layout: CampaignLayout) -> Path | None:
+        """Locate the first ``master*.xml`` under the campaign metadata layout."""
+        return self._first_match(layout.root, ".xml", contains="master")
+
+    # -- Generic -----------------------------------------------------------
+
+    def list_kind(
+        self,
+        directory: Path,
+        suffix: str | None = None,
+        contains: str | None = None,
+    ) -> list[Path]:
+        """List files in ``directory`` filtered by suffix and/or substring.
+
+        Non-recursive. Returns paths sorted by name for determinism. Returns
+        ``[]`` if ``directory`` does not exist.
+        """
+        if not self._files.is_dir(directory):
+            return []
+        out: list[Path] = []
+        for info in self._files.list_files(directory, recursive=False):
+            if not info.is_file:
+                continue
+            name = info.path.name
+            if suffix is not None and not name.endswith(suffix):
+                continue
+            if contains is not None and contains.lower() not in name.lower():
+                continue
+            out.append(info.path)
+        out.sort(key=lambda p: p.name)
+        return out
+
+    def _first_match(
+        self,
+        directory: Path,
+        suffix: str,
+        contains: str | None = None,
+    ) -> Path | None:
+        matches = self.list_kind(directory, suffix=suffix, contains=contains)
+        return matches[0] if matches else None
+
+
 __all__ = [
     "DEFAULT_PATTERNS",
     "FileTypeDetector",
     "TreeBuilder",
     "Ingestor",
+    "LayoutInspector",
 ]
