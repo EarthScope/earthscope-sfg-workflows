@@ -19,17 +19,6 @@ from pydantic import (
 
 from earthscope_sfg_workflows.logging import GarposLogger as logger
 
-from .load_utils import load_lib
-
-try:
-    _lib = load_lib()
-    LIB_DIRECTORY, LIB_RAYTRACE = _lib if _lib is not None else ("", "")
-except Exception:
-    try:
-        from garpos import LIB_DIRECTORY, LIB_RAYTRACE
-    except ImportError:
-        LIB_DIRECTORY, LIB_RAYTRACE = "", ""
-
 
 class GPPositionLLH(BaseModel):
     """Geodetic position in latitude/longitude/height (degrees, meters)."""
@@ -343,8 +332,8 @@ class InversionParams(BaseModel):
 class GarposFixed(BaseModel):
     """GARPOS fixed configuration: library paths and inversion parameters."""
 
-    lib_directory: str = LIB_DIRECTORY
-    lib_raytrace: str = LIB_RAYTRACE
+    lib_directory: str = ""
+    lib_raytrace: str = ""
     inversion_params: InversionParams = InversionParams()
 
     def _to_datafile(self, path: Path) -> None:

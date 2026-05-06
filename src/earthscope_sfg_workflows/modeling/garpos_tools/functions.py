@@ -13,7 +13,6 @@ sns.set_theme()
 
 from earthscope_sfg_workflows.logging import GarposLogger as logger  # noqa: E402
 
-from .load_utils import load_drive_garpos  # noqa: E402
 from .schemas import (  # noqa: E402
     GarposInput,
     GarposObservationOutput,
@@ -22,11 +21,6 @@ from .schemas import (  # noqa: E402
     GPTransponder,
     ObservationData,
 )
-
-try:
-    drive_garpos = load_drive_garpos()
-except Exception:
-    pass
 
 colors = [
     "blue",

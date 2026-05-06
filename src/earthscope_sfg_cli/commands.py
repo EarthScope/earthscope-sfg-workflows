@@ -26,14 +26,14 @@ def run_manifest(manifest_object):
     from earthscope_sfg_workflows.data_mgmt.adapters.earthscope_archive import (
         EarthScopeArchive,
     )
-    from earthscope_sfg_workflows.modeling.garpos_tools.load_utils import load_lib
+    from earthscope_sfg_workflows.modeling.garpos_tools.load_utils import get_lib_paths
     from earthscope_sfg_workflows.workflows.workflow_handler import WorkflowHandler
 
     from .manifest import GARPOSConfig
     from .utils import display_pipelinemanifest
 
     display_pipelinemanifest(manifest_object)
-    load_lib()
+    get_lib_paths()
     wfh = WorkflowHandler(directory=manifest_object.main_directory)
     archive = EarthScopeArchive()
 

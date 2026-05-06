@@ -87,7 +87,7 @@ clone-pride = { cmd = "bash -c 'if [ -d .pixi/PRIDE-PPPAR ]; then git -C .pixi/P
 install-pride = { cmd = "chmod +x install.sh && echo 'N' | HOME=$PIXI_PROJECT_ROOT/.pixi ./install.sh", cwd = ".pixi/PRIDE-PPPAR", depends-on = ["clone-pride"] }
 test-pride = { cmd = "chmod +x test.sh && ./test.sh", cwd = ".pixi/PRIDE-PPPAR/example", depends-on = ["install-pride"] }
 
-setup = { depends-on = ["compile-garpos", "install-pride", "build-novatel-go"] }
+setup = { depends-on = ["compile-garpos", "install-pride"] }
 test-setup = {depends-on = ["test-garpos","test-pride"]}
 
 

@@ -2,96 +2,118 @@
 
 Resolves `GARPOS_PATH` and locates `f90lib/lib_raytrace.so`, which the GARPOS
 ray-tracing layer needs at runtime.
+
+Public entrypoints:
+    - :func:`get_drive_garpos` — resolve the ``drive_garpos`` callable from
+      whichever GARPOS install is available (pip package or ``GARPOS_PATH``).
+    - :func:`get_lib_paths` — resolve the Fortran ``(f90lib_dir, lib_raytrace.so)``
+      paths for a ``GARPOS_PATH`` source checkout.
+
+Callers should not import ``garpos.drive_garpos`` directly — that hides
+whichever install path the user actually has.
 """
 
 import importlib.util
 import os
 import sys
 from collections.abc import Callable
+from functools import cache
 from pathlib import Path
 
 from earthscope_sfg_workflows.logging import GarposLogger as logger
 
 
-def load_lib() -> tuple[str, str]:
-    """
-    Loads the required library paths for GARPOS and validates their existence.
-    This function retrieves the GARPOS_PATH environment variable, verifies its existence,
-    and searches for the `f90lib` directory within it. It then ensures the presence of
-    the `lib_raytrace.so` file inside the `f90lib` directory. If any of these components
-    are missing, appropriate exceptions are raised.
-    Returns:
-        Tuple[str, str]: A tuple containing the paths to the `f90lib` directory and the
-        `lib_raytrace.so` file as strings.
-    Raises:
-        FileNotFoundError: If GARPOS_PATH does not exist, the `f90lib` directory is not
-        found, or the `lib_raytrace.so` file is missing.
-    """
-
-    garpos_path = os.getenv("GARPOS_PATH", None)
-    if garpos_path is None or garpos_path == "None":
-        return
-    garpos_path = Path(garpos_path)
-    if not garpos_path.exists():
-        raise FileNotFoundError(f"GARPOS_PATH {garpos_path} does not exist")
-    logger.debug(f"Found GARPOS_PATH: {garpos_path}")
-    f90lib_path = None
-    # find /f90lib dir
-    for dirs in garpos_path.glob("**/f90lib"):
-        if dirs.is_dir():
-            f90lib_path = dirs
-            logger.debug(f"Found f90lib directory: {f90lib_path}")
-            break
-    if f90lib_path is None:
-        raise FileNotFoundError("f90lib directory not found in GARPOS_PATH")
-
-    # find libraytrace.so
-
-    lib_raytrace = f90lib_path / "lib_raytrace.so"
-    if not lib_raytrace.exists():
-        raise FileNotFoundError("lib_raytrace.so not found in f90lib directory")
-    logger.debug(f"Found lib_raytrace.so: {lib_raytrace}")
-    return str(f90lib_path), str(lib_raytrace)
+class GarposNotInstalledError(RuntimeError):
+    """Raised when neither a pip-installed nor a `GARPOS_PATH` GARPOS is reachable."""
 
 
-def load_drive_garpos() -> Callable:
-    """
-    Loads the `drive_garpos` function from the `garpos_main.py` module located
-    within the directory specified by the `GARPOS_PATH` environment variable.
-
-    This function performs the following steps:
-    1. Retrieves the `GARPOS_PATH` environment variable and validates its existence.
-    2. Searches for the `garpos_main.py` file within the `GARPOS_PATH` directory.
-    3. Dynamically imports the `garpos_main` module and retrieves the `drive_garpos` function.
-
-    Returns:
-        Callable: The `drive_garpos` function from the `garpos_main.py` module.
+def _garpos_path_root() -> Path | None:
+    """Return ``Path(GARPOS_PATH)`` if set and exists, else ``None``.
 
     Raises:
-        FileNotFoundError: If the `GARPOS_PATH` environment variable is not set,
-                           the path does not exist, or the `garpos_main.py` file
-                           is not found within the directory.
-        AttributeError: If the `drive_garpos` function is not found in the
-                        `garpos_main` module.
+        FileNotFoundError: If ``GARPOS_PATH`` is set but does not exist.
     """
-    garpos_path_env = os.getenv("GARPOS_PATH", None)
-    if garpos_path_env is None or garpos_path_env == "None":
+    raw = os.getenv("GARPOS_PATH", None)
+    if raw is None or raw == "None":
+        return None
+    root = Path(raw)
+    if not root.exists():
+        raise FileNotFoundError(f"GARPOS_PATH {root} does not exist")
+    return root
+
+
+def _candidate_subroots(root: Path) -> list[Path]:
+    """Return likely GARPOS package roots: the path itself plus immediate subdirs.
+
+    Bounded to depth=1 to avoid traversing arbitrary user trees. Upstream
+    layouts place the package under ``<root>`` directly or under a versioned
+    subdir like ``<root>/garpos_v102/``.
+    """
+    candidates = [root]
+    candidates.extend(sorted(p for p in root.iterdir() if p.is_dir()))
+    return candidates
+
+
+def _resolve_lib_paths() -> tuple[str, str] | None:
+    """Resolve the GARPOS Fortran library paths from ``GARPOS_PATH``.
+
+    Returns:
+        ``(f90lib_dir, lib_raytrace_so)`` as strings, or ``None`` if
+        ``GARPOS_PATH`` is unset.
+
+    Raises:
+        FileNotFoundError: If ``GARPOS_PATH`` is set but ``f90lib`` /
+            ``lib_raytrace.so`` cannot be located in the path or any of its
+            immediate subdirectories.
+    """
+    root = _garpos_path_root()
+    if root is None:
+        return None
+    logger.debug(f"Found GARPOS_PATH: {root}")
+
+    for base in _candidate_subroots(root):
+        f90lib = base / "f90lib"
+        raytrace = f90lib / "lib_raytrace.so"
+        if f90lib.is_dir() and raytrace.exists():
+            logger.debug(f"Found f90lib directory: {f90lib}")
+            logger.debug(f"Found lib_raytrace.so: {raytrace}")
+            return str(f90lib), str(raytrace)
+
+    raise FileNotFoundError(
+        f"f90lib/lib_raytrace.so not found under {root} or its immediate subdirectories"
+    )
+
+
+def _load_drive_garpos_from_path() -> Callable:
+    """Dynamically load ``drive_garpos`` from ``$GARPOS_PATH``.
+
+    Looks for ``garpos_main.py`` under ``$GARPOS_PATH`` or any of its
+    immediate subdirectories (e.g. ``garpos_v102/garpos_main.py``).
+
+    Returns:
+        The ``drive_garpos`` function from the discovered module.
+
+    Raises:
+        FileNotFoundError: If ``GARPOS_PATH`` is unset, or ``garpos_main.py``
+            cannot be located.
+        AttributeError: If the discovered module has no ``drive_garpos``.
+    """
+    root = _garpos_path_root()
+    if root is None:
         raise FileNotFoundError("GARPOS_PATH environment variable is not set")
-    garpos_path = Path(garpos_path_env)
-    if not garpos_path.exists():
-        raise FileNotFoundError(f"GARPOS_PATH {garpos_path} does not exist")
-    logger.debug(f"Found GARPOS_PATH: {garpos_path}")
+    logger.debug(f"Found GARPOS_PATH: {root}")
 
-    # find the function drive_garpos in garpos_main.py
-    garpos_main = None
-    for file in list(garpos_path.rglob("*.py")):
-        if "garpos_main" in file.name:
-            garpos_main = file
-            logger.debug(f"Found garpos_main.py: {str(garpos_main)}")
+    garpos_main: Path | None = None
+    for base in _candidate_subroots(root):
+        candidate = base / "garpos_main.py"
+        if candidate.exists():
+            garpos_main = candidate
             break
-
-    if not garpos_main:
-        raise FileNotFoundError("Garpos main module not found")
+    if garpos_main is None:
+        raise FileNotFoundError(
+            f"garpos_main.py not found under {root} or its immediate subdirectories"
+        )
+    logger.debug(f"Found garpos_main.py: {garpos_main}")
 
     # Setup module
     module_name = str(garpos_main.parent.stem)
@@ -102,5 +124,54 @@ def load_drive_garpos() -> Callable:
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     garpos_main_module = importlib.import_module(f"{garpos_main.parent.stem}.{garpos_main.stem}")
-    drive_garpos = garpos_main_module.drive_garpos
-    return drive_garpos
+    return garpos_main_module.drive_garpos
+
+
+@cache
+def get_lib_paths() -> tuple[str, str] | None:
+    """Public, cached resolver for the GARPOS Fortran library paths.
+
+    See :func:`_resolve_lib_paths` for behavior.
+    """
+    return _resolve_lib_paths()
+
+
+@cache
+def get_drive_garpos() -> Callable:
+    """Resolve ``drive_garpos`` from whichever GARPOS install is available.
+
+    Resolution order:
+        1. ``from garpos import drive_garpos`` — pip-installed package.
+        2. :func:`_load_drive_garpos_from_path` — dynamic load from ``GARPOS_PATH``.
+
+    The result is cached for the process lifetime.
+
+    Raises:
+        GarposNotInstalledError: If neither install path yields a usable
+            ``drive_garpos`` callable. The error message lists both
+            attempted strategies and how to fix them.
+    """
+    # Strategy 1: pip-installed package.
+    try:
+        from garpos import drive_garpos as pkg_drive_garpos
+
+        logger.debug("Resolved drive_garpos from installed `garpos` package")
+        return pkg_drive_garpos
+    except ImportError as pkg_exc:
+        pkg_error = str(pkg_exc)
+
+    # Strategy 2: GARPOS_PATH dynamic import.
+    try:
+        fn = _load_drive_garpos_from_path()
+        logger.debug("Resolved drive_garpos from GARPOS_PATH")
+        return fn
+    except (FileNotFoundError, AttributeError) as src_exc:
+        src_error = str(src_exc)
+
+    raise GarposNotInstalledError(
+        "Could not locate a GARPOS install.\n"
+        f"  - `import garpos` failed: {pkg_error}\n"
+        f"  - GARPOS_PATH fallback failed: {src_error}\n"
+        "Install the `garpos` package, or set GARPOS_PATH to a checkout of "
+        "https://github.com/s-watanabe-ihp/garpos."
+    )

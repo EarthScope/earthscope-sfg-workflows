@@ -26,15 +26,11 @@ from ...modeling.garpos_tools.schemas import (  # noqa: E402
     InversionParams,
 )
 
-try:
-    from garpos import drive_garpos
-except ImportError:
-    # Handle the case where garpos is not available
-    pass
 from earthscope_sfg_workflows.logging import GarposLogger as logger  # noqa: E402
 from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config  # noqa: E402
 
 from ...modeling.garpos_tools.functions import process_garpos_results  # noqa: E402
+from ...modeling.garpos_tools.load_utils import get_drive_garpos, get_lib_paths  # noqa: E402
 from ...modeling.garpos_tools.schemas import ObservationData  # noqa: E402
 from ..midprocess.mid_processing import IntermediateDataProcessor  # noqa: E402
 
@@ -210,6 +206,15 @@ class GarposHandler(IntermediateDataProcessor):
                 override_config=custom_settings,
             )
 
+        # If a GARPOS_PATH source install is in use, fill in the Fortran lib
+        # paths the inversion needs. The pip-installed `garpos` package
+        # provides these internally, so missing values are not necessarily
+        # an error here — surface them only if the inversion actually fails.
+        if not garpos_fixed_params.lib_directory or not garpos_fixed_params.lib_raytrace:
+            lib_paths = get_lib_paths()
+            if lib_paths is not None:
+                garpos_fixed_params.lib_directory, garpos_fixed_params.lib_raytrace = lib_paths
+
         garpos_input = GarposInput.from_datafile(obsfile_path)
         results_suffix = f"{garpos_input.survey_id}_{run_id}"
         results_path = results_dir / f"{results_suffix}-res.dat"
@@ -225,7 +230,7 @@ class GarposHandler(IntermediateDataProcessor):
         garpos_fixed_params._to_datafile(fixed_path)
         garpos_input.to_datafile(input_path)
 
-        rf = drive_garpos(
+        rf = get_drive_garpos()(
             str(input_path),
             str(fixed_path),
             str(results_dir) + "/",
