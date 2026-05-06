@@ -86,15 +86,14 @@ class WorkflowHandler(WorkflowBase):
         """
         if workspace is None:
             import os
+
             if directory is None:
                 directory = os.environ.get("MAIN_DIRECTORY", ".")
             workspace = _build_default_workspace(directory)
 
         super().__init__(workspace)
         self.s3_sync_bucket: str | None = s3_sync_bucket
-        self.data_handler = DataHandler(
-            workspace=self.workspace, s3_sync_bucket=s3_sync_bucket
-        )
+        self.data_handler = DataHandler(workspace=self.workspace, s3_sync_bucket=s3_sync_bucket)
 
     # ------------------------------------------------------------------
     # Backwards-compat scope/metadata aliases (forward to workspace).
@@ -177,16 +176,12 @@ class WorkflowHandler(WorkflowBase):
         >>> campaigns = workflow.list_campaign_directories()
         ['2022_A_1065','2023_A_1063','2025_A_1126']
         """
-      
+
         station_dir = (
-            Path(self.workspace.root)
-            / self.workspace.network_name
-            / self.workspace.station_name
+            Path(self.workspace.root) / self.workspace.network_name / self.workspace.station_name
         )
         campaign_dirs: List[Path] = [
-            x
-            for x in station_dir.iterdir()
-            if x.is_dir() and re.match(r"^\d{4}", x.name)
+            x for x in station_dir.iterdir() if x.is_dir() and re.match(r"^\d{4}", x.name)
         ]
         return campaign_dirs
 
@@ -435,11 +430,15 @@ class WorkflowHandler(WorkflowBase):
                 assert isinstance(
                     primary_config,
                     (type(None), dict, SV3PipelineConfig, NovatelConfig),
-                ), "Primary config must be provided and be of type None, dict, SV3PipelineConfig, or NovatelConfig when running process_novatel"
+                ), (
+                    "Primary config must be provided and be of type None, dict, SV3PipelineConfig, or NovatelConfig when running process_novatel"
+                )
                 assert isinstance(
                     secondary_config,
                     (type(None), dict, SV3PipelineConfig, NovatelConfig),
-                ), "Secondary config must be of type None, dict, SV3PipelineConfig, or NovatelConfig when running process_novatel"
+                ), (
+                    "Secondary config must be of type None, dict, SV3PipelineConfig, or NovatelConfig when running process_novatel"
+                )
                 try:
                     pipeline.pre_process_novatel()
                 except Exception as e:
@@ -449,10 +448,14 @@ class WorkflowHandler(WorkflowBase):
             case "build_rinex":
                 assert isinstance(
                     primary_config, (type(None), dict, SV3PipelineConfig, RinexConfig)
-                ), "Primary config must be provided and be of type None, dict, SV3PipelineConfig, or RinexConfig when running build_rinex"
+                ), (
+                    "Primary config must be provided and be of type None, dict, SV3PipelineConfig, or RinexConfig when running build_rinex"
+                )
                 assert isinstance(
                     secondary_config, (type(None), dict, SV3PipelineConfig, RinexConfig)
-                ), "Secondary config must be of type None, dict, SV3PipelineConfig, or RinexConfig when running build_rinex"
+                ), (
+                    "Secondary config must be of type None, dict, SV3PipelineConfig, or RinexConfig when running build_rinex"
+                )
                 try:
                     pipeline.get_rinex_files()
                 except Exception as e:
@@ -463,11 +466,15 @@ class WorkflowHandler(WorkflowBase):
                 assert isinstance(
                     primary_config,
                     (type(None), dict, SV3PipelineConfig, PrideCLIConfig),
-                ), "Primary config must be provided and be of type None, dict, SV3PipelineConfig, or PrideCLIConfig when running run_pride"
+                ), (
+                    "Primary config must be provided and be of type None, dict, SV3PipelineConfig, or PrideCLIConfig when running run_pride"
+                )
                 assert isinstance(
                     secondary_config,
                     (type(None), dict, SV3PipelineConfig, PrideCLIConfig),
-                ), "Secondary config must be of type None, dict, SV3PipelineConfig, or PrideCLIConfig when running run_pride"
+                ), (
+                    "Secondary config must be of type None, dict, SV3PipelineConfig, or PrideCLIConfig when running run_pride"
+                )
                 try:
                     pipeline.process_rinex()
                 except Exception as e:
@@ -475,12 +482,12 @@ class WorkflowHandler(WorkflowBase):
                     raise e
 
             case "process_kinematic":
-                assert isinstance(
-                    primary_config, (type(None), dict, RinexConfig)
-                ), "Primary config must be provided and be of type None, dict, or RinexConfig when running process_kinematic"
-                assert isinstance(
-                    secondary_config, (type(None), dict, RinexConfig)
-                ), "Secondary config must be of type None, dict, or RinexConfig when running process_kinematic"
+                assert isinstance(primary_config, (type(None), dict, RinexConfig)), (
+                    "Primary config must be provided and be of type None, dict, or RinexConfig when running process_kinematic"
+                )
+                assert isinstance(secondary_config, (type(None), dict, RinexConfig)), (
+                    "Secondary config must be of type None, dict, or RinexConfig when running process_kinematic"
+                )
                 try:
                     pipeline.process_kin()
                 except Exception as e:
@@ -488,12 +495,12 @@ class WorkflowHandler(WorkflowBase):
                     raise e
 
             case "process_dfop00":
-                assert isinstance(
-                    primary_config, (type(None), dict, DFOP00Config)
-                ), "Primary config must be provided and be of type None, dict, or DFOP00Config when running process_dfop00"
-                assert isinstance(
-                    secondary_config, (type(None), dict, DFOP00Config)
-                ), "Secondary config must be of type None, dict, or DFOP00Config when running process_dfop00"
+                assert isinstance(primary_config, (type(None), dict, DFOP00Config)), (
+                    "Primary config must be provided and be of type None, dict, or DFOP00Config when running process_dfop00"
+                )
+                assert isinstance(secondary_config, (type(None), dict, DFOP00Config)), (
+                    "Secondary config must be of type None, dict, or DFOP00Config when running process_dfop00"
+                )
                 try:
                     pipeline.process_dfop00()
                 except Exception as e:
@@ -501,12 +508,12 @@ class WorkflowHandler(WorkflowBase):
                     raise e
 
             case "refine_shotdata":
-                assert isinstance(
-                    primary_config, (type(None), dict, PositionUpdateConfig)
-                ), "Primary config must be provided and be of type None, dict, or PositionUpdateConfig when running refine_shotdata"
-                assert isinstance(
-                    secondary_config, (type(None), dict, PositionUpdateConfig)
-                ), "Secondary config must be of type None, dict, or PositionUpdateConfig when running refine_shotdata"
+                assert isinstance(primary_config, (type(None), dict, PositionUpdateConfig)), (
+                    "Primary config must be provided and be of type None, dict, or PositionUpdateConfig when running refine_shotdata"
+                )
+                assert isinstance(secondary_config, (type(None), dict, PositionUpdateConfig)), (
+                    "Secondary config must be of type None, dict, or PositionUpdateConfig when running refine_shotdata"
+                )
                 try:
                     pipeline.update_shotdata()
                 except Exception as e:
@@ -514,12 +521,12 @@ class WorkflowHandler(WorkflowBase):
                     raise e
 
             case "process_svp":
-                assert isinstance(
-                    primary_config, (type(None), dict, SV3PipelineConfig)
-                ), "Primary config must be provided and be of type None, dict, or SV3PipelineConfig when running process_svp"
-                assert isinstance(
-                    secondary_config, (type(None), dict, SV3PipelineConfig)
-                ), "Secondary config must be of type None, dict, or SV3PipelineConfig when running process_svp"
+                assert isinstance(primary_config, (type(None), dict, SV3PipelineConfig)), (
+                    "Primary config must be provided and be of type None, dict, or SV3PipelineConfig when running process_svp"
+                )
+                assert isinstance(secondary_config, (type(None), dict, SV3PipelineConfig)), (
+                    "Secondary config must be of type None, dict, or SV3PipelineConfig when running process_svp"
+                )
                 try:
                     pipeline.process_svp()
                 except Exception as e:
@@ -775,9 +782,9 @@ class WorkflowHandler(WorkflowBase):
             site_metadata = Site.from_json(site_metadata)
 
         else:
-            assert isinstance(
-                site_metadata, Site
-            ), "site_metadata must be of type Site if not a str or Path"
+            assert isinstance(site_metadata, Site), (
+                "site_metadata must be of type Site if not a str or Path"
+            )
 
         if site_metadata is None:
             raise ValueError("Site metadata not loaded or provided, cannot proceed")
@@ -1180,9 +1187,7 @@ class WorkflowHandler(WorkflowBase):
 
         # Get the intermediate data processor and parse QC surveys
         try:
-            qc_mid_processor = self.midprocess_get_processor(
-                site_metadata=site_metadata
-            )
+            qc_mid_processor = self.midprocess_get_processor(site_metadata=site_metadata)
         except ValueError as e:
             raise e  # for visibility
 

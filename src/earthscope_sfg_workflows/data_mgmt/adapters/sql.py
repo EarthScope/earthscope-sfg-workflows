@@ -140,11 +140,7 @@ class SqlAssetStore:
         if asset.id is None:
             return False
         with self._Session.begin() as session:
-            stmt = (
-                update(Assets)
-                .where(Assets.id == asset.id)
-                .values(**_entry_to_kwargs(asset))
-            )
+            stmt = update(Assets).where(Assets.id == asset.id).values(**_entry_to_kwargs(asset))
             result = session.execute(stmt)
             return result.rowcount > 0
 
@@ -155,9 +151,11 @@ class SqlAssetStore:
 
     def by_local_path(self, path: Path) -> list[AssetEntry]:
         with self._Session() as session:
-            rows = session.execute(
-                select(Assets).where(Assets.local_path == str(path))
-            ).scalars().all()
+            rows = (
+                session.execute(select(Assets).where(Assets.local_path == str(path)))
+                .scalars()
+                .all()
+            )
             return [_row_to_entry(r) for r in rows]
 
     def assets_for(
@@ -198,13 +196,17 @@ class SqlAssetStore:
 
     def count_by_kind(self, scope: CampaignScope) -> dict[AssetKind, int]:
         with self._Session() as session:
-            rows = session.execute(
-                select(Assets.type).where(
-                    Assets.network == scope.network,
-                    Assets.station == scope.station,
-                    Assets.campaign == scope.campaign,
+            rows = (
+                session.execute(
+                    select(Assets.type).where(
+                        Assets.network == scope.network,
+                        Assets.station == scope.station,
+                        Assets.campaign == scope.campaign,
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         counts: dict[AssetKind, int] = defaultdict(int)
         for t in rows:
             try:

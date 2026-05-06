@@ -83,7 +83,12 @@ class GarposHandler(IntermediateDataProcessor):
 
     mid_process_workflow = True
 
-    def __init__(self, directory: Path | str = None, station_metadata: Site = None, s3_sync_bucket: str | None = None):
+    def __init__(
+        self,
+        directory: Path | str = None,
+        station_metadata: Site = None,
+        s3_sync_bucket: str | None = None,
+    ):
         """Initializes the GarposHandler.
 
         Parameters
@@ -96,7 +101,9 @@ class GarposHandler(IntermediateDataProcessor):
             S3 bucket name/URI for sync operations.
         """
 
-        super().__init__(directory=directory, station_metadata=station_metadata, s3_sync_bucket=s3_sync_bucket)
+        super().__init__(
+            directory=directory, station_metadata=station_metadata, s3_sync_bucket=s3_sync_bucket
+        )
 
         self.garpos_fixed = GarposFixed()
 
@@ -180,10 +187,7 @@ class GarposHandler(IntermediateDataProcessor):
             )
 
         survey_root = self.workspace.layout.survey
-        shotdata_file = (
-            survey_root
-            / f"{survey_id}_{survey_type}_shotdata.csv".replace(" ", "")
-        )
+        shotdata_file = survey_root / f"{survey_id}_{survey_type}_shotdata.csv".replace(" ", "")
         if not shotdata_file.exists():
             raise ValueError(
                 f"Shotdata for survey {survey_id} not found at {shotdata_file}. "
@@ -558,13 +562,10 @@ class GarposHandler(IntermediateDataProcessor):
                         )
                     continue
                 try:
-                    survey_root = (
-                        self.workspace.layout.campaign().root / survey_name
-                    )
+                    survey_root = self.workspace.layout.campaign().root / survey_name
                     survey_type = survey_id_to_type[survey_name]
                     shotdata_filepath = (
-                        survey_root
-                        / f"{survey_name}_{survey_type}_shotdata.csv".replace(" ", "")
+                        survey_root / f"{survey_name}_{survey_type}_shotdata.csv".replace(" ", "")
                     )
                     shotdata_df = pd.read_csv(shotdata_filepath, sep=",", header=0, index_col=0)
                     shotdata_dfs[survey_name] = shotdata_df
@@ -574,8 +575,7 @@ class GarposHandler(IntermediateDataProcessor):
                     shotdata_time_windows[survey_name] = (start, end)
 
                     shotdata_filtered_filepath = (
-                        survey_root
-                        / f"{shotdata_filepath.stem}_filtered.csv"
+                        survey_root / f"{shotdata_filepath.stem}_filtered.csv"
                     )
                     shotdata_filtered_df = pd.read_csv(
                         shotdata_filtered_filepath, sep=",", header=0, index_col=0

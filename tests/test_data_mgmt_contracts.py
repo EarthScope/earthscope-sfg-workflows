@@ -297,9 +297,7 @@ class TestIngestor:
         )
         return ing, catalog, files, archive
 
-    def test_ingest_local(
-        self, scope: CampaignScope, workspace_tree: DirectoryTree
-    ) -> None:
+    def test_ingest_local(self, scope: CampaignScope, workspace_tree: DirectoryTree) -> None:
         ing, catalog, files, _ = self._ingestor(scope, workspace_tree)
         files.write_bytes(Path("/in/foo.24o"), b"R")
         files.write_bytes(Path("/in/sonardyne.log"), b"S")

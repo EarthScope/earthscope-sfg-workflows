@@ -42,6 +42,8 @@ from .facades import (
     MetadataFacade,
 )
 
+from earthscope_sfg_tools.datamodels.metadata import Site
+
 if TYPE_CHECKING:  # pragma: no cover
     from earthscope_sfg_tools.datamodels.metadata import Campaign, Site, Survey
 
@@ -113,7 +115,6 @@ class Workspace(AbstractContextManager["Workspace"]):
     ) -> "Workspace":
         """Build a Workspace backed entirely by in-memory adapters."""
 
-
         ws = cls(
             root_dir=root,
             catalog=InMemoryAssetStore(),
@@ -156,9 +157,7 @@ class Workspace(AbstractContextManager["Workspace"]):
 
     @property
     def has_network_station_campaign(self) -> bool:
-        return all(
-            x is not None for x in (self._network, self._station, self._campaign)
-        )
+        return all(x is not None for x in (self._network, self._station, self._campaign))
 
     @property
     def scope(self) -> CampaignScope:
@@ -173,9 +172,7 @@ class Workspace(AbstractContextManager["Workspace"]):
             if value is None
         ]
         if missing:
-            raise ValueError(
-                f"Incomplete scope; missing: {', '.join(missing)}"
-            )
+            raise ValueError(f"Incomplete scope; missing: {', '.join(missing)}")
         # mypy/pyright: at this point all three are non-None
         return CampaignScope(
             network=self._network,  # type: ignore[arg-type]
@@ -216,9 +213,7 @@ class Workspace(AbstractContextManager["Workspace"]):
     def set_campaign(self, campaign: str) -> None:
         """Set the campaign. Requires station. Clears survey + campaign/survey metadata."""
         if self._station is None:
-            raise ValueError(
-                "set_station() must be called before set_campaign()"
-            )
+            raise ValueError("set_station() must be called before set_campaign()")
         self._campaign = campaign
         self._survey = None
         self._campaign_meta = None
@@ -227,9 +222,7 @@ class Workspace(AbstractContextManager["Workspace"]):
     def set_survey(self, survey: str) -> None:
         """Set the survey. Requires campaign. Clears survey metadata."""
         if self._campaign is None:
-            raise ValueError(
-                "set_campaign() must be called before set_survey()"
-            )
+            raise ValueError("set_campaign() must be called before set_survey()")
         self._survey = survey
         self._survey_meta = None
 
@@ -294,13 +287,10 @@ class Workspace(AbstractContextManager["Workspace"]):
         unset (this method is typically called immediately after
         :meth:`set_station`).
         """
-        from earthscope_sfg_tools.datamodels.metadata import Site
 
         if self._network is None or self._station is None:
             return False
-        path = (
-            self._root_dir / self._network / self._station / "site_metadata.json"
-        )
+        path = self._root_dir / self._network / self._station / "site_metadata.json"
         if self._files.is_file(path):
             self._site = Site.from_json(path)
             return True
@@ -313,9 +303,7 @@ class Workspace(AbstractContextManager["Workspace"]):
         must have loaded site metadata first.
         """
         if self._site is None:
-            raise ValueError(
-                "Site metadata must be loaded before select_campaign_from_metadata()"
-            )
+            raise ValueError("Site metadata must be loaded before select_campaign_from_metadata()")
         for campaign in self._site.campaigns:
             if campaign.name == campaign_id:
                 self.set_campaign(campaign.name)
@@ -334,9 +322,7 @@ class Workspace(AbstractContextManager["Workspace"]):
                 self.set_survey(survey_id)
                 self._survey_meta = survey
                 return
-        raise ValueError(
-            f"Survey {survey_id!r} not found in campaign {self._campaign_meta.name!r}"
-        )
+        raise ValueError(f"Survey {survey_id!r} not found in campaign {self._campaign_meta.name!r}")
 
     # ------------------------------------------------------------------
     # Bootstrapping (no scope required)

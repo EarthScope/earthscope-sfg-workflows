@@ -54,7 +54,7 @@ def process_single_qcpin(
     processed_asset_queue: deque,
 ) -> bool:
     try:
-        df = qcjson_to_shotdata(entry.local_path)
+        df = qcjson_to_shotdata(entry.local_path, ProcessLogger.logger)
         rangea_strings: list[str] = extract_rangea_strings_from_qcpin(entry.local_path)
         # AssetEntry is frozen; produce a replacement marked as processed.
         entry = replace(entry, is_processed=True)
@@ -181,6 +181,7 @@ class QCPipeline(WorkflowBase):
         """
         if workspace is None:
             import os as _os
+
             workspace = _build_default_workspace(
                 directory if directory is not None else _os.environ.get("MAIN_DIRECTORY", ".")
             )
@@ -509,9 +510,7 @@ class QCPipeline(WorkflowBase):
             rinex_entry = rinex_path_entry_map.get(result.rinex_path)
             if result.kin_path is not None:
                 kin_count += 1
-                rinex_entry = self.workspace.assets.update(
-                    rinex_entry, is_processed=True
-                )
+                rinex_entry = self.workspace.assets.update(rinex_entry, is_processed=True)
 
                 kin_entry = AssetEntry(
                     kind=AssetKind.KIN,

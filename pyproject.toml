@@ -80,12 +80,12 @@ format = { cmd = "ruff format src/ tests/", description = "Auto-format source" }
 # Clone and compile garpos from source (importable via PYTHONPATH set in activation)
 clone-garpos = { cmd = "bash -c 'if [ -d .pixi/garpos ]; then git -C .pixi/garpos pull; else git clone https://github.com/s-watanabe-jhod/garpos.git .pixi/garpos; fi'" }
 compile-garpos = { cmd = "gfortran -shared -fPIC -fopenmp -O3 -o lib_raytrace.so sub_raytrace.f90 lib_raytrace.f90", cwd = ".pixi/garpos/bin/garpos_v102/f90lib", depends-on = ["clone-garpos"] }
-test-garpos = "pytest tests/test_garpos.py -v"
+test-garpos = { cmd = "pytest tests/test_garpos.py -v", depends-on = ["compile-garpos"] }
 
 # Clone and install PRIDE-PPPAR (binaries land in .pixi/.PRIDE_PPPAR_BIN, added to PATH in activation)
 clone-pride = { cmd = "bash -c 'if [ -d .pixi/PRIDE-PPPAR ]; then git -C .pixi/PRIDE-PPPAR pull; else git clone --depth 1 https://github.com/PrideLab/PRIDE-PPPAR.git .pixi/PRIDE-PPPAR; fi'" }
 install-pride = { cmd = "chmod +x install.sh && echo 'N' | HOME=$PIXI_PROJECT_ROOT/.pixi ./install.sh", cwd = ".pixi/PRIDE-PPPAR", depends-on = ["clone-pride"] }
-test-pride = { cmd = "chmod +x test.sh && ./test.sh", cwd = ".pixi/PRIDE-PPPAR/example" }
+test-pride = { cmd = "chmod +x test.sh && ./test.sh", cwd = ".pixi/PRIDE-PPPAR/example", depends-on = ["install-pride"] }
 
 setup = { depends-on = ["compile-garpos", "install-pride", "build-novatel-go"] }
 test-setup = {depends-on = ["test-garpos","test-pride"]}

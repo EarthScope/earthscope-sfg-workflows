@@ -35,10 +35,7 @@ def campaign_metadata_url(scope: CampaignScope) -> str:
 def campaign_rinex_url(scope: CampaignScope, hz: str) -> str:
     """Compose a RINEX directory URL. ``hz`` is ``"1Hz"`` or ``"10Hz"``."""
     year = _campaign_year(scope.campaign)
-    return (
-        f"{ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/"
-        f"{scope.campaign}/rinex_{hz}"
-    )
+    return f"{ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/rinex_{hz}"
 
 
 def site_metadata_url(network: str, station: str) -> str:

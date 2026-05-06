@@ -73,9 +73,7 @@ class LayoutFacade:
 
     def garpos_survey(self) -> GARPOSLayout:
         if self._scope.survey is None:
-            raise ValueError(
-                "scope.survey must be set to access garpos_survey()"
-            )
+            raise ValueError("scope.survey must be set to access garpos_survey()")
         return self._tree.garpos(self._scope)
 
     @property
@@ -97,9 +95,7 @@ class LayoutFacade:
 
     def ensure_garpos_survey(self) -> GARPOSLayout:
         if self._scope.survey is None:
-            raise ValueError(
-                "scope.survey must be set to materialize garpos survey"
-            )
+            raise ValueError("scope.survey must be set to materialize garpos survey")
         return self._builder.ensure_garpos_survey(self._scope)
 
     # -- inspection (I/O probes via LayoutInspector) -----------------------
@@ -121,11 +117,11 @@ class LayoutFacade:
     def list_campaigns(self) -> list[str]:
         """Names of campaign directories under the active station (year-prefixed)."""
         import re
+
         station_dir = self.station
         try:
             return sorted(
-                p.name for p in station_dir.iterdir()
-                if p.is_dir() and re.match(r"^\d{4}", p.name)
+                p.name for p in station_dir.iterdir() if p.is_dir() and re.match(r"^\d{4}", p.name)
             )
         except (OSError, AttributeError):
             return []
@@ -198,8 +194,7 @@ class AssetQueryFacade:
         """
         if entry.id is None:
             raise ValueError(
-                "AssetQueryFacade.update requires a persisted entry "
-                "(entry.id must not be None)"
+                "AssetQueryFacade.update requires a persisted entry (entry.id must not be None)"
             )
         new_entry = replace(entry, **changes)  # type: ignore[arg-type]
         if not self._catalog.update(new_entry):
@@ -235,6 +230,7 @@ class AssetQueryFacade:
         remote URL against ``local_path`` of in-scope, in-kind assets.
         """
         from os.path import basename
+
         target = basename(remote_path)
         for a in self._catalog.assets_for(self._scope, kind):
             if a.local_path and target in str(a.local_path):

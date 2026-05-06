@@ -47,9 +47,7 @@ def run_manifest(manifest_object):
         wfh.ingest_add_local_data(ingest_job.directory)
 
     for job in manifest_object.download_jobs:
-        scope = CampaignScope(
-            network=job.network, station=job.station, campaign=job.campaign
-        )
+        scope = CampaignScope(network=job.network, station=job.station, campaign=job.campaign)
         urls = list_campaign_archive_urls(archive, scope)
         if not urls:
             print(f"No Remote Assets Found For {job.model_dump()}")

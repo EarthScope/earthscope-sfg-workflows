@@ -43,9 +43,7 @@ class TestEarthScopeArchiveShape:
         arc._token = "fake"  # bypass auth path
 
         def boom(req: Any) -> Any:
-            raise urllib.error.HTTPError(
-                url=req.full_url, code=404, msg="nf", hdrs=None, fp=None
-            )
+            raise urllib.error.HTTPError(url=req.full_url, code=404, msg="nf", hdrs=None, fp=None)
 
         with patch("urllib.request.urlopen", side_effect=boom):
             with pytest.raises(ArchiveNotFoundError):
@@ -59,9 +57,7 @@ class TestEarthScopeArchiveShape:
         arc._token = "fake"
 
         def boom(req: Any) -> Any:
-            raise urllib.error.HTTPError(
-                url=req.full_url, code=401, msg="auth", hdrs=None, fp=None
-            )
+            raise urllib.error.HTTPError(url=req.full_url, code=401, msg="auth", hdrs=None, fp=None)
 
         with patch("urllib.request.urlopen", side_effect=boom):
             with pytest.raises(ArchiveAuthError):

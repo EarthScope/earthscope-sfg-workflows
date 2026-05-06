@@ -71,9 +71,7 @@ class TestWorkspaceScope:
             ws.set_survey("V")
 
     def test_set_network_clears_descendants_and_metadata(self):
-        ws = Workspace.for_test(
-            network="N", station="S", campaign="2026_A", survey="V"
-        )
+        ws = Workspace.for_test(network="N", station="S", campaign="2026_A", survey="V")
         ws.load_site_metadata(object())
         ws.load_campaign_metadata(object())
         ws.load_survey_metadata(object())
@@ -98,9 +96,7 @@ class TestWorkspaceScope:
         assert ws.metadata.site is None
 
     def test_set_campaign_clears_survey_only(self):
-        ws = Workspace.for_test(
-            network="N", station="S", campaign="C", survey="V"
-        )
+        ws = Workspace.for_test(network="N", station="S", campaign="C", survey="V")
         site_obj = object()
         ws.load_site_metadata(site_obj)
 
@@ -119,9 +115,7 @@ class TestWorkspaceScope:
 
 class TestLayoutFacade:
     def test_paths_match_directory_tree(self):
-        ws = Workspace.for_test(
-            root="/data", network="N", station="S", campaign="2026_A"
-        )
+        ws = Workspace.for_test(root="/data", network="N", station="S", campaign="2026_A")
         tree = DirectoryTree(root=Path("/data"))
         scope = CampaignScope("N", "S", "2026_A")
 
@@ -130,16 +124,12 @@ class TestLayoutFacade:
         assert ws.layout.campaign().root == tree.campaign(scope).root
 
     def test_garpos_survey_requires_survey(self):
-        ws = Workspace.for_test(
-            root="/data", network="N", station="S", campaign="C"
-        )
+        ws = Workspace.for_test(root="/data", network="N", station="S", campaign="C")
         with pytest.raises(ValueError, match="survey"):
             ws.layout.garpos_survey()
 
     def test_ensure_campaign_materializes_dirs(self):
-        ws = Workspace.for_test(
-            root="/data", network="N", station="S", campaign="2026_A"
-        )
+        ws = Workspace.for_test(root="/data", network="N", station="S", campaign="2026_A")
         layout = ws.layout.ensure_campaign()
         for path in layout.standard_dirs:
             assert ws._files.is_dir(path), f"{path} not materialized"
@@ -206,9 +196,7 @@ class TestAssetQueryFacade:
 
     def test_update_requires_persisted_entry(self):
         ws = Workspace.for_test(network="N", station="S", campaign="C")
-        unsaved = AssetEntry(
-            kind=AssetKind.NOVATEL, scope=ws.scope, local_path=Path("/y")
-        )
+        unsaved = AssetEntry(kind=AssetKind.NOVATEL, scope=ws.scope, local_path=Path("/y"))
         with pytest.raises(ValueError, match="entry.id"):
             ws.assets.update(unsaved, is_processed=True)
 
@@ -294,9 +282,7 @@ class TestDiscoverCampaign:
 
         urls = ws.ingest.list_archive_urls()
 
-        assert sorted(urls) == sorted(
-            [f"{raw}/NOV770_data.bin", f"{meta}/ctd/CTD.txt"]
-        )
+        assert sorted(urls) == sorted([f"{raw}/NOV770_data.bin", f"{meta}/ctd/CTD.txt"])
 
 
 # ---------------------------------------------------------------------------
@@ -306,9 +292,7 @@ class TestDiscoverCampaign:
 
 class TestLayoutInspector:
     def test_is_garpos_directory_requires_both_default_files(self):
-        ws = Workspace.for_test(
-            root="/d", network="N", station="S", campaign="C", survey="V"
-        )
+        ws = Workspace.for_test(root="/d", network="N", station="S", campaign="C", survey="V")
         ws.layout.ensure_garpos_survey()
         layout = ws.layout.garpos_survey()
         inspector = LayoutInspector(ws._files)
@@ -322,9 +306,7 @@ class TestLayoutInspector:
         assert inspector.is_garpos_directory(layout) is True
 
     def test_find_rectified_shotdata_returns_none_if_missing(self):
-        ws = Workspace.for_test(
-            root="/d", network="N", station="S", campaign="C", survey="V"
-        )
+        ws = Workspace.for_test(root="/d", network="N", station="S", campaign="C", survey="V")
         ws.layout.ensure_garpos_survey()
         layout = ws.layout.garpos_survey()
         inspector = LayoutInspector(ws._files)

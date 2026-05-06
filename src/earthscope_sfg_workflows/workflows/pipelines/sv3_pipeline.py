@@ -2,6 +2,7 @@
 import datetime
 import json
 import sys
+from functools import partial
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -159,6 +160,7 @@ class SV3Pipeline(WorkflowBase):
         """
         if workspace is None:
             import os as _os
+
             workspace = _build_default_workspace(
                 directory if directory is not None else _os.environ.get("MAIN_DIRECTORY", ".")
             )
@@ -331,6 +333,7 @@ class SV3Pipeline(WorkflowBase):
                         files=[x.local_path for x in novatel_770_entries],
                         gnss_obs_tdb=self.gnssObsTDBURI,
                         n_procs=self.config.novatel_config.n_processes,
+                        logger=ProcessLogger.logger,
                     )
 
                     self.workspace.assets.add_merge_job(**merge_signature)
@@ -379,6 +382,7 @@ class SV3Pipeline(WorkflowBase):
                         gnss_obs_tdb=self.gnssObsTDB_secondaryURI,
                         position_tdb=self.imuPositionTDB.uri,
                         n_procs=self.config.novatel_config.n_processes,
+                        logger=ProcessLogger.logger,
                     )
 
                     self.workspace.assets.add_merge_job(**merge_signature)
@@ -604,9 +608,7 @@ class SV3Pipeline(WorkflowBase):
                 ProcessLogger.info(
                     f"Generated KIN file for {result.rinex_path.name} at {result.kin_path}"
                 )
-                rinex_entry = self.workspace.assets.update(
-                    rinex_entry, is_processed=True
-                )
+                rinex_entry = self.workspace.assets.update(rinex_entry, is_processed=True)
                 kin_entry = AssetEntry(
                     kind=AssetKind.KIN,
                     scope=self.workspace.scope,
@@ -713,7 +715,8 @@ class SV3Pipeline(WorkflowBase):
 
         # 2. Process DFOP00 files to generate shotdata dataframes
         with Pool() as pool:
-            results = pool.imap(sv3_ops.dfop00_to_shotdata, [x.local_path for x in dfop00_entries])
+            _dfop00_to_shotdata = partial(sv3_ops.dfop00_to_shotdata, logger=ProcessLogger.logger)
+            results = pool.imap(_dfop00_to_shotdata, [x.local_path for x in dfop00_entries])
             for shotdata_df, dfo_entry in tqdm(
                 zip(results, dfop00_entries, strict=False),
                 total=len(dfop00_entries),
@@ -832,7 +835,7 @@ class SV3Pipeline(WorkflowBase):
         # If no CTD files produced SVP, try Seabird files
         for seabird_entry in seabird_entries:
             try:
-                svp_df = seabird_to_soundvelocity(seabird_entry.local_path)
+                svp_df = seabird_to_soundvelocity(seabird_entry.local_path, ProcessLogger.logger)
                 if not svp_df.empty:
                     svp_df.to_csv(svp_df_destination, index=False)
                     self.workspace.assets.update(seabird_entry, is_processed=True)

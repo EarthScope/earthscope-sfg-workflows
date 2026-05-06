@@ -106,8 +106,7 @@ class EarthScopeArchive:
             raise ArchiveNotFoundError(file_url)
         if response.status_code != requests.codes.ok:
             raise ArchiveError(
-                f"Failed to download {file_url}: HTTP {response.status_code} "
-                f"({response.reason})"
+                f"Failed to download {file_url}: HTTP {response.status_code} ({response.reason})"
             )
 
         with open(dest_path, "wb") as f:
@@ -162,9 +161,7 @@ class EarthScopeArchive:
             except Exception:
                 pass
 
-    def load_site_metadata(
-        self, network: str, station: str, local_path: Path | str | None = None
-    ):
+    def load_site_metadata(self, network: str, station: str, local_path: Path | str | None = None):
         """Load a :class:`Site` from the archive, populating per-campaign vessels."""
         from earthscope_sfg_tools.datamodels.metadata import import_site
 

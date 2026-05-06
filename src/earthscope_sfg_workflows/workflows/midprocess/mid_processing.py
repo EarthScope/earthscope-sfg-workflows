@@ -166,10 +166,7 @@ class IntermediateDataProcessor(WorkflowBase):
         self.workspace.layout.ensure_campaign()
 
     def set_survey(self, survey_id: str) -> None:
-        if (
-            self.mid_process_workflow
-            and self.workspace.metadata.campaign is not None
-        ):
+        if self.mid_process_workflow and self.workspace.metadata.campaign is not None:
             self.workspace.select_survey_from_metadata(survey_id)
         else:
             self.workspace.set_survey(survey_id)
@@ -205,24 +202,16 @@ class IntermediateDataProcessor(WorkflowBase):
             s for s in campaign_meta.surveys if survey_id is None or survey_id == s.id
         ]
         if not surveys_to_process:
-            raise ValueError(
-                f"Survey {survey_id} not found in campaign {campaign_meta.name}."
-            )
+            raise ValueError(f"Survey {survey_id} not found in campaign {campaign_meta.name}.")
 
         for survey in surveys_to_process:
             self.set_survey(survey_id=survey.id)
             survey_root = self.workspace.layout.survey
 
-            shotdata_file_name = (
-                f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
-            )
+            shotdata_file_name = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
             shotdata_dest = survey_root / shotdata_file_name
 
-            if (
-                not shotdata_dest.exists()
-                or shotdata_dest.stat().st_size == 0
-                or override
-            ):
+            if not shotdata_dest.exists() or shotdata_dest.stat().st_size == 0 or override:
                 df = shotDataTDB.read_df(start=survey.start, end=survey.end)
                 if df.empty:
                     logger.warning(
@@ -233,39 +222,23 @@ class IntermediateDataProcessor(WorkflowBase):
                 df.to_csv(shotdata_dest)
 
             if write_intermediate:
-                kin_name = (
-                    f"{survey.id}_{survey.type.value}_kinpositiondata.csv".replace(" ", "")
-                )
+                kin_name = f"{survey.id}_{survey.type.value}_kinpositiondata.csv".replace(" ", "")
                 kin_dest = survey_root / kin_name
-                if (
-                    not kin_dest.exists()
-                    or kin_dest.stat().st_size == 0
-                    or override
-                ):
+                if not kin_dest.exists() or kin_dest.stat().st_size == 0 or override:
                     kin_tdb = TDBKinPositionArray(tiledb.kin_position)
                     kin_df = kin_tdb.read_df(start=survey.start, end=survey.end)
                     if kin_df.empty:
-                        logger.warning(
-                            f"No kinposition data found for survey {survey.id}"
-                        )
+                        logger.warning(f"No kinposition data found for survey {survey.id}")
                     else:
                         kin_df.to_csv(kin_dest)
 
-                imu_name = (
-                    f"{survey.id}_{survey.type.value}_imupositiondata.csv".replace(" ", "")
-                )
+                imu_name = f"{survey.id}_{survey.type.value}_imupositiondata.csv".replace(" ", "")
                 imu_dest = survey_root / imu_name
-                if (
-                    not imu_dest.exists()
-                    or imu_dest.stat().st_size == 0
-                    or override
-                ):
+                if not imu_dest.exists() or imu_dest.stat().st_size == 0 or override:
                     imu_tdb = TDBIMUPositionArray(tiledb.imu_position)
                     imu_df = imu_tdb.read_df(start=survey.start, end=survey.end)
                     if imu_df.empty:
-                        logger.warning(
-                            f"No imuposition data found for survey {survey.id}"
-                        )
+                        logger.warning(f"No imuposition data found for survey {survey.id}")
                     else:
                         imu_df.to_csv(imu_dest)
 
@@ -293,14 +266,10 @@ class IntermediateDataProcessor(WorkflowBase):
             raise ValueError("Campaign must be set before preparing GARPOS shotdata.")
 
         surveys_to_process = [
-            s
-            for s in campaign_meta.surveys
-            if survey_id is None or s.id == survey_id
+            s for s in campaign_meta.surveys if survey_id is None or s.id == survey_id
         ]
         if not surveys_to_process:
-            raise ValueError(
-                f"Survey {survey_id} not found in campaign {campaign_meta.name}."
-            )
+            raise ValueError(f"Survey {survey_id} not found in campaign {campaign_meta.name}.")
 
         for survey in surveys_to_process:
             self.set_survey(survey_id=survey.id)
@@ -328,21 +297,17 @@ class IntermediateDataProcessor(WorkflowBase):
         tiledb = self.workspace.layout.tiledb()
 
         # Find the canonical shotdata file written by parse_surveys.
-        shotdata_file_name = (
-            f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
-        )
+        shotdata_file_name = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
         shotdata_path = survey_root / shotdata_file_name
         if not shotdata_path.exists():
             raise FileNotFoundError(
-                f"Shotdata file {shotdata_path} does not exist. "
-                "Please run parse_surveys first."
+                f"Shotdata file {shotdata_path} does not exist. Please run parse_surveys first."
             )
 
         shot_data_raw = pd.read_csv(shotdata_path)
         if shot_data_raw.empty:
             logger.warning(
-                f"No shot data found for survey {shotdata_path}, "
-                "skipping shot data preparation."
+                f"No shot data found for survey {shotdata_path}, skipping shot data preparation."
             )
             return
 
@@ -351,9 +316,7 @@ class IntermediateDataProcessor(WorkflowBase):
         if not garpos_layout.settings_file.exists() or overwrite:
             GarposFixed()._to_datafile(garpos_layout.settings_file)
 
-        filtered_path = (
-            shotdata_path.parent / f"{shotdata_path.stem}_filtered.csv"
-        )
+        filtered_path = shotdata_path.parent / f"{shotdata_path.stem}_filtered.csv"
         if filtered_path.exists():
             shot_data_filtered = pd.read_csv(filtered_path)
         else:
@@ -388,13 +351,9 @@ class IntermediateDataProcessor(WorkflowBase):
             survey=survey,
             site=site,
         )
-        array_dpos_center = get_array_dpos_center(
-            self.coordTransformer, gp_transponders
-        )
+        array_dpos_center = get_array_dpos_center(self.coordTransformer, gp_transponders)
 
-        rectified_path = (
-            garpos_layout.root / f"{filtered_path.stem}_rectified.csv"
-        )
+        rectified_path = garpos_layout.root / f"{filtered_path.stem}_rectified.csv"
         if rectified_path.exists():
             shot_data_rectified = pd.read_csv(rectified_path)
         else:
@@ -464,9 +423,7 @@ class IntermediateDataProcessor(WorkflowBase):
             logger.warning("S3 synchronization skipped: s3_sync_bucket not configured")
             return
 
-        s3_station = (
-            s3_root / self.workspace.network_name / self.workspace.station_name
-        )
+        s3_station = s3_root / self.workspace.network_name / self.workspace.station_name
         local_tdb = self.workspace.layout.tiledb()
         s3_tdb = s3_station / "TileDB"
 
@@ -487,9 +444,7 @@ class IntermediateDataProcessor(WorkflowBase):
                 s3_file = s3_array / relative
                 try:
                     if not s3_file.exists() or overwrite:
-                        s3_file.upload_from(
-                            tdb_file, force_overwrite_to_cloud=overwrite
-                        )
+                        s3_file.upload_from(tdb_file, force_overwrite_to_cloud=overwrite)
                         upload_counter += 1
                 except Exception as e:
                     logger.error(f"Failed to upload {tdb_file} to S3: {e}")
@@ -531,10 +486,8 @@ class IntermediateDataProcessor(WorkflowBase):
                 new_suffix = old_suffix[:-1] + "d"
                 source = rinex_file.with_suffix(new_suffix + ".gz")
                 if not source.exists():
-                    crinex_compress(rinex_file, source, gzip=True)
-                    assert source.exists(), (
-                        f"CRINEX compression failed for {rinex_file}"
-                    )
+                    crinex_compress(rinex_file, source, gzip=True, logger=logger.logger)
+                    assert source.exists(), f"CRINEX compression failed for {rinex_file}"
             else:
                 source = rinex_file
             relative = source.relative_to(local_intermediate)
@@ -563,9 +516,7 @@ class IntermediateDataProcessor(WorkflowBase):
             logger.warning("S3 synchronization skipped: s3_sync_bucket not configured")
             return
 
-        s3_station = (
-            s3_root / self.workspace.network_name / self.workspace.station_name
-        )
+        s3_station = s3_root / self.workspace.network_name / self.workspace.station_name
         local_tdb = self.workspace.layout.tiledb()
         s3_tdb = s3_station / "TileDB"
 
@@ -584,9 +535,7 @@ class IntermediateDataProcessor(WorkflowBase):
                 s3_file = s3_array / relative
                 try:
                     if not s3_file.exists() or overwrite:
-                        s3_file.upload_from(
-                            tdb_file, force_overwrite_to_cloud=overwrite
-                        )
+                        s3_file.upload_from(tdb_file, force_overwrite_to_cloud=overwrite)
                 except Exception as e:
                     logger.error(f"Failed to upload {tdb_file} to S3: {e}")
 
@@ -616,9 +565,7 @@ class IntermediateDataProcessor(WorkflowBase):
                         relative = log_file.relative_to(local_log_dir)
                         s3_log_file = s3_log_dir / relative
                         try:
-                            s3_log_file.upload_from(
-                                log_file, force_overwrite_to_cloud=overwrite
-                            )
+                            s3_log_file.upload_from(log_file, force_overwrite_to_cloud=overwrite)
                         except Exception as e:
                             logger.error(f"Failed to upload {log_file} to S3: {e}")
 
@@ -626,9 +573,7 @@ class IntermediateDataProcessor(WorkflowBase):
     # QC pseudo-survey parsing
     # ------------------------------------------------------------------
 
-    def get_pseudo_surveys(
-        self, shotdatatdb: TDBShotDataArray
-    ) -> list[Survey]:
+    def get_pseudo_surveys(self, shotdatatdb: TDBShotDataArray) -> list[Survey]:
         """Generate pseudo-surveys from unique shotdata dates."""
         pseudo_surveys: list[Survey] = []
         dates: list[np.datetime64] = shotdatatdb.get_unique_dates().tolist()
@@ -655,9 +600,9 @@ class IntermediateDataProcessor(WorkflowBase):
                 .to_pydatetime()
                 .replace(hour=0, minute=0, second=0, microsecond=0)
             )
-            end_time = datetime.datetime.combine(
-                start_time.date(), datetime.time.max
-            ).replace(tzinfo=datetime.UTC)
+            end_time = datetime.datetime.combine(start_time.date(), datetime.time.max).replace(
+                tzinfo=datetime.UTC
+            )
             year, month, day = start_time.year, start_time.month, start_time.day
             pseudo_surveys.append(
                 Survey(
@@ -690,16 +635,10 @@ class IntermediateDataProcessor(WorkflowBase):
             survey_dir = campaign.qc / survey.id
             survey_dir.mkdir(parents=True, exist_ok=True)
 
-            shotdata_file_name = (
-                f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
-            )
+            shotdata_file_name = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
             shotdata_dest = survey_dir / shotdata_file_name
 
-            if (
-                not shotdata_dest.exists()
-                or shotdata_dest.stat().st_size == 0
-                or override
-            ):
+            if not shotdata_dest.exists() or shotdata_dest.stat().st_size == 0 or override:
                 df = shotDataTDB.read_df(start=survey.start, end=survey.end)
                 if df.empty:
                     logger.warning(
@@ -722,9 +661,7 @@ class IntermediateDataProcessor(WorkflowBase):
             if not garpos_layout.settings_file.exists() or override:
                 GarposFixed()._to_datafile(garpos_layout.settings_file)
 
-            rectified_path = (
-                garpos_layout.root / f"{shotdata_dest.stem}_rectified.csv"
-            )
+            rectified_path = garpos_layout.root / f"{shotdata_dest.stem}_rectified.csv"
 
             if not rectified_path.exists() or override:
                 gp_transponders = GP_Transponders_from_benchmarks(
@@ -733,9 +670,7 @@ class IntermediateDataProcessor(WorkflowBase):
                     site=site,
                     is_qc=True,
                 )
-                array_dpos_center = get_array_dpos_center(
-                    self.coordTransformer, gp_transponders
-                )
+                array_dpos_center = get_array_dpos_center(self.coordTransformer, gp_transponders)
 
                 if rectified_path.exists():
                     shotdata_rectified = pd.read_csv(rectified_path)
@@ -768,9 +703,7 @@ class IntermediateDataProcessor(WorkflowBase):
                     num_of_shots=len(shotdata_rectified),
                     GPtransponders=gp_transponders,
                 )
-                site_config_update: GarposSiteConfig = get_garpos_site_config(
-                    survey.type
-                )
+                site_config_update: GarposSiteConfig = get_garpos_site_config(survey.type)
                 garpos_input_configured: GarposInput = apply_survey_config(
                     site_config_update, garpos_input
                 )

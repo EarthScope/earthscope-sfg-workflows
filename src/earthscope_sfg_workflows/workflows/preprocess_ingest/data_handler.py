@@ -153,7 +153,8 @@ class DataHandler(WorkflowBase):
         self.workspace.set_station(station_id)
         # Materialize station dir; load site metadata if present on disk.
         self.workspace.ensure_station_dir(
-            self.workspace.network_name, station_id  # type: ignore[arg-type]
+            self.workspace.network_name,
+            station_id,  # type: ignore[arg-type]
         )
         self.workspace.try_load_site_metadata_from_disk()
 
@@ -193,9 +194,7 @@ class DataHandler(WorkflowBase):
             self.set_station(station_id)
         if campaign_id is not None and campaign_id != self.workspace.campaign_name:
             self.set_campaign(campaign_id)
-        logger.info(
-            f"Changed working station to {network_id} {station_id} {campaign_id}"
-        )
+        logger.info(f"Changed working station to {network_id} {station_id} {campaign_id}")
 
     def set_network_station_campaign_with_metadata(
         self,
@@ -233,23 +232,15 @@ class DataHandler(WorkflowBase):
         tiledb = self.workspace.layout.ensure_station()
 
         self._ensure_tiledb_array("acoustic_tdb", TDBAcousticArray, tiledb.acoustic)
-        self._ensure_tiledb_array(
-            "kin_position_tdb", TDBKinPositionArray, tiledb.kin_position
-        )
-        self._ensure_tiledb_array(
-            "imu_position_tdb", TDBIMUPositionArray, tiledb.imu_position
-        )
+        self._ensure_tiledb_array("kin_position_tdb", TDBKinPositionArray, tiledb.kin_position)
+        self._ensure_tiledb_array("imu_position_tdb", TDBIMUPositionArray, tiledb.imu_position)
         self._ensure_tiledb_array("shotdata_tdb", TDBShotDataArray, tiledb.shotdata)
-        self._ensure_tiledb_array(
-            "shotdata_tdb_pre", TDBShotDataArray, tiledb.shotdata_pre
-        )
+        self._ensure_tiledb_array("shotdata_tdb_pre", TDBShotDataArray, tiledb.shotdata_pre)
         self._ensure_tiledb_array("gnss_obs_tdb", TDBGNSSObsArray, tiledb.gnss_obs)
         self._ensure_tiledb_array(
             "gnss_obs_secondary_tdb", TDBGNSSObsArray, tiledb.gnss_obs_secondary
         )
-        logger.info(
-            f"Consolidating existing TileDB arrays for {self.workspace.station_name}"
-        )
+        logger.info(f"Consolidating existing TileDB arrays for {self.workspace.station_name}")
 
     # ------------------------------------------------------------------
     # Catalog operations
@@ -264,14 +255,11 @@ class DataHandler(WorkflowBase):
     def discover_data_and_add_files(self, directory_path: Path) -> None:
         """Scan ``directory_path`` and catalog every recognized file."""
         if not Path(directory_path).is_dir():
-            logger.error(
-                f"No files found in {directory_path}, ensure the directory is correct."
-            )
+            logger.error(f"No files found in {directory_path}, ensure the directory is correct.")
             return
         report = self.workspace.ingest.local(Path(directory_path))
         logger.info(
-            f"Cataloged {report.cataloged} files (skipped {report.skipped}) "
-            f"from {directory_path}"
+            f"Cataloged {report.cataloged} files (skipped {report.skipped}) from {directory_path}"
         )
         for err in report.errors:
             logger.error(err)
@@ -297,18 +285,14 @@ class DataHandler(WorkflowBase):
                 symlinked_path = campaign.raw / file_path.name
                 if symlinked_path != file_path:
                     try:
-                        file_path.symlink_to(
-                            symlinked_path, target_is_directory=False
-                        )
+                        file_path.symlink_to(symlinked_path, target_is_directory=False)
                     except FileExistsError:
                         pass
             entry = AssetEntry(kind=kind, scope=scope, local_path=file_path)
             if self.workspace.assets.add_or_update(entry) is not None:
                 added += 1
 
-        logger.info(
-            f"Added {added} out of {len(local_filepaths)} files to the catalog"
-        )
+        logger.info(f"Added {added} out of {len(local_filepaths)} files to the catalog")
 
     @validate_network_station_campaign
     def add_data_remote(
@@ -322,8 +306,7 @@ class DataHandler(WorkflowBase):
                 remote_type = REMOTE_TYPE(remote_type)
             except Exception as e:
                 raise ValueError(
-                    f"Remote type {remote_type} must be one of "
-                    f"{REMOTE_TYPE.__members__.keys()}"
+                    f"Remote type {remote_type} must be one of {REMOTE_TYPE.__members__.keys()}"
                 ) from e
 
         scope = self.workspace.scope
@@ -351,9 +334,7 @@ class DataHandler(WorkflowBase):
 
         logger.info(f"{not_recognized} files not recognized and skipped")
         logger.info(f"{already_local} files already exist in the catalog")
-        logger.info(
-            f"Added {added} out of {len(remote_filepaths)} files to the catalog"
-        )
+        logger.info(f"Added {added} out of {len(remote_filepaths)} files to the catalog")
 
     # ------------------------------------------------------------------
     # Download
@@ -387,26 +368,20 @@ class DataHandler(WorkflowBase):
             if not assets:
                 logger.error(f"No matching data of type {kind.value} found in catalog")
                 continue
-            logger.info(
-                f"Found {len(assets)} files of type {kind.value} in the catalog"
-            )
+            logger.info(f"Found {len(assets)} files of type {kind.value} in the catalog")
 
             if override:
                 to_download = list(assets)
             else:
                 to_download = [
-                    a
-                    for a in assets
-                    if a.local_path is None or not Path(a.local_path).exists()
+                    a for a in assets if a.local_path is None or not Path(a.local_path).exists()
                 ]
 
             if kind is AssetKind.RINEX2:
                 if rinex_1Hz:
                     logger.info("Filtering for 1Hz RINEX files")
                     to_download = [
-                        a
-                        for a in to_download
-                        if a.remote_path and "1hz" in a.remote_path.lower()
+                        a for a in to_download if a.remote_path and "1hz" in a.remote_path.lower()
                     ]
                 else:
                     logger.info("Filtering for higher rate RINEX files")
@@ -422,9 +397,7 @@ class DataHandler(WorkflowBase):
             logger.info(f"{len(to_download)} {kind.value} files to download")
 
             s3_assets = [a for a in to_download if a.remote_type == REMOTE_TYPE.S3.value]
-            http_assets = [
-                a for a in to_download if a.remote_type == REMOTE_TYPE.HTTP.value
-            ]
+            http_assets = [a for a in to_download if a.remote_type == REMOTE_TYPE.HTTP.value]
 
             if s3_assets:
                 with threading.Lock():
@@ -442,11 +415,7 @@ class DataHandler(WorkflowBase):
         for asset in s3_assets:
             assert asset.remote_path is not None
             _path = Path(asset.remote_path)
-            local_dir = (
-                campaign.intermediate
-                if asset.kind is AssetKind.RINEX2
-                else campaign.raw
-            )
+            local_dir = campaign.intermediate if asset.kind is AssetKind.RINEX2 else campaign.raw
             bucket = _path.root
             plan.append(
                 {
@@ -471,15 +440,11 @@ class DataHandler(WorkflowBase):
         try:
             client = boto3.client("s3")
             logger.debug(f"Downloading {prefix} to {local_path}")
-            client.download_file(
-                Bucket=bucket, Key=str(prefix), Filename=str(local_path)
-            )
+            client.download_file(Bucket=bucket, Key=str(prefix), Filename=str(local_path))
             logger.debug(f"Downloaded {prefix} to {local_path}")
             return local_path
         except Exception as e:
-            logger.error(
-                f"Error downloading {prefix} from {bucket}\n {e} \n HINT: $ aws sso login"
-            )
+            logger.error(f"Error downloading {prefix} from {bucket}\n {e} \n HINT: $ aws sso login")
             return None
 
     def download_HTTP_files(
@@ -496,15 +461,9 @@ class DataHandler(WorkflowBase):
         label = kind.value if kind is not None else "files"
 
         for asset in tqdm(http_assets, desc=f"Downloading {label} files"):
-            local_dir = (
-                campaign.intermediate
-                if asset.kind is AssetKind.RINEX2
-                else campaign.raw
-            )
+            local_dir = campaign.intermediate if asset.kind is AssetKind.RINEX2 else campaign.raw
             assert asset.remote_path is not None
-            local_path = self._HTTP_download_file(
-                remote_url=asset.remote_path, local_dir=local_dir
-            )
+            local_path = self._HTTP_download_file(remote_url=asset.remote_path, local_dir=local_dir)
             if local_path is not None and asset.id is not None:
                 self.workspace.assets.update_local_path(asset.id, local_path)
 
@@ -518,8 +477,7 @@ class DataHandler(WorkflowBase):
             return local_path
         except Exception as e:
             logger.error(
-                f"Error downloading {remote_url} \n {e}\n "
-                "HINT: Check authentication credentials"
+                f"Error downloading {remote_url} \n {e}\n HINT: Check authentication credentials"
             )
             return None
 
@@ -536,9 +494,7 @@ class DataHandler(WorkflowBase):
             f"{self.workspace.campaign_name}"
         )
         report = self.workspace.ingest.discover_campaign()
-        logger.info(
-            f"Cataloged {report.cataloged} remote URLs (skipped {report.skipped})"
-        )
+        logger.info(f"Cataloged {report.cataloged} remote URLs (skipped {report.skipped})")
         for err in report.errors:
             logger.error(err)
 
@@ -575,9 +531,7 @@ class DataHandler(WorkflowBase):
                 site = source
                 with open(write_dest, "w") as f:
                     json.dump(site.model_dump(mode="json"), f, indent=4)
-                logger.info(
-                    f"Using provided site metadata and wrote to {write_dest}"
-                )
+                logger.info(f"Using provided site metadata and wrote to {write_dest}")
                 break
 
             if isinstance(source, Path) and source.exists():
@@ -597,9 +551,7 @@ class DataHandler(WorkflowBase):
                     )
                     with open(write_dest, "w") as f:
                         json.dump(site.model_dump(mode="json"), f, indent=4)
-                    logger.info(
-                        f"Downloaded site metadata from the ES archive to {write_dest}"
-                    )
+                    logger.info(f"Downloaded site metadata from the ES archive to {write_dest}")
                     break
                 except Exception as e:
                     msg = f"Error loading site metadata from the ES archive: {e}"
@@ -629,13 +581,9 @@ class DataHandler(WorkflowBase):
         workspace root.
         """
         if self.s3_sync_bucket is None:
-            raise RuntimeError(
-                "sync_from_s3 requires s3_sync_bucket to be configured."
-            )
+            raise RuntimeError("sync_from_s3 requires s3_sync_bucket to be configured.")
         if self.workspace.network_name is None or self.workspace.station_name is None:
-            raise ValueError(
-                "sync_from_s3 requires network and station to be set."
-            )
+            raise ValueError("sync_from_s3 requires network and station to be set.")
 
         s3_root = self.s3_sync_bucket
         if not s3_root.startswith("s3://"):
@@ -644,11 +592,7 @@ class DataHandler(WorkflowBase):
         s3_files = S3FileStore()
         local_files = self.workspace._files
 
-        s3_station = (
-            Path(s3_root)
-            / self.workspace.network_name
-            / self.workspace.station_name
-        )
+        s3_station = Path(s3_root) / self.workspace.network_name / self.workspace.station_name
         if not s3_files.is_dir(s3_station):
             logger.error(f"S3 station path not found: {s3_station}")
             return

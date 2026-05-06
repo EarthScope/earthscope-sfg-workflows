@@ -368,9 +368,7 @@ class LayoutInspector:
 
     def is_garpos_directory(self, layout: GARPOSLayout) -> bool:
         """A directory is a GARPOS dir if it has both default GARPOS files."""
-        return self._files.is_file(layout.obs_file) and self._files.is_file(
-            layout.settings_file
-        )
+        return self._files.is_file(layout.obs_file) and self._files.is_file(layout.settings_file)
 
     def find_rectified_shotdata(self, layout: GARPOSLayout) -> Path | None:
         """Locate the first ``*_rectified.csv`` directly under the GARPOS dir."""
