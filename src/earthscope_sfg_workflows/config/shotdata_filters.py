@@ -1,3 +1,5 @@
+"""Default shotdata filter configuration presets."""
+
 from ..prefiltering.schemas import (
     FilterConfig,
     MaxDistFromCenterConfig,

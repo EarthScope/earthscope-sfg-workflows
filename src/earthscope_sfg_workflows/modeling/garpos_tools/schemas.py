@@ -1,3 +1,5 @@
+"""Pydantic and pandera schemas for GARPOS inputs, outputs, and config."""
+
 from configparser import ConfigParser
 from datetime import datetime
 from enum import Enum
@@ -30,12 +32,16 @@ except Exception:
 
 
 class GPPositionLLH(BaseModel):
+    """Geodetic position in latitude/longitude/height (degrees, meters)."""
+
     latitude: float
     longitude: float
     height: float | None = 0
 
 
 class GPPositionENU(BaseModel):
+    """Local East/North/Up position with sigmas and covariances (meters)."""
+
     east: float | None = 0
     north: float | None = 0
     up: float | None = 0
@@ -47,12 +53,15 @@ class GPPositionENU(BaseModel):
     cov_en: float | None = 0
 
     def get_position(self) -> list[float]:
+        """Return `[east, north, up]`."""
         return [self.east, self.north, self.up]
 
     def get_std_dev(self) -> list[float]:
+        """Return `[east_sigma, north_sigma, up_sigma]`."""
         return [self.east_sigma, self.north_sigma, self.up_sigma]
 
     def get_covariance(self) -> np.ndarray:
+        """Return the 3x3 ENU covariance matrix built from sigmas and covariances."""
         cov_mat = np.diag([self.east_sigma**2, self.north_sigma**2, self.up_sigma**2])
         cov_mat[0, 1] = cov_mat[1, 0] = self.cov_en**2
         cov_mat[0, 2] = cov_mat[2, 0] = self.cov_ue**2
@@ -61,6 +70,8 @@ class GPPositionENU(BaseModel):
 
 
 class GPTransponder(BaseModel):
+    """Transponder metadata: position, turn-around time offset, and identifiers."""
+
     position_llh: GPPositionLLH | None = None
     position_enu: GPPositionENU | None = None
     tat_offset: float | None = None
@@ -73,17 +84,19 @@ class GPTransponder(BaseModel):
 
 
 class GPATDOffset(BaseModel):
+    """Antenna-to-transducer body-frame offsets (forward/rightward/downward, m)."""
+
     forward: float
     rightward: float
     downward: float
 
     def get_offset(self) -> list[float]:
+        """Return `[forward, rightward, downward]`."""
         return [self.forward, self.rightward, self.downward]
 
 
 class ObservationData(pa.DataFrameModel):
     """Observation data file schema
-
     Example data:
 
     ,SET,LN,MT,TT,ResiTT,TakeOff,gamma,flag,ST,ant_e0,ant_n0,ant_u0,head0,pitch0,roll0,RT,ant_e1,ant_n1,ant_u1,head1,pitch1,roll1
@@ -174,6 +187,8 @@ class ObservationData(pa.DataFrameModel):
 
 
 class GarposObservationOutput(pa.DataFrameModel):
+    """Pandera schema for the post-inversion GARPOS observation output."""
+
     MT: Series[str] = pa.Field(description="Station name", coerce=True)
 
     TT: Series[float] = pa.Field(description="Travel time [sec]")
@@ -230,12 +245,16 @@ class GarposObservationOutput(pa.DataFrameModel):
 
 
 class InversionType(Enum):
+    """GARPOS inversion mode."""
+
     positions = 0  # solve only positions
     gammas = 1  # solve only gammas (sound speed variation)
     both = 2  # solve both positions and gammas
 
 
 class InversionParams(BaseModel):
+    """Hyperparameters and inversion settings for a GARPOS run."""
+
     spline_degree: int = Field(default=3)
     log_lambda: list[float] = Field(
         default=[0], description="Smoothness parameter for backgroun perturbation"
@@ -293,6 +312,7 @@ class InversionParams(BaseModel):
     )
 
     def show_params(self) -> None:
+        """Log inversion parameters at INFO level."""
         logger.info("Inversion Parameters:")
         for param in self:
             if param[0] == "delta_center_position":
@@ -307,6 +327,7 @@ class InversionParams(BaseModel):
 
     @model_validator(mode="after")
     def validate(cls, values):
+        """Enforce `positionalOffset` consistency with `inversiontype`."""
         match values.inversiontype:
             case InversionType.gammas:
                 if any([x <= 0 for x in values.positionalOffset]):
@@ -320,6 +341,8 @@ class InversionParams(BaseModel):
 
 
 class GarposFixed(BaseModel):
+    """GARPOS fixed configuration: library paths and inversion parameters."""
+
     lib_directory: str = LIB_DIRECTORY
     lib_raytrace: str = LIB_RAYTRACE
     inversion_params: InversionParams = InversionParams()
@@ -394,6 +417,7 @@ class GarposFixed(BaseModel):
 
     @classmethod
     def from_datafile(cls, path: Path) -> "GarposFixed":
+        """Load a `GarposFixed` from a GARPOS-format INI configuration file."""
         config = ConfigParser()
         config.read(path)
         inv_section = config["Inv-parameter"]
@@ -422,6 +446,8 @@ class GarposFixed(BaseModel):
 
 
 class GarposInput(BaseModel):
+    """GARPOS observation-input bundle (site, transponders, shot/sound-speed data)."""
+
     site_name: str
     campaign_id: str
     survey_id: str
@@ -439,10 +465,12 @@ class GarposInput(BaseModel):
 
     @field_serializer("shot_data", "sound_speed_data")
     def path_to_str(self, value):
+        """Serialize `Path` fields as plain strings for JSON output."""
         return str(value)
 
     @field_serializer("start_date", "end_date")
     def dt_to_str(self, value):
+        """Serialize `datetime` fields as ISO-8601 strings."""
         return value.isoformat()
 
     def to_datafile(self, path: Path) -> None:
@@ -458,6 +486,7 @@ class GarposInput(BaseModel):
         """
 
         def datetime_to_mjd(dt: datetime) -> float:
+            """Convert a `datetime` to Modified Julian Date."""
             jd = julian.to_jd(dt, fmt="jd")
             mjd = jd - 2400000.5
             return mjd
@@ -514,6 +543,7 @@ class GarposInput(BaseModel):
 
     @classmethod
     def from_datafile(cls, path: Path, survey_id: str = None) -> "GarposInput":
+        """Build a `GarposInput` from a GARPOS observation INI file."""
         config = ConfigParser()
         config.read(path)
 
@@ -598,6 +628,8 @@ class GarposInput(BaseModel):
 
 
 class InversionLoop(BaseModel):
+    """Per-iteration diagnostics from a GARPOS inversion run."""
+
     iteration: int
     rms_tt: float  # ms
     used_shot_percentage: float
@@ -608,6 +640,8 @@ class InversionLoop(BaseModel):
 
 
 class InversionResults(BaseModel):
+    """Parsed GARPOS inversion results (ABIC, misfit, hyperparameters, loops)."""
+
     ABIC: float
     misfit: float
     inv_type: InversionType

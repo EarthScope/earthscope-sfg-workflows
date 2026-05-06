@@ -1,3 +1,5 @@
+"""Static configuration: file types, GARPOS site config, and YAML loaders."""
+
 from .file_config import (  # noqa: F401
     DEFAULT_FILE_TYPES_TO_DOWNLOAD,
     DEFAULT_INTERMEDIATE_FILE_TYPES_TO_DOWNLOAD,

@@ -1,3 +1,5 @@
+"""Mid-processing utilities: survey-type-aware filter configuration selection."""
+
 from ...config.shotdata_filters import (
     CENTER_DRIVE_FILTER_CONFIG,
     CIRCLE_DRIVE_FILTER_CONFIG,
@@ -9,7 +11,6 @@ from ...prefiltering.schemas import FilterConfig
 
 def get_survey_filter_config(survey_type: SurveyType | str) -> FilterConfig:
     """Get the filter configuration based on the survey type.
-
     Args:
         survey_type (SurveyType): The type of the survey.
 

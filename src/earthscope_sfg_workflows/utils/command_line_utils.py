@@ -1,3 +1,10 @@
+"""Helpers for invoking external CLI binaries (Go-built and PRIDE PPP).
+
+Provides platform-aware binary path resolution, log parsing for stdout/stderr,
+and a thin `subprocess.run` wrapper that maps known error strings to typed
+exceptions defined in `custom_warnings_exceptions`.
+"""
+
 import logging
 import platform
 import re
@@ -28,6 +35,7 @@ if GOLANG_BINARY_BUILD_DIR.exists() and not any(GOLANG_BINARY_BUILD_DIR.iterdir(
 
 
 def remove_ansi_escape(text):
+    """Strip ANSI escape sequences from `text`."""
     ansi_escape = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
     return ansi_escape.sub("", text)
 
@@ -53,6 +61,7 @@ PRIDE_MESSAGE_0 = "input interval is shorter than observation interval"
 
 
 def parse_error(string: str) -> Warning | None:
+    """Map a known error/warning substring to its `Warning` class, or None."""
     for key, warning_ in WARNINGS_DICT.items():
         if key in string:
             return warning_
@@ -60,6 +69,7 @@ def parse_error(string: str) -> Warning | None:
 
 
 def raise_exception(string: str) -> Exception | None:
+    """Map a known platform-specific error string to its `Exception`, or None."""
     string = string.strip()
     sys, _ = get_system_architecture()
     if sys == "linux":
@@ -74,6 +84,7 @@ def raise_exception(string: str) -> Exception | None:
 
 
 def parse_cli_logs(result, logger: _BaseLogger | logging.Logger):
+    """Parse stdout/stderr from a `CompletedProcess`, logging and raising known errors."""
     if result.stdout:
         stdout_decoded = (
             result.stdout.decode("utf-8") if isinstance(result.stdout, bytes) else result.stdout
@@ -114,23 +125,15 @@ def get_binary_path(
     binary_name: str,
 ) -> Path:
     """Resolve a platform-specific binary path from a ``{system_arch: path}`` map.
+    Args:
+        path_map: Mapping of ``"system_arch"`` keys (e.g. ``"darwin_arm64"``) to binary paths.
+        binary_name: Human-readable name used in error messages when the binary is missing.
 
-    Parameters
-    ----------
-    path_map : dict[str, Path]
-        Mapping of ``"system_arch"`` keys (e.g. ``"darwin_arm64"``) to binary paths.
-    binary_name : str
-        Human-readable name used in error messages when the binary is missing.
-
-    Returns
-    -------
-    Path
+    Returns:
         Resolved binary path for the current platform.
 
-    Raises
-    ------
-    FileNotFoundError
-        If no binary is available for the current platform.
+    Raises:
+        FileNotFoundError: If no binary is available for the current platform.
     """
     system, arch = get_system_architecture()
     binary_path = path_map.get(f"{system}_{arch}")
@@ -146,21 +149,14 @@ def run_binary(
     capture: bool = True,
 ) -> subprocess.CompletedProcess:
     """Run an external binary, parse its CLI logs, and return the result.
+    Args:
+        cmd: Command and arguments to execute.
+        log: Logger instance for output parsing.  Falls back to module-level logger.
+        cwd: Working directory for the subprocess.
+        capture: Whether to capture stdout/stderr.  Defaults to True.
 
-    Parameters
-    ----------
-    cmd : list[str]
-        Command and arguments to execute.
-    log : logger, optional
-        Logger instance for output parsing.  Falls back to module-level logger.
-    cwd : str or Path, optional
-        Working directory for the subprocess.
-    capture : bool, optional
-        Whether to capture stdout/stderr.  Defaults to True.
-
-    Returns
-    -------
-    subprocess.CompletedProcess
+    Returns:
+        subprocess.CompletedProcess
     """
     if log is None:
         log = logger

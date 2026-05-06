@@ -1,5 +1,4 @@
 """Port (Protocol) definitions for the data_mgmt package.
-
 Three explicit ports define the boundary between the deep domain core and
 swappable infrastructure:
 
@@ -48,7 +47,6 @@ class ArchiveNotFoundError(ArchiveError):
 @runtime_checkable
 class AssetStore(Protocol):
     """Persistence port for the asset catalog.
-
     Guarantees:
 
     * Idempotent reads.
@@ -171,7 +169,6 @@ class FileStore(Protocol):
 @runtime_checkable
 class ArchiveSource(Protocol):
     """External archive discovery & download (EarthScope, S3, fake).
-
     All I/O is explicit. Callers manage authentication lifecycle via
     ``authenticate``.
     """

@@ -1,3 +1,10 @@
+"""Cross-cutting helpers for the data_mgmt package.
+
+Includes a guard decorator that requires a network/station/campaign context
+to be set on a workflow handler, and a utility for computing merge signatures
+from shotdata + kin_position TileDB arrays.
+"""
+
 from collections.abc import Callable
 from functools import wraps
 from typing import (
@@ -20,6 +27,8 @@ R = TypeVar("R")
 
 
 class HasNetworkStationCampaign(Protocol):
+    """Structural type for objects exposing the current scope attributes."""
+
     current_network: str | None
     current_station: str | None
     current_campaign: str | None
@@ -28,6 +37,8 @@ class HasNetworkStationCampaign(Protocol):
 def check_network_station_campaign(
     func: Callable[Concatenate[HasNetworkStationCampaign, P], R],
 ) -> Callable[Concatenate[HasNetworkStationCampaign, P], R]:
+    """Guard decorator: raise ``ValueError`` if any of network/station/campaign is unset."""
+
     @wraps(func)
     def wrapper(self: HasNetworkStationCampaign, *args: P.args, **kwargs: P.kwargs) -> R:
         if self.current_network is None:

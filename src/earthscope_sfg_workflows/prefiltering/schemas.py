@@ -1,3 +1,5 @@
+"""Pydantic schemas for shotdata pre-filtering configuration."""
+
 from enum import StrEnum
 from typing import Any
 
@@ -5,12 +7,16 @@ from pydantic import BaseModel, Field, field_serializer
 
 
 class FilterLevel(StrEnum):
+    """Acoustic-diagnostic strictness level used by `AcousticFilterConfig`."""
+
     GOOD = "GOOD"
     OK = "OK"
     DIFFICULT = "DIFFICULT"
 
 
 class AcousticFilterConfig(BaseModel):
+    """Configuration for the acoustic-diagnostics filter."""
+
     enabled: bool = Field(False, description="Whether to enable acoustic diagnostics filtering")
     level: FilterLevel = Field(
         FilterLevel.OK,
@@ -19,15 +25,20 @@ class AcousticFilterConfig(BaseModel):
 
     @field_serializer("level")
     def serialize_level(level: FilterLevel) -> str:
+        """Serialize `FilterLevel` to its string value for JSON/YAML output."""
         return level.value
 
 
 class PingRepliesFilterConfig(BaseModel):
+    """Configuration for the minimum-ping-replies filter."""
+
     enabled: bool = Field(False, description="Whether to enable ping replies filtering")
     min_replies: int = Field(3, description="Minimum number of replies required to keep a shot")
 
 
 class MaxDistFromCenterConfig(BaseModel):
+    """Configuration for the max-distance-from-array-center filter."""
+
     enabled: bool = Field(True, description="Whether to enable max distance from center filtering")
     max_distance_m: float = Field(
         150.0,
@@ -36,6 +47,8 @@ class MaxDistFromCenterConfig(BaseModel):
 
 
 class PrideResidualsConfig(BaseModel):
+    """Configuration for the PRIDE-PPP kinematic residual filter."""
+
     enabled: bool = Field(False, description="Whether to enable PRIDE residuals filtering")
     max_residual_mm: float = Field(
         8.0, description="Maximum PRIDE residual in millimeters to keep a shot"
@@ -43,6 +56,8 @@ class PrideResidualsConfig(BaseModel):
 
 
 class FilterConfig(BaseModel):
+    """Top-level container for all shotdata pre-filter configurations."""
+
     acoustic_filters: AcousticFilterConfig = Field(
         default_factory=AcousticFilterConfig,
         description="Configuration for acoustic diagnostics filtering",
@@ -61,6 +76,13 @@ class FilterConfig(BaseModel):
     )
 
     def update(self, custom_config: dict[str, Any]) -> None:
+        """Apply nested overrides from `custom_config` in-place.
+
+        Args:
+            custom_config: Mapping where keys match `FilterConfig` field names
+                and values are either scalars or sub-dicts whose keys match
+                the nested model's field names.
+        """
         for key, value in custom_config.items():
             if hasattr(self, key):
                 attr = getattr(self, key)

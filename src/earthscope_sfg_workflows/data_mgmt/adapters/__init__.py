@@ -1,5 +1,4 @@
 """Adapter implementations for the data_mgmt ports.
-
 In-memory adapters always import. Production adapters
 (:class:`EarthScopeArchive`, :class:`S3FileStore`) require optional
 dependencies and are imported lazily via attribute access so a missing

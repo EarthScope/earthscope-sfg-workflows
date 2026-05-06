@@ -49,7 +49,6 @@ from .shotdata_gnss_refinement import merge_shotdata_kinposition
 
 class SV3Pipeline(WorkflowBase):
     """Orchestrates the end-to-end processing of Sonardyne SV3 and Novatel GNSS data for seafloor geodesy.
-
     This class manages a comprehensive workflow for processing seafloor geodesy
     data, including:
 
@@ -87,50 +86,27 @@ class SV3Pipeline(WorkflowBase):
     (network/station/campaign) and uses TileDB for efficient storage and
     retrieval of time-series data.
 
-    Attributes
-    ----------
-    workspace : Workspace
-        Manages the project directory structure and data layer access
-        (catalog reads/writes flow through ``workspace.assets``).
-    config : SV3PipelineConfig
-        Configuration settings for all pipeline steps, including Novatel,
-        RINEX, PRIDE, DFOP00, and position update configs.
-    shotDataPreTDB : TDBShotDataArray
-        Preliminary shotdata (before position refinement).
-    kinPositionTDB : TDBKinPositionArray
-        High-precision kinematic positions.
-    imuPositionTDB : TDBIMUPositionArray
-        IMU-derived positions (from Novatel 000).
-    shotDataFinalTDB : TDBShotDataArray
-        Final shotdata (after position refinement).
-    gnssObsTDBURI : Path
-        Primary GNSS observation array (from Novatel 770).
-    gnssObsTDB_secondaryURI : Path
-        Secondary GNSS observation array (from Novatel 000).
-
-    Methods
-    -------
-    set_network_station_campaign(network, station, campaign)
-        Set the current processing context and initialize directories and
-        TileDB arrays.
-    _build_rinex_metadata()
-        Prepare metadata for RINEX file generation from GNSS observations.
-    pre_process_novatel()
-        Preprocess Novatel 770 and 000 binary files into TileDB arrays.
-    get_rinex_files()
-        Generate daily RINEX files from TileDB GNSS observations.
-    process_rinex()
-        Process RINEX files using PRIDE-PPPAR to generate Kinematic files.
-    process_kin()
-        Convert Kinematic files to structured dataframes and store in TileDB.
-    process_dfop00()
-        Process Sonardyne DFOP00 files to generate preliminary shotdata.
-    update_shotdata()
-        Refine shotdata by interpolating high-precision GNSS positions.
-    process_svp()
-        Process CTD and Seabird files to generate sound velocity profiles.
-    run_pipeline()
-        Execute the full processing pipeline in sequence.
+    Attributes:
+        workspace: Manages the project directory structure and data layer access (catalog reads/writes flow through ``workspace.assets``).
+        config: Configuration settings for all pipeline steps, including Novatel, RINEX, PRIDE, DFOP00, and position update configs.
+        shotDataPreTDB: Preliminary shotdata (before position refinement).
+        kinPositionTDB: High-precision kinematic positions.
+        imuPositionTDB: IMU-derived positions (from Novatel 000).
+        shotDataFinalTDB: Final shotdata (after position refinement).
+        gnssObsTDBURI: Primary GNSS observation array (from Novatel 770).
+        gnssObsTDB_secondaryURI: Secondary GNSS observation array (from Novatel 000).
+        Methods:
+        -------:
+        set_network_station_campaign(network, station, campaign): Set the current processing context and initialize directories and TileDB arrays.
+        _build_rinex_metadata(): Prepare metadata for RINEX file generation from GNSS observations.
+        pre_process_novatel(): Preprocess Novatel 770 and 000 binary files into TileDB arrays.
+        get_rinex_files(): Generate daily RINEX files from TileDB GNSS observations.
+        process_rinex(): Process RINEX files using PRIDE-PPPAR to generate Kinematic files.
+        process_kin(): Convert Kinematic files to structured dataframes and store in TileDB.
+        process_dfop00(): Process Sonardyne DFOP00 files to generate preliminary shotdata.
+        update_shotdata(): Refine shotdata by interpolating high-precision GNSS positions.
+        process_svp(): Process CTD and Seabird files to generate sound velocity profiles.
+        run_pipeline(): Execute the full processing pipeline in sequence.
     """
 
     mid_process_workflow = False
@@ -144,19 +120,11 @@ class SV3Pipeline(WorkflowBase):
         workspace: Workspace | None = None,
     ):
         """Initializes the SV3Pipeline with a workspace and configuration.
-
-        Parameters
-        ----------
-        directory : Path | str, optional
-            Root path of the data tree. Used to build a default
-            :class:`Workspace` when ``workspace`` is not provided.
-        s3_sync_bucket : str, optional
-            S3 bucket name/URI for sync operations.
-        config : Optional[SV3PipelineConfig], optional
-            Configuration settings for the pipeline. If None, uses default
-            configuration. Defaults to None.
-        workspace : Workspace, optional
-            Pre-constructed workspace. Preferred over ``directory``.
+        Args:
+            directory: Root path of the data tree. Used to build a default :class:`Workspace` when ``workspace`` is not provided.
+            s3_sync_bucket: S3 bucket name/URI for sync operations.
+            config: Configuration settings for the pipeline. If None, uses default configuration. Defaults to None.
+            workspace: Pre-constructed workspace. Preferred over ``directory``.
         """
         if workspace is None:
             import os as _os
@@ -183,7 +151,6 @@ class SV3Pipeline(WorkflowBase):
         campaign_id: str,
     ) -> None:
         """Set the current network, station, and campaign context for pipeline processing.
-
         This method establishes the processing context and performs several
         initialization tasks:
         1. Resets previous context and clears TileDB arrays if context changes
@@ -193,14 +160,10 @@ class SV3Pipeline(WorkflowBase):
         5. Configures logging
         6. Prepares RINEX metadata
 
-        Parameters
-        ----------
-        network_id : str
-            Network identifier (e.g., "cascadia-gorda").
-        station_id : str
-            Station identifier (e.g., "NCC1").
-        campaign_id : str
-            Campaign identifier (e.g., "2023_A_1126").
+        Args:
+            network_id: Network identifier (e.g., "cascadia-gorda").
+            station_id: Station identifier (e.g., "NCC1").
+            campaign_id: Campaign identifier (e.g., "2023_A_1126").
         """
         # Clear TileDB arrays if switching context to avoid stale references
         if (
@@ -261,7 +224,6 @@ class SV3Pipeline(WorkflowBase):
 
     def _build_rinex_meta(self) -> None:
         """Build RINEX metadata files for the current campaign if they don't exist.
-
         Creates two metadata files:
         - rinex_metav2.json: Updated format with metadata
         - rinex_metav1.json: Legacy format for backward compatibility
@@ -288,7 +250,6 @@ class SV3Pipeline(WorkflowBase):
     @validate_network_station_campaign
     def pre_process_novatel(self) -> None:
         """Preprocess Novatel 770 and 000 binary files for the current context.
-
         Processing steps:
         1. **Novatel 770**: Extracts GNSS observations to primary TileDB array
         2. **Novatel 000**: Extracts GNSS observations to secondary array + IMU
@@ -297,10 +258,8 @@ class SV3Pipeline(WorkflowBase):
         Both steps check if processing is needed (via override config or merge
         status) and update the asset catalog upon completion.
 
-        Raises
-        ------
-        Exception
-            If no Novatel 770 or 000 files are found.
+        Raises:
+            Exception: If no Novatel 770 or 000 files are found.
         """
 
         """
@@ -409,7 +368,6 @@ class SV3Pipeline(WorkflowBase):
     @validate_network_station_campaign
     def get_rinex_files(self) -> None:
         """Generate and catalog daily RINEX files for the current campaign.
-
         Steps:
         1. Consolidates GNSS observation data
         2. Determines processing year from config or campaign name
@@ -417,12 +375,9 @@ class SV3Pipeline(WorkflowBase):
         4. Creates AssetEntry for each RINEX file
         5. Updates asset catalog with merge job
 
-        Raises
-        ------
-        ValueError
-            If a processing year cannot be determined from the campaign name.
-        Exception
-            If an error occurs during RINEX file generation.
+        Raises:
+            ValueError: If a processing year cannot be determined from the campaign name.
+            Exception: If an error occurs during RINEX file generation.
         """
 
         rinexDestination = self.workspace.layout.campaign().intermediate
@@ -531,7 +486,6 @@ class SV3Pipeline(WorkflowBase):
     @validate_network_station_campaign
     def process_rinex(self) -> None:
         """Run PRIDE-PPP on RINEX files to generate KIN and residual files.
-
         Processing steps:
         1. Retrieves RINEX files needing processing
         2. Downloads GNSS product files (SP3, OBX, ATT) for each unique DOY
@@ -642,7 +596,6 @@ class SV3Pipeline(WorkflowBase):
     @validate_network_station_campaign
     def process_kin(self) -> None:
         """Process KIN files to generate kinematic position dataframes.
-
         Steps:
         1. Retrieves KIN files needing processing
         2. Converts each KIN file to a structured dataframe
@@ -688,7 +641,6 @@ class SV3Pipeline(WorkflowBase):
     @validate_network_station_campaign
     def process_dfop00(self) -> None:
         """Process Sonardyne DFOP00 files to generate preliminary shotdata.
-
         Steps:
         1. Retrieves DFOP00 files needing processing
         2. Converts each file to shotdata dataframe (acoustic ping-reply
@@ -783,7 +735,6 @@ class SV3Pipeline(WorkflowBase):
     @validate_network_station_campaign
     def process_svp(self, override: bool = False) -> None:
         """Process CTD and Seabird files to generate sound velocity profiles (SVP).
-
         Processing order:
         1. Tries CTD files with CTD_to_svp_v2
         2. If that fails, tries CTD_to_svp_v1
@@ -792,11 +743,8 @@ class SV3Pipeline(WorkflowBase):
         The first successful SVP is saved to the campaign directory and
         processing stops.
 
-        Parameters
-        ----------
-        override : bool, optional
-            If True, forces reprocessing even if SVP file exists. Default is
-            False.
+        Args:
+            override: If True, forces reprocessing even if SVP file exists. Default is False.
         """
         svp_df_destination = self.workspace.layout.campaign().svp_file
         if svp_df_destination.exists() and not override:
@@ -852,7 +800,6 @@ class SV3Pipeline(WorkflowBase):
     @validate_network_station_campaign
     def run_pipeline(self) -> None:
         """Execute the complete SV3 data processing pipeline in sequence.
-
         Pipeline steps (in order):
         1. pre_process_novatel(): Process Novatel GNSS data
         2. get_rinex_files(): Generate RINEX files
@@ -908,7 +855,6 @@ class SV3Pipeline(WorkflowBase):
     @validate_network_station_campaign
     def run_intermediate_pipeline(self) -> None:
         """Run only the intermediate steps of the SV3 pipeline. This assumes rinex is already downloaded
-
         Intermediate steps include:
         1. process_rinex(): Run PRIDE-PPP on RINEX
         2. process_kin(): Convert KIN files to dataframes

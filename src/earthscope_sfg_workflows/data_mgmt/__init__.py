@@ -1,5 +1,4 @@
 """Public surface of the data_mgmt package.
-
 Ports & adapters layer for managing seafloor-geodesy data assets.
 See ``plans/rfc-a-data-mgmt-ports-and-adapters.md``.
 """

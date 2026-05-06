@@ -1,5 +1,4 @@
 """Pure data layer for the data_mgmt package.
-
 This module defines immutable, I/O-free dataclasses describing the workspace
 directory hierarchy and asset metadata. All path computation is pure; nothing
 here touches the filesystem, a database, or the network.
@@ -21,7 +20,6 @@ from pathlib import Path
 
 class AssetKind(str, Enum):
     """Single source of truth for asset types in the catalog.
-
     Values match the legacy ``AssetType`` enum in ``config/file_config.py``
     so persisted catalog rows remain readable across the migration.
     """

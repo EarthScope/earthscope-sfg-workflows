@@ -109,7 +109,6 @@ def rangea_string_epoch(
 
 class QCPipeline(WorkflowBase):
     """Orchestrates the QC data processing pipeline for seafloor geodesy.
-
     This class manages a workflow for processing QC (Quality Control) data
     from Sonardyne equipment, including:
 
@@ -137,21 +136,13 @@ class QCPipeline(WorkflowBase):
     The QC pipeline uses separate TileDB arrays from the normal pipeline
     to avoid data overlap.
 
-    Attributes
-    ----------
-    workspace : Workspace
-        Manages the project directory structure and data layer access
-        (catalog reads/writes flow through ``workspace.assets``).
-    config : QCPipelineConfig
-        Configuration settings for all pipeline steps.
-    qcShotDataPreTDB : TDBShotDataArray
-        QC preliminary shotdata (before position refinement).
-    qcKinPositionTDB : TDBKinPositionArray
-        QC high-precision kinematic positions.
-    qcShotDataFinalTDB : TDBShotDataArray
-        QC final shotdata (after position refinement).
-    qcGnssObsTDBURI : Path
-        QC GNSS observation array URI.
+    Attributes:
+        workspace: Manages the project directory structure and data layer access (catalog reads/writes flow through ``workspace.assets``).
+        config: Configuration settings for all pipeline steps.
+        qcShotDataPreTDB: QC preliminary shotdata (before position refinement).
+        qcKinPositionTDB: QC high-precision kinematic positions.
+        qcShotDataFinalTDB: QC final shotdata (after position refinement).
+        qcGnssObsTDBURI: QC GNSS observation array URI.
     """
 
     mid_process_workflow = False
@@ -165,19 +156,11 @@ class QCPipeline(WorkflowBase):
         workspace: Workspace | None = None,
     ):
         """Initialize the QCPipeline with a workspace and configuration.
-
-        Parameters
-        ----------
-        directory : Path | str, optional
-            Root path of the data tree. Used to build a default
-            :class:`Workspace` when ``workspace`` is not provided.
-        s3_sync_bucket : str, optional
-            S3 bucket name/URI for sync operations.
-        config : QCPipelineConfig, optional
-            Configuration settings for the pipeline. If None, uses default
-            configuration.
-        workspace : Workspace, optional
-            Pre-constructed workspace. Preferred over ``directory``.
+        Args:
+            directory: Root path of the data tree. Used to build a default :class:`Workspace` when ``workspace`` is not provided.
+            s3_sync_bucket: S3 bucket name/URI for sync operations.
+            config: Configuration settings for the pipeline. If None, uses default configuration.
+            workspace: Pre-constructed workspace. Preferred over ``directory``.
         """
         if workspace is None:
             import os as _os
@@ -204,7 +187,6 @@ class QCPipeline(WorkflowBase):
         campaign_id: str,
     ) -> None:
         """Set the current network, station, and campaign context for pipeline processing.
-
         This method establishes the processing context and performs several
         initialization tasks:
         1. Resets previous context and clears TileDB arrays if context changes
@@ -214,14 +196,10 @@ class QCPipeline(WorkflowBase):
         5. Configures logging
         6. Prepares RINEX metadata
 
-        Parameters
-        ----------
-        network_id : str
-            Network identifier (e.g., "cascadia-gorda").
-        station_id : str
-            Station identifier (e.g., "NCC1").
-        campaign_id : str
-            Campaign identifier (e.g., "2023_A_1126").
+        Args:
+            network_id: Network identifier (e.g., "cascadia-gorda").
+            station_id: Station identifier (e.g., "NCC1").
+            campaign_id: Campaign identifier (e.g., "2023_A_1126").
         """
         # Clear TileDB arrays if switching context to avoid stale references
         if (
@@ -298,15 +276,12 @@ class QCPipeline(WorkflowBase):
     @validate_network_station_campaign
     def process_qcpin(self) -> None:
         """Process QC PIN files to generate preliminary shotdata.
-
         This method retrieves all QC PIN files from the asset catalog, converts them
         into ShotDataFrames using qcjson_to_shotdata, and stores the results
         in the QC-specific TileDB ShotData array.
 
-        Raises
-        ------
-        NoQCPinFound
-            If no QC PIN files are found for the current context.
+        Raises:
+            NoQCPinFound: If no QC PIN files are found for the current context.
         """
         qcpin_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
             parent_kind=AssetKind.QCPIN,
@@ -363,14 +338,11 @@ class QCPipeline(WorkflowBase):
     @validate_network_station_campaign
     def get_rinex_files(self) -> None:
         """Generate and catalog daily RINEX files from QC GNSS data.
-
         This method generates RINEX files from the QC GNSS observation TileDB
         array for use in PRIDE-PPP processing.
 
-        Raises
-        ------
-        NoRinexBuilt
-            If no RINEX files could be generated.
+        Raises:
+            NoRinexBuilt: If no RINEX files could be generated.
         """
         rinexDestination = self.workspace.layout.campaign().intermediate
 
@@ -458,17 +430,14 @@ class QCPipeline(WorkflowBase):
     @validate_network_station_campaign
     def process_rinex(self) -> None:
         """Run PRIDE-PPP on RINEX files to generate KIN and residual files.
-
         Processing steps:
         1. Retrieves RINEX files needing processing
         2. Downloads GNSS product files (SP3, OBX, ATT)
         3. Runs PRIDE-PPPAR to convert RINEX to KIN format
         4. Adds KIN and residual files to asset catalog
 
-        Raises
-        ------
-        NoRinexFound
-            If no RINEX files are found for processing.
+        Raises:
+            NoRinexFound: If no RINEX files are found for processing.
         """
         response = f"Running PRIDE-PPPAR on QC Rinex Data for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}. This may take a few minutes..."
         ProcessLogger.info(response)
@@ -544,17 +513,14 @@ class QCPipeline(WorkflowBase):
     @validate_network_station_campaign
     def process_kin(self) -> None:
         """Process KIN files to generate QC kinematic position dataframes.
-
         Steps:
         1. Retrieves KIN files needing processing
         2. Converts each KIN file to a structured dataframe
         3. Writes dataframes to QC kinematic position TileDB array
         4. Marks files as processed in asset catalog
 
-        Raises
-        ------
-        NoKinFound
-            If no KIN files are found for processing.
+        Raises:
+            NoKinFound: If no KIN files are found for processing.
         """
         ProcessLogger.info(
             f"Looking for QC Kin Files to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
@@ -590,7 +556,6 @@ class QCPipeline(WorkflowBase):
     @validate_network_station_campaign
     def update_shotdata(self) -> None:
         """Refine QC shotdata with interpolated high-precision kinematic positions.
-
         Steps:
         1. Gets merge signature from preliminary shotdata and kinematic
            position arrays
@@ -631,7 +596,6 @@ class QCPipeline(WorkflowBase):
     @validate_network_station_campaign
     def run_pipeline(self) -> None:
         """Execute the complete QC data processing pipeline in sequence.
-
         Pipeline steps (in order):
         1. process_qcpin(): Process QC PIN files to generate shotdata
         2. parse_rangea_logs_from_qcpin(): Extract RANGEA logs for GNSS processing

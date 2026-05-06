@@ -1,5 +1,4 @@
 """Minimal :class:`WorkflowBase` — replacement for the legacy ``WorkflowABC``.
-
 Owns nothing except the :class:`Workspace` and a ``mid_process_workflow``
 flag. All scope state, ports, and data-mgmt access live on the workspace.
 
@@ -28,7 +27,6 @@ class HasWorkspace(Protocol):
 
 class WorkflowBase(ABC):
     """Minimal base for all workflow classes.
-
     Subclasses receive a single :class:`Workspace`. They reach the data
     layer only via the four façades (``layout``, ``metadata``, ``assets``,
     ``ingest``) on it. There is no ``self.asset_catalog``, no
@@ -38,6 +36,7 @@ class WorkflowBase(ABC):
     mid_process_workflow: bool = False
 
     def __init__(self, workspace: Workspace) -> None:
+        """Bind to a `Workspace`. The workspace owns ports, scope, and metadata."""
         self.workspace = workspace
 
     @property
@@ -52,17 +51,21 @@ class WorkflowBase(ABC):
 
     @property
     def current_network_name(self) -> str | None:
+        """Active network name; alias for `self.workspace.network_name`."""
         return self.workspace.network_name
 
     @property
     def current_station_name(self) -> str | None:
+        """Active station name; alias for `self.workspace.station_name`."""
         return self.workspace.station_name
 
     @property
     def current_campaign_name(self) -> str | None:
+        """Active campaign name; alias for `self.workspace.campaign_name`."""
         return self.workspace.campaign_name
 
     def close(self) -> None:
+        """Close the underlying workspace and release any held resources."""
         self.workspace.close()
 
 

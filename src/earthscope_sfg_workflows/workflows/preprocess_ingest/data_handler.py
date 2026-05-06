@@ -1,5 +1,4 @@
 """DataHandler — preprocess ingestion / catalog / download workflow class.
-
 Migrated to :class:`WorkflowBase` + :class:`Workspace` (RFC-A Phase 4).
 
 The constructor still accepts the legacy ``directory`` / ``s3_sync_bucket``
@@ -68,7 +67,6 @@ def _to_asset_kind(t: AssetType | str) -> AssetKind:
 
 def _build_default_workspace(directory: Path | str) -> Workspace:
     """Construct a production Workspace rooted at ``directory``.
-
     Picks the file store based on the directory scheme: ``s3://`` URIs use
     :class:`S3FileStore`; everything else uses :class:`LocalFileStore`.
     """
@@ -91,7 +89,6 @@ def _build_default_workspace(directory: Path | str) -> Workspace:
 
 class DataHandler(WorkflowBase):
     """Preprocess ingestion + catalog + download workflow class.
-
     Composes a :class:`Workspace` and reaches the data layer only via
     ``self.workspace.{layout,assets,ingest,metadata}``.
     """
@@ -106,17 +103,7 @@ class DataHandler(WorkflowBase):
         workspace: Workspace | None = None,
     ) -> None:
         """Initialize the handler.
-
-        Parameters
-        ----------
-        directory:
-            Root path of the data tree. Auto-detected from
-            ``$MAIN_DIRECTORY`` when omitted. **Legacy entry-point** — pass
-            ``workspace=`` directly when possible.
-        s3_sync_bucket:
-            S3 bucket name/URI for :meth:`sync_from_s3`. Optional.
-        workspace:
-            Pre-constructed :class:`Workspace`. Preferred over ``directory``.
+        Args:
         """
         if workspace is None:
             if directory is None:
@@ -504,7 +491,6 @@ class DataHandler(WorkflowBase):
         site_metadata: Site | Path | str | None = None,
     ) -> Site | None:
         """Load or persist site metadata for the active station.
-
         Order of precedence:
 
         1. Explicit ``site_metadata`` argument (Site, Path, or path string).
@@ -575,7 +561,6 @@ class DataHandler(WorkflowBase):
 
     def sync_from_s3(self, overwrite: bool = False) -> None:
         """Mirror seafloor-geodesy data from a remote S3 prefix into the local workspace.
-
         Copies the active station's directory tree (campaigns + their files
         + the TileDB arrays) from ``self.s3_sync_bucket`` into the local
         workspace root.

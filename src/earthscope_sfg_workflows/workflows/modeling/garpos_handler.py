@@ -54,31 +54,19 @@ colors = [
 
 class GarposHandler(IntermediateDataProcessor):
     """Handles the processing and preparation of shot data for the GARPOS model.
-
     This class provides a high-level interface for running the GARPOS model,
     including data preparation, setting parameters, and processing results.
 
-    Attributes
-    ----------
-    workspace : Workspace
-        Manages the directory structure and data layer access.
-    site : Site
-        The site metadata.
-    network : str
-        The network name.
-    station : str
-        The station name.
-    campaign : Campaign
-        The campaign metadata.
-    current_survey : Survey
-        The current survey being processed.
-    coord_transformer : CoordTransformer
-        Coordinate transformer for the site.
-    garpos_fixed : GarposFixed
-        Fixed parameters for the GARPOS model.
-    sound_speed_path : Path
-        Path to the sound speed profile file.
-
+    Attributes:
+        workspace: Manages the directory structure and data layer access.
+        site: The site metadata.
+        network: The network name.
+        station: The station name.
+        campaign: The campaign metadata.
+        current_survey: The current survey being processed.
+        coord_transformer: Coordinate transformer for the site.
+        garpos_fixed: Fixed parameters for the GARPOS model.
+        sound_speed_path: Path to the sound speed profile file.
     """
 
     mid_process_workflow = True
@@ -90,15 +78,10 @@ class GarposHandler(IntermediateDataProcessor):
         s3_sync_bucket: str | None = None,
     ):
         """Initializes the GarposHandler.
-
-        Parameters
-        ----------
-        directory : Path | str, optional
-            Root path of the data tree.
-        station_metadata : Site
-            The site metadata.
-        s3_sync_bucket : str, optional
-            S3 bucket name/URI for sync operations.
+        Args:
+            directory: Root path of the data tree.
+            station_metadata: The site metadata.
+            s3_sync_bucket: S3 bucket name/URI for sync operations.
         """
 
         super().__init__(
@@ -111,16 +94,11 @@ class GarposHandler(IntermediateDataProcessor):
 
     def set_network(self, network_id: str):
         """Sets the current network.
+        Args:
+            network_id: The ID of the network to set.
 
-        Parameters
-        ----------
-        network_id : str
-            The ID of the network to set.
-
-        Raises
-        ------
-        ValueError
-            If the network is not found in the site metadata.
+        Raises:
+            ValueError: If the network is not found in the site metadata.
         """
         super().set_network(network_id=network_id)
 
@@ -128,47 +106,32 @@ class GarposHandler(IntermediateDataProcessor):
 
     def set_station(self, station_id: str):
         """Sets the current station.
+        Args:
+            station_id: The ID of the station to set.
 
-        Parameters
-        ----------
-        station_id : str
-            The ID of the station to set.
-
-        Raises
-        ------
-        ValueError
-            If the station is not found in the site metadata.
+        Raises:
+            ValueError: If the station is not found in the site metadata.
         """
 
         super().set_station(station_id=station_id)
 
     def set_campaign(self, campaign_id: str):
         """Sets the current campaign.
+        Args:
+            campaign_id: The ID of the campaign to set.
 
-        Parameters
-        ----------
-        campaign_id : str
-            The ID of the campaign to set.
-
-        Raises
-        ------
-        ValueError
-            If the campaign is not found in the site metadata.
+        Raises:
+            ValueError: If the campaign is not found in the site metadata.
         """
         super().set_campaign(campaign_id=campaign_id)
 
     def set_survey(self, survey_id: str):
         """Sets the current survey.
+        Args:
+            survey_id: The ID of the survey to set.
 
-        Parameters
-        ----------
-        survey_id : str
-            The ID of the survey to set.
-
-        Raises
-        ------
-        ValueError
-            If the survey is not found in the current campaign.
+        Raises:
+            ValueError: If the survey is not found in the current campaign.
         """
 
         super().set_survey(survey_id=survey_id)
@@ -207,17 +170,13 @@ class GarposHandler(IntermediateDataProcessor):
 
     def set_inversion_params(self, parameters: dict | InversionParams):
         """Set inversion parameters for the model.
-
         This method updates the inversion parameters of the model using the
         key-value pairs provided in the `args` dictionary. Each key in the
         dictionary corresponds to an attribute of the `inversion_params`
         object, and the associated value is assigned to that attribute.
 
-        Parameters
-        ----------
-        parameters : dict | InversionParams
-            A dictionary containing key-value pairs to update the inversion
-            parameters or an InversionParams object.
+        Args:
+            parameters: A dictionary containing key-value pairs to update the inversion parameters or an InversionParams object.
         """
 
         self.garpos_fixed.inversion_params = validate_and_merge_config(
@@ -233,23 +192,14 @@ class GarposHandler(IntermediateDataProcessor):
         override: bool = False,
     ) -> Path:
         """Runs the GARPOS model.
+        Args:
+            obsfile_path: The path to the observation file.
+            results_dir: The path to the results directory.
+            custom_settings: Custom GARPOS settings to apply, by default None.
+            run_id: The run ID, by default 0.
+            override: If True, override existing results, by default False.
 
-        Parameters
-        ----------
-        obsfile_path : Path
-            The path to the observation file.
-        results_dir : Path
-            The path to the results directory.
-        custom_settings : Optional[dict | InversionParams], optional
-            Custom GARPOS settings to apply, by default None.
-        run_id : int | str, optional
-            The run ID, by default 0.
-        override : bool, optional
-            If True, override existing results, by default False.
-
-        Returns
-        -------
-        Path
+        Returns:
             The path to the results file.
         """
 
@@ -293,24 +243,15 @@ class GarposHandler(IntermediateDataProcessor):
         override: bool = False,
     ) -> None:
         """Run the GARPOS model for a specific GARPOSSurveyDir.
+        Args:
+            garpos_survey_dir: The GARPOS survey directory to run.
+            custom_settings: Custom GARPOS settings to apply, by default None.
+            run_id: The run identifier, by default 0.
+            iterations: The number of iterations to run, by default 1.
+            override: If True, override existing results, by default False.
 
-        Parameters
-        ----------
-        garpos_survey_dir : GARPOSSurveyDir
-            The GARPOS survey directory to run.
-        custom_settings : dict, optional
-            Custom GARPOS settings to apply, by default None.
-        run_id : int | str, optional
-            The run identifier, by default 0.
-        iterations : int, optional
-            The number of iterations to run, by default 1.
-        override : bool, optional
-            If True, override existing results, by default False.
-
-        Raises
-        ------
-        ValueError
-            If the observation file does not exist.
+        Raises:
+            ValueError: If the observation file does not exist.
         """
         logger.info(
             f"Running GARPOS model for survey {garpos_survey_dir.root.parent.name}. Run ID: {run_id}"
@@ -374,24 +315,15 @@ class GarposHandler(IntermediateDataProcessor):
         override: bool = False,
     ) -> None:
         """Run the GARPOS model for a specific survey.
+        Args:
+            survey_id: The ID of the survey to run.
+            custom_settings: Custom GARPOS settings to apply, by default None.
+            run_id: The run identifier, by default 0.
+            iterations: The number of iterations to run, by default 1.
+            override: If True, override existing results, by default False.
 
-        Parameters
-        ----------
-        survey_id : str
-            The ID of the survey to run.
-        custom_settings : dict, optional
-            Custom GARPOS settings to apply, by default None.
-        run_id : int | str, optional
-            The run identifier, by default 0.
-        iterations : int, optional
-            The number of iterations to run, by default 1.
-        override : bool, optional
-            If True, override existing results, by default False.
-
-        Raises
-        ------
-        ValueError
-            If the observation file does not exist.
+        Raises:
+            ValueError: If the observation file does not exist.
         """
         logger.info(f"Running GARPOS model for survey {survey_id}. Run ID: {run_id}")
 
@@ -455,19 +387,12 @@ class GarposHandler(IntermediateDataProcessor):
         surveys: list[GARPOSLayout] | None = None,
     ) -> None:
         """Run the GARPOS model for a specific date or for all dates.
-
-        Parameters
-        ----------
-        survey_id : str, optional
-            The ID of the survey to run, by default None.
-        run_id : int | str, optional
-            The run identifier, by default 0.
-        iterations : int, optional
-            The number of iterations to run, by default 1.
-        override : bool, optional
-            If True, override existing results, by default False.
-        custom_settings : dict | InversionParams, optional
-            Custom GARPOS settings to apply, by default None.
+        Args:
+            survey_id: The ID of the survey to run, by default None.
+            run_id: The run identifier, by default 0.
+            iterations: The number of iterations to run, by default 1.
+            override: If True, override existing results, by default False.
+            custom_settings: Custom GARPOS settings to apply, by default None.
         """
 
         logger.info(f"Running GARPOS model. Run ID: {run_id}")
@@ -506,15 +431,10 @@ class GarposHandler(IntermediateDataProcessor):
         showfig: bool = True,
     ) -> None:
         """Plots the time series results for a given survey.
-
-        Parameters
-        ----------
-        survey_id : str, optional
-            ID of the survey to plot results for, by default None.
-        savefig : bool, optional
-            If True, save the figure, by default False.
-        showfig : bool, optional
-            If True, display the figure, by default True.
+        Args:
+            survey_id: ID of the survey to plot results for, by default None.
+            savefig: If True, save the figure, by default False.
+            showfig: If True, display the figure, by default True.
         """
         self._plot_shotdata_replies_per_transponder(
             savefig=savefig,
@@ -529,16 +449,11 @@ class GarposHandler(IntermediateDataProcessor):
         """
         Plots the shotdata replies for a given survey and transponder.
 
-        Parameters
-        ----------
-        survey_id : str
-            The ID of the survey to plot.
-        survey_type : str
-            The type of the survey to plot.
-        savefig : bool
-            If True, save the figure, by default False.
-        showfig : bool
-            If True, display the figure, by default True.
+        Args:
+            survey_id: The ID of the survey to plot.
+            survey_type: The type of the survey to plot.
+            savefig: If True, save the figure, by default False.
+            showfig: If True, display the figure, by default True.
         """
         metadata_surveys = []
         for campaign in self.current_station_metadata.campaigns:
@@ -710,7 +625,6 @@ class GarposHandler(IntermediateDataProcessor):
         showfig: bool = True,
     ):
         """Plots the residuals on 3 subplots for a given survey.
-
         Args:
             survey_id (str): The ID of the survey to plot results for.
             run_id (int | str, optional): The run ID of the survey results to plot. Defaults to 0.
@@ -817,7 +731,6 @@ class GarposHandler(IntermediateDataProcessor):
         showfig: bool = True,
     ) -> None:
         """Plots the remaining residuals for each transponder.
-
         Args:
             survey_id (str): The ID of the survey to plot results for.
             run_id (int | str, optional): The run ID of the survey results to plot. Defaults to 0.
@@ -852,7 +765,6 @@ class GarposHandler(IntermediateDataProcessor):
         showfig: bool = True,
     ):
         """Plots the residuals on 3 subplots for a given survey.
-
         Args:
             survey_id (str): The ID of the survey to plot results for.
             run_id (int | str, optional): The run ID of the survey results to plot. Defaults to 0.
@@ -966,20 +878,12 @@ class GarposHandler(IntermediateDataProcessor):
         showfig: bool = True,
     ) -> None:
         """Plots the time series results for a given survey.
-
-        Parameters
-        ----------
-        survey_id : str, optional
-            ID of the survey to plot results for, by default None.
-        run_id : int or str, optional
-            The run ID of the survey results to plot, by default 0.
-        res_filter : float, optional
-            The residual filter value to filter outrageous values (m), by
-            default 10.
-        savefig : bool, optional
-            If True, save the figure, by default False.
-        showfig : bool, optional
-            If True, display the figure, by default True.
+        Args:
+            survey_id: ID of the survey to plot results for, by default None.
+            run_id: The run ID of the survey results to plot, by default 0.
+            res_filter: The residual filter value to filter outrageous values (m), by default 10.
+            savefig: If True, save the figure, by default False.
+            showfig: If True, display the figure, by default True.
         """
         surveys_to_process = []
         for survey in self.current_campaign_metadata.surveys:
@@ -1014,21 +918,13 @@ class GarposHandler(IntermediateDataProcessor):
         """
         Plots the time series results for a given survey.
 
-        Parameters
-        ----------
-        survey_id : str
-            The ID of the survey to plot results for.
-        survey_type : str, optional
-            Optional survey type to include in the title.
-        run_id : int or str, default 0
-            The GARPOS run ID to plot results for.
-        res_filter : float, default 10
-            The residual filter value to apply.
-        savefig : bool, default False
-            Whether to save the figure as a PNG file.
-        showfig : bool, default True
-            Whether to display the figure.
-
+        Args:
+            survey_id: The ID of the survey to plot results for.
+            survey_type: Optional survey type to include in the title.
+            run_id: The GARPOS run ID to plot results for.
+            res_filter: The residual filter value to apply.
+            savefig: Whether to save the figure as a PNG file.
+            showfig: Whether to display the figure.
         """
 
         # Clear previous plots

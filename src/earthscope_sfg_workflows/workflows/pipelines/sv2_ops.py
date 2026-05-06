@@ -1,3 +1,5 @@
+"""SV2 (legacy hardware) operations — placeholder; preserved for migration."""
+
 # import pandas as pd
 # from pydantic import BaseModel, Field, ValidationError
 # from datetime import datetime, timedelta

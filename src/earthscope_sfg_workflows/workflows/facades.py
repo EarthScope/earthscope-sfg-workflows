@@ -1,5 +1,4 @@
 """Façade dataclasses for :class:`Workspace` data-mgmt access.
-
 Subclasses of :class:`workflows.base.WorkflowBase` interact with the
 data layer **only** through the four façades exposed on
 ``self.workspace``: ``layout``, ``metadata``, ``assets``, ``ingest``. The
@@ -43,7 +42,6 @@ from earthscope_sfg_workflows.data_mgmt.ports import AssetStore
 @dataclass(frozen=True, slots=True)
 class LayoutFacade:
     """Path resolution and directory materialization for the active scope.
-
     Wraps :class:`DirectoryTree` (pure paths), :class:`TreeBuilder`
     (materialization), and :class:`LayoutInspector` (I/O probes).
     """
@@ -55,29 +53,36 @@ class LayoutFacade:
 
     @property
     def root(self) -> Path:
+        """Workspace root directory."""
         return self._tree.root
 
     @property
     def network(self) -> Path:
+        """Path to the active network directory."""
         return self._tree.network_dir(self._scope.network)
 
     @property
     def station(self) -> Path:
+        """Path to the active station directory."""
         return self._tree.station_dir(self._scope)
 
     def campaign(self) -> CampaignLayout:
+        """Return the `CampaignLayout` for the active campaign."""
         return self._tree.campaign(self._scope)
 
     def tiledb(self) -> TileDBLayout:
+        """Return the `TileDBLayout` for the active station."""
         return self._tree.tiledb(self._scope)
 
     def garpos_survey(self) -> GARPOSLayout:
+        """Return the `GARPOSLayout` for the active survey; requires `scope.survey`."""
         if self._scope.survey is None:
             raise ValueError("scope.survey must be set to access garpos_survey()")
         return self._tree.garpos(self._scope)
 
     @property
     def survey(self) -> Path:
+        """Path to the active survey directory; requires `scope.survey`."""
         if self._scope.survey is None:
             raise ValueError("scope.survey must be set to access survey path")
         return self._tree.survey_dir(self._scope)
@@ -85,15 +90,19 @@ class LayoutFacade:
     # -- materialization ---------------------------------------------------
 
     def ensure_workspace(self) -> None:
+        """Create the workspace root and shared subdirectories on disk."""
         self._builder.ensure_workspace()
 
     def ensure_station(self) -> TileDBLayout:
+        """Materialize the station/TileDB layout on disk and return it."""
         return self._builder.ensure_station(self._scope)
 
     def ensure_campaign(self) -> CampaignLayout:
+        """Materialize the active campaign layout on disk and return it."""
         return self._builder.ensure_campaign(self._scope)
 
     def ensure_garpos_survey(self) -> GARPOSLayout:
+        """Materialize the GARPOS survey layout on disk; requires `scope.survey`."""
         if self._scope.survey is None:
             raise ValueError("scope.survey must be set to materialize garpos survey")
         return self._builder.ensure_garpos_survey(self._scope)
@@ -101,15 +110,19 @@ class LayoutFacade:
     # -- inspection (I/O probes via LayoutInspector) -----------------------
 
     def is_garpos_directory(self) -> bool:
+        """Return True iff the active survey directory looks like a GARPOS layout."""
         return self._inspector.is_garpos_directory(self.garpos_survey())
 
     def find_rectified_shotdata(self) -> Path | None:
+        """Locate rectified shotdata under the active GARPOS survey, if any."""
         return self._inspector.find_rectified_shotdata(self.garpos_survey())
 
     def find_filtered_shotdata(self) -> Path | None:
+        """Locate filtered shotdata under the active survey, if any."""
         return self._inspector.find_filtered_shotdata(self.survey)
 
     def find_master_xml(self) -> Path | None:
+        """Locate the master XML file under the active campaign, if any."""
         return self._inspector.find_master_xml(self.campaign())
 
     # -- discovery: list children of station / campaign --------------------
@@ -143,14 +156,17 @@ class LayoutFacade:
 
     @property
     def campaign_metadata_file(self) -> Path:
+        """Path to the campaign metadata JSON for the active campaign."""
         return self.campaign().metadata_file
 
     @property
     def survey_metadata_file(self) -> Path:
+        """Path to the survey metadata JSON for the active survey."""
         return self.survey / "survey_meta.json"
 
     @property
     def pride_directory(self) -> Path:
+        """Path to the workspace-level Pride PPP working directory."""
         return self._tree.pride_dir
 
 
@@ -173,12 +189,15 @@ class AssetQueryFacade:
         return self._catalog.assets_for(self._scope, kind)
 
     def by_id(self, asset_id: int) -> AssetEntry | None:
+        """Return the asset with `asset_id`, or None if absent."""
         return self._catalog.by_id(asset_id)
 
     def by_local_path(self, path: Path) -> list[AssetEntry]:
+        """Return all cataloged assets whose `local_path` matches `path`."""
         return self._catalog.by_local_path(path)
 
     def count_by_kind(self) -> dict[AssetKind, int]:
+        """Return per-`AssetKind` counts within the active scope."""
         return self._catalog.count_by_kind(self._scope)
 
     def add(self, asset: AssetEntry) -> AssetEntry:
@@ -187,7 +206,6 @@ class AssetQueryFacade:
 
     def update(self, entry: AssetEntry, **changes: object) -> AssetEntry:
         """Persist ``changes`` against ``entry`` and return the new entry.
-
         Frozen :class:`AssetEntry` is never mutated; this is the *only*
         sanctioned way to change a stored asset. Raises ``LookupError`` if
         no row matched ``entry.id``.
@@ -225,7 +243,6 @@ class AssetQueryFacade:
         remote_path: str,
     ) -> bool:
         """Has any cataloged asset already stored a local copy of this remote file?
-
         Mirrors legacy ``remote_file_exist``: matches by basename of the
         remote URL against ``local_path`` of in-scope, in-kind assets.
         """
@@ -239,7 +256,6 @@ class AssetQueryFacade:
 
     def add_or_update(self, entry: AssetEntry) -> AssetEntry | None:
         """Insert if no entry with the same ``local_path`` exists; else update.
-
         Mirrors legacy ``add_or_update``: idempotent ingestion. Returns the
         persisted entry, or ``None`` if the input was ``None``.
         """
@@ -263,7 +279,6 @@ class AssetQueryFacade:
         local_only: bool = False,
     ) -> list[AssetEntry]:
         """Parent-kind entries lacking a child-kind result.
-
         Mirrors legacy ``get_single_entries_to_process``. When ``child_kind``
         is None, falls back to ``is_processed``.
         """
@@ -299,6 +314,7 @@ class AssetQueryFacade:
         child_type: str,
         parent_ids: list[int] | list[str],
     ) -> None:
+        """Record completion of a merge from `parent_ids` into a `child_type`."""
         self._catalog.add_merge_job(parent_type, child_type, parent_ids)
 
     def is_merge_complete(
@@ -307,6 +323,7 @@ class AssetQueryFacade:
         child_type: str,
         parent_ids: list[int] | list[str],
     ) -> bool:
+        """Return True iff a matching merge job has been recorded previously."""
         return self._catalog.is_merge_complete(parent_type, child_type, parent_ids)
 
 
@@ -323,17 +340,19 @@ class IngestFacade:
     _scope: CampaignScope
 
     def local(self, source_dir: Path) -> IngestReport:
+        """Ingest assets from a local directory into the active scope."""
         return self._ingestor.ingest_local(self._scope, source_dir)
 
     def discover_archive(self, archive_url: str) -> IngestReport:
+        """Discover assets at `archive_url` and catalog them in the active scope."""
         return self._ingestor.discover_archive(self._scope, archive_url)
 
     def discover_campaign(self) -> IngestReport:
+        """Discover all canonical archive locations for the active campaign."""
         return self._ingestor.discover_campaign(self._scope)
 
     def list_archive_urls(self) -> list[str]:
         """Enumerate every archive file URL for the active campaign scope.
-
         Side-effect-free counterpart to :meth:`discover_campaign`. Returns
         a flat URL list across raw / metadata / metadata/ctd / RINEX 1Hz /
         RINEX 10Hz.
@@ -345,6 +364,7 @@ class IngestFacade:
         kinds: list[AssetKind] | None = None,
         dest_dir: Path | None = None,
     ) -> IngestReport:
+        """Download remote assets in scope (optionally filtered by `kinds`) to `dest_dir`."""
         return self._ingestor.download(self._scope, kinds, dest_dir)
 
 
@@ -356,7 +376,6 @@ class IngestFacade:
 @dataclass(frozen=True, slots=True)
 class MetadataFacade:
     """Read-only view of any metadata previously loaded into the workspace.
-
     Returns ``None`` until the corresponding ``workspace.load_*_metadata``
     setter has been called. The base class never auto-loads metadata —
     mid-process workflows are expected to call the loaders explicitly.

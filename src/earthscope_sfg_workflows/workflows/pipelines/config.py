@@ -1,3 +1,5 @@
+"""Pydantic configuration models for the SV3/QC pipelines and ancillary tools."""
+
 # External imports
 from multiprocessing import cpu_count
 from pathlib import Path
@@ -11,7 +13,6 @@ from pydantic import BaseModel, Field, field_serializer, field_validator
 
 class PrideConfig(BaseModel):
     """Pipeline-level configuration for PRIDE processing.
-
     Holds settings that control the pipeline behavior (concurrency, overrides)
     separately from PrideCLIConfig which holds pdp3 CLI flags.
     """
@@ -25,11 +26,15 @@ class PrideConfig(BaseModel):
 
 
 class NovatelConfig(BaseModel):
+    """Settings for Novatel raw-file processing."""
+
     override: bool = Field(False, title="Flag to Override Existing Data")
     n_processes: int = Field(default_factory=cpu_count, title="Number of Processes to Use")
 
 
 class RinexConfig(BaseModel):
+    """Settings for RINEX generation/decimation from TileDB GNSS data."""
+
     override: bool = Field(False, title="Flag to Override Existing Data")
     n_processes: int = Field(default_factory=cpu_count, title="Number of Processes to Use")
     settings_path: Path | None = Field("", title="Settings Path")
@@ -62,10 +67,14 @@ class RinexConfig(BaseModel):
 
 
 class DFOP00Config(BaseModel):
+    """Settings for DFOP00 raw-file processing."""
+
     override: bool = Field(False, title="Flag to Override Existing Data")
 
 
 class PositionUpdateConfig(BaseModel):
+    """Settings for position-update interpolation onto shotdata."""
+
     override: bool = Field(False, title="Flag to Override Existing Data")
     lengthscale: float = Field(
         default=0.1, ge=0.1, le=1, title="Length Scale for Interpolation in seconds"
@@ -74,6 +83,8 @@ class PositionUpdateConfig(BaseModel):
 
 
 class SV3PipelineConfig(BaseModel):
+    """Top-level config bundling all SV3 pipeline stage configs."""
+
     pride_config: PrideConfig = PrideConfig()
     novatel_config: NovatelConfig = NovatelConfig()
     rinex_config: RinexConfig = RinexConfig()
@@ -85,6 +96,7 @@ class SV3PipelineConfig(BaseModel):
         arbitrary_types_allowed = True
 
     def update(self, update_dict: dict) -> "SV3PipelineConfig":
+        """Return a new config with values from `update_dict` merged over current values."""
         # update the object with values from a dict and returns a new copy
         copy = self.model_copy().model_dump()
         for key, value in update_dict.items():
@@ -93,17 +105,21 @@ class SV3PipelineConfig(BaseModel):
         return SV3PipelineConfig(**copy)
 
     def to_yaml(self, filepath: Path):
+        """Serialize this config to YAML at `filepath`."""
         with open(filepath, "w") as f:
             yaml.dump(self.model_dump(), f)
 
     @classmethod
     def load_yaml(cls, filepath: Path):
+        """Load a config instance from YAML file `filepath`."""
         with open(filepath) as f:
             data = yaml.load(f)
         return cls(**data)
 
 
 class PrepSiteData(BaseModel):
+    """Paths and identifiers needed to prepare per-site preprocessing inputs."""
+
     network: str = Field(..., title="Network Name")
     station: str = Field(..., title="Station Name")
     campaign: str = Field(..., title="Campaign Name")
@@ -163,11 +179,13 @@ class QCPipelineConfig(BaseModel):
         return QCPipelineConfig(**copy)
 
     def to_yaml(self, filepath: Path):
+        """Serialize this config to YAML at `filepath`."""
         with open(filepath, "w") as f:
             yaml.dump(self.model_dump(), f)
 
     @classmethod
     def load_yaml(cls, filepath: Path):
+        """Load a config instance from YAML file `filepath`."""
         with open(filepath) as f:
             data = yaml.load(f)
         return cls(**data)

@@ -1,3 +1,5 @@
+"""Day-of-year plotting helpers for GARPOS results."""
+
 import datetime
 import json
 from pathlib import Path
@@ -13,7 +15,17 @@ from .schemas import GPPositionENU, GPTransponder  # noqa: E402
 
 
 class DOYResult:
+    """Single day-of-year GARPOS result: shotdata + parsed inversion JSON."""
+
     def __init__(self, year: int, doy: int, df_path: Path, results_path: Path):
+        """Load shotdata CSV and inversion JSON for a given (year, doy).
+
+        Args:
+            year: Calendar year (e.g., 2024).
+            doy: Day of year (1-based).
+            df_path: Path to the GARPOS shotdata CSV for this day.
+            results_path: Path to the inversion-results JSON for this day.
+        """
         self.year = year
         self.doy = doy
         self.date = datetime.datetime(year, 1, 1) + datetime.timedelta(days=doy - 1)
@@ -32,6 +44,8 @@ class DOYResult:
 
 
 class DOYPlotter:
+    """Multi-day plotter that aggregates `DOYResult`s into time-series plots."""
+
     colors = [
         "blue",
         "green",
@@ -46,6 +60,7 @@ class DOYPlotter:
     ]
 
     def __init__(self, results: list[DOYResult]):
+        """Build merged dataframe and per-transponder time series from `results`."""
         self.results = sorted(results, key=lambda x: x.date)
         self.unique_ids = []
         for result in self.results:
@@ -69,6 +84,7 @@ class DOYPlotter:
         self.df_merged = self.df_merged_main.copy()
 
     def set_df_merged_date(self, start: datetime.datetime, end: datetime.datetime):
+        """Restrict the active merged dataframe to the `[start, end]` window."""
         self.df_merged = self.df_merged_main[
             (self.df_merged_main["time"] >= start) & (self.df_merged_main["time"] <= end)
         ]
@@ -122,6 +138,7 @@ class DOYPlotter:
             ax.plot(times, d_up, label=f"{id} - Up", color=self.colors[i + 6])
 
     def plot(self):
+        """Render the default range/time residuals figure for all transponders."""
         self.fig, self.ax = plt.subplots(ncols=1, nrows=2, sharex=True)
         self.fig.suptitle(
             f"Residuals for {self.df_merged['time'].min().date()} to {self.df_merged['time'].max().date()}"
@@ -149,7 +166,6 @@ class DOYPlotter:
 
         1. plot transponder east, north position as markers
         2. plot antenna east, north position as line plot (from self.df_merged)
-
         """
         self.set_df_merged_date(start_date, end_date)
         title = f"{survey_name} {survey_type} from {start_date} to {end_date}"
@@ -201,6 +217,7 @@ class DOYPlotter:
         end_date: datetime.datetime = None,
         filepath="ts_plot.png",
     ):
+        """Plot range/time residuals over `[start_date, end_date]` and save to `filepath`."""
         self.set_df_merged_date(start_date, end_date)
         plt.clf()
         fig, ax = plt.subplots(nrows=2, figsize=(16, 5))

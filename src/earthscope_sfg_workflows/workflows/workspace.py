@@ -1,5 +1,4 @@
 """The :class:`Workspace` — single object owning ports + scope + metadata.
-
 Replaces the 12-field ``WorkflowContext`` and the
 ``DirectoryHandler`` / ``PreProcessCatalogHandler`` pair from the legacy
 :class:`WorkflowABC`. Subclasses of :class:`workflows.base.WorkflowBase`
@@ -50,7 +49,6 @@ if TYPE_CHECKING:  # pragma: no cover
 
 class Workspace(AbstractContextManager["Workspace"]):
     """Active-scope object bundling ports, scope state, and metadata cache.
-
     Holds the three injected ports (catalog/files/archive), the pure
     :class:`DirectoryTree`, and the current network/station/campaign/survey
     selection. Exposes data-layer access only through four façades.
@@ -70,6 +68,7 @@ class Workspace(AbstractContextManager["Workspace"]):
         *,
         detector: FileTypeDetector | None = None,
     ) -> None:
+        """Construct a `Workspace` rooted at `root_dir`, wiring the three ports."""
         self._root_dir = Path(root_dir)
         self._catalog = catalog
         self._files = files
@@ -137,26 +136,32 @@ class Workspace(AbstractContextManager["Workspace"]):
 
     @property
     def root(self) -> Path:
+        """Workspace root directory."""
         return self._root_dir
 
     @property
     def network_name(self) -> str | None:
+        """Currently active network name, or None if unset."""
         return self._network
 
     @property
     def station_name(self) -> str | None:
+        """Currently active station name, or None if unset."""
         return self._station
 
     @property
     def campaign_name(self) -> str | None:
+        """Currently active campaign name, or None if unset."""
         return self._campaign
 
     @property
     def survey_name(self) -> str | None:
+        """Currently active survey name, or None if unset."""
         return self._survey
 
     @property
     def has_network_station_campaign(self) -> bool:
+        """Return True iff network, station, and campaign are all set."""
         return all(x is not None for x in (self._network, self._station, self._campaign))
 
     @property
@@ -243,20 +248,24 @@ class Workspace(AbstractContextManager["Workspace"]):
             self.set_survey(survey)
 
     def reset_survey(self) -> None:
+        """Clear the active survey and its cached metadata."""
         self._survey = None
         self._survey_meta = None
 
     def reset_campaign(self) -> None:
+        """Clear the active campaign (and survey) and their cached metadata."""
         self._campaign = None
         self._campaign_meta = None
         self.reset_survey()
 
     def reset_station(self) -> None:
+        """Clear the active station, site metadata, and downstream scope."""
         self._station = None
         self._site = None
         self.reset_campaign()
 
     def reset_network(self) -> None:
+        """Clear the active network and all downstream scope/metadata."""
         self._network = None
         self.reset_station()
 
@@ -265,12 +274,15 @@ class Workspace(AbstractContextManager["Workspace"]):
     # ------------------------------------------------------------------
 
     def load_site_metadata(self, site: "Site") -> None:
+        """Cache `site` as the active site metadata."""
         self._site = site
 
     def load_campaign_metadata(self, campaign: "Campaign") -> None:
+        """Cache `campaign` as the active campaign metadata."""
         self._campaign_meta = campaign
 
     def load_survey_metadata(self, survey: "Survey") -> None:
+        """Cache `survey` as the active survey metadata."""
         self._survey_meta = survey
 
     # ------------------------------------------------------------------
@@ -279,7 +291,6 @@ class Workspace(AbstractContextManager["Workspace"]):
 
     def try_load_site_metadata_from_disk(self) -> bool:
         """Read the site metadata JSON from disk into the workspace.
-
         Returns ``True`` if a file was found and parsed. Used by mid-process
         callers that need to set scope from a station's metadata file.
 
@@ -298,7 +309,6 @@ class Workspace(AbstractContextManager["Workspace"]):
 
     def select_campaign_from_metadata(self, campaign_id: str) -> None:
         """Find ``campaign_id`` in the loaded site metadata and activate it.
-
         Sets both the campaign name and the cached campaign metadata. Caller
         must have loaded site metadata first.
         """
@@ -350,6 +360,7 @@ class Workspace(AbstractContextManager["Workspace"]):
 
     @property
     def layout(self) -> LayoutFacade:
+        """Return a `LayoutFacade` bound to the active scope."""
         return LayoutFacade(
             _tree=self._tree,
             _builder=self._builder,
@@ -359,16 +370,17 @@ class Workspace(AbstractContextManager["Workspace"]):
 
     @property
     def assets(self) -> AssetQueryFacade:
+        """Return an `AssetQueryFacade` for catalog access in the active scope."""
         return AssetQueryFacade(_catalog=self._catalog, _scope=self.scope)
 
     @property
     def ingest(self) -> IngestFacade:
+        """Return an `IngestFacade` for discovery/download in the active scope."""
         return IngestFacade(_ingestor=self._ingestor, _scope=self.scope)
 
     @property
     def archive(self) -> ArchiveSource:
         """Return the injected :class:`ArchiveSource` adapter.
-
         Exposed for callers that need archive operations beyond what
         :class:`IngestFacade` covers (e.g. metadata loading).
         """
@@ -376,6 +388,7 @@ class Workspace(AbstractContextManager["Workspace"]):
 
     @property
     def metadata(self) -> MetadataFacade:
+        """Return a `MetadataFacade` exposing currently-loaded site/campaign/survey."""
         return MetadataFacade(
             site=self._site,
             campaign=self._campaign_meta,
@@ -396,6 +409,7 @@ class Workspace(AbstractContextManager["Workspace"]):
     # ------------------------------------------------------------------
 
     def close(self) -> None:
+        """Close all owned ports (catalog, files, archive)."""
         self._catalog.close()
         self._files.close()
         self._archive.close()

@@ -1,5 +1,4 @@
 """Domain core for the data_mgmt package.
-
 Pure orchestration over the ports defined in ``data_mgmt.ports``. No I/O
 happens directly here; everything is delegated to injected adapters. This
 module is fully testable with the in-memory adapters in
@@ -64,6 +63,7 @@ class FileTypeDetector:
         self,
         patterns: Iterable[tuple[re.Pattern[str], AssetKind]] | None = None,
     ) -> None:
+        """Build a detector with `patterns`, falling back to `DEFAULT_PATTERNS`."""
         self._patterns: tuple[tuple[re.Pattern[str], AssetKind], ...] = tuple(
             patterns if patterns is not None else DEFAULT_PATTERNS
         )
@@ -83,23 +83,26 @@ class FileTypeDetector:
 
 class TreeBuilder:
     """Materializes :class:`DirectoryTree` paths against a :class:`FileStore`.
-
     Separates *describing* the tree (pure) from *creating* it (I/O).
     """
 
     def __init__(self, tree: DirectoryTree, files: FileStore) -> None:
+        """Bind a pure `DirectoryTree` to a concrete `FileStore` for materialization."""
         self._tree = tree
         self._files = files
 
     @property
     def tree(self) -> DirectoryTree:
+        """Underlying pure `DirectoryTree`."""
         return self._tree
 
     def ensure_workspace(self) -> None:
+        """Create the workspace root and Pride directory."""
         self._files.mkdir(self._tree.root)
         self._files.mkdir(self._tree.pride_dir)
 
     def ensure_station(self, scope: CampaignScope) -> TileDBLayout:
+        """Materialize the station and TileDB array directories; return the layout."""
         self._files.mkdir(self._tree.station_dir(scope))
         layout = self._tree.tiledb(scope)
         for path in (
@@ -116,6 +119,7 @@ class TreeBuilder:
         return layout
 
     def ensure_campaign(self, scope: CampaignScope) -> CampaignLayout:
+        """Materialize the campaign directory tree (top-down); return the layout."""
         # Walk top-down so missing parents materialize before children.
         self._files.mkdir(self._tree.network_dir(scope.network))
         self._files.mkdir(self._tree.station_dir(scope))
@@ -125,6 +129,7 @@ class TreeBuilder:
         return layout
 
     def ensure_garpos_survey(self, scope: CampaignScope) -> GARPOSLayout:
+        """Materialize the GARPOS survey directory tree; requires `scope.survey`."""
         if scope.survey is None:
             raise ValueError("CampaignScope.survey is required for GARPOS materialization")
         self._files.mkdir(self._tree.survey_dir(scope))
@@ -145,7 +150,6 @@ def _now() -> datetime:
 
 class Ingestor:
     """End-to-end ingestion: discover → detect → catalog → optionally download.
-
     All I/O is delegated to :class:`AssetStore`, :class:`FileStore`, and
     :class:`ArchiveSource`. The orchestration logic itself is pure and lives
     here.
@@ -159,6 +163,7 @@ class Ingestor:
         detector: FileTypeDetector,
         tree: DirectoryTree,
     ) -> None:
+        """Wire the four ports + tree used by ingestion orchestration."""
         self._catalog = catalog
         self._files = files
         self._archive = archive
@@ -211,7 +216,6 @@ class Ingestor:
         archive_url: str,
     ) -> IngestReport:
         """List ``archive_url`` and catalog every recognized remote file.
-
         Sets ``remote_path`` only; ``local_path`` remains ``None`` until
         :meth:`download` is called.
         """
@@ -252,7 +256,6 @@ class Ingestor:
 
     def discover_campaign(self, scope: CampaignScope) -> IngestReport:
         """Discover the four canonical EarthScope campaign URLs in one call.
-
         Composes raw, metadata, RINEX 1Hz, and RINEX 10Hz URLs for ``scope``
         (see :mod:`data_mgmt._archive_urls`), lists each, and catalogs every
         recognized remote file. Replaces the legacy
@@ -281,7 +284,6 @@ class Ingestor:
 
     def list_archive_urls(self, scope: CampaignScope) -> list[str]:
         """Enumerate every archive file URL for ``scope`` without writing to the catalog.
-
         Side-effect-free counterpart to :meth:`discover_campaign`.
         """
         return list_campaign_archive_urls(self._archive, scope)
@@ -295,7 +297,6 @@ class Ingestor:
         dest_dir: Path | None = None,
     ) -> IngestReport:
         """Download every cataloged remote asset that lacks ``local_path``.
-
         Optionally restrict to ``kinds``. Destination defaults to the
         campaign's ``raw`` directory.
         """
@@ -349,7 +350,6 @@ class Ingestor:
 
 class LayoutInspector:
     """File-store-backed introspection of pure :mod:`data_mgmt.model` layouts.
-
     Replaces the I/O methods that used to live on the legacy Pydantic
     directory schemas (``GARPOSSurveyDir.is_garpos_directory``,
     ``find_rectified_shotdata``, etc.). Decouples *describing* a layout
@@ -399,7 +399,6 @@ class LayoutInspector:
         contains: str | None = None,
     ) -> list[Path]:
         """List files in ``directory`` filtered by suffix and/or substring.
-
         Non-recursive. Returns paths sorted by name for determinism. Returns
         ``[]`` if ``directory`` does not exist.
         """

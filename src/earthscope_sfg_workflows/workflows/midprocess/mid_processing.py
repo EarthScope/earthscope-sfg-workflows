@@ -1,5 +1,4 @@
 """IntermediateDataProcessor — mid-process workflow class.
-
 Migrated to :class:`WorkflowBase` + :class:`Workspace` (RFC-A Phase 4).
 """
 

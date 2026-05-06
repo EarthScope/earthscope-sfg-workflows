@@ -1,5 +1,4 @@
 """S3 :class:`FileStore` adapter built on :mod:`cloudpathlib`.
-
 Treats ``Path``-shaped arguments whose string representation starts with
 ``s3://`` as :class:`cloudpathlib.S3Path` objects; everything else falls
 through to local-filesystem behavior. This lets the same caller code
@@ -27,14 +26,13 @@ def _to_cloud(path: Path, client: S3Client | None) -> S3Path:
 class S3FileStore:
     """:class:`FileStore` mirror over S3 via cloudpathlib.
 
-    Parameters
-    ----------
-    client:
-        Optional :class:`cloudpathlib.S3Client` for credential / endpoint
-        overrides. If ``None``, cloudpathlib's default client is used.
+    Args:
+        client: Optional pre-configured `S3Client`. If omitted, cloudpathlib
+            uses default AWS credential resolution.
     """
 
     def __init__(self, client: S3Client | None = None) -> None:
+        """Store an optional `S3Client` to use for cloud-path operations."""
         self._client = client
 
     def _wrap(self, path: Path) -> Path | S3Path:
@@ -43,15 +41,19 @@ class S3FileStore:
     # -- query -------------------------------------------------------------
 
     def exists(self, path: Path) -> bool:
+        """Return True iff `path` exists (locally or in S3)."""
         return self._wrap(path).exists()
 
     def is_file(self, path: Path) -> bool:
+        """Return True iff `path` is a regular file (locally or in S3)."""
         return self._wrap(path).is_file()
 
     def is_dir(self, path: Path) -> bool:
+        """Return True iff `path` is a directory (or S3 prefix)."""
         return self._wrap(path).is_dir()
 
     def list_files(self, directory: Path, recursive: bool = False) -> list[FileInfo]:
+        """List files under `directory`; recurse if `recursive`. Skips dotfiles."""
         target = self._wrap(directory)
         if not target.is_dir():
             return []
@@ -73,9 +75,11 @@ class S3FileStore:
         return out
 
     def read_bytes(self, path: Path) -> bytes:
+        """Return the contents of `path` as bytes."""
         return self._wrap(path).read_bytes()
 
     def write_bytes(self, path: Path, data: bytes) -> None:
+        """Write `data` to `path`. Locally creates parents; on S3 it's a no-op."""
         target = self._wrap(path)
         # S3Path.parent.mkdir is a no-op but harmless; local Path needs it.
         if not _is_s3(path):
@@ -83,12 +87,14 @@ class S3FileStore:
         target.write_bytes(data)
 
     def mkdir(self, path: Path, parents: bool = True) -> None:
+        """Create local dir `path`; no-op on S3 (no real directories)."""
         if _is_s3(path):
             # S3 has no real directories; cloudpathlib mkdir is a no-op.
             return
         path.mkdir(parents=parents, exist_ok=True)
 
     def remove(self, path: Path) -> bool:
+        """Delete the file at `path` (local or S3); return True iff it existed."""
         target = self._wrap(path)
         try:
             if _is_s3(path):
@@ -100,6 +106,7 @@ class S3FileStore:
             return False
 
     def get_size(self, path: Path) -> int | None:
+        """Return the size in bytes, or None if `path` is not a file."""
         target = self._wrap(path)
         try:
             return target.stat().st_size if target.is_file() else None
@@ -107,6 +114,7 @@ class S3FileStore:
             return None
 
     def close(self) -> None:
+        """No-op for the S3 store; cloudpathlib manages its own clients."""
         return None
 
 

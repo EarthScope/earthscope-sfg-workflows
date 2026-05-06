@@ -49,25 +49,17 @@ def xyz2enu(x, y, z, lat0, lon0, hgt0, inv=1, **kwargs):
     (or XYZ coordinates) specified in origin.
     if inv = -1. then enu -> xyz
 
-    Parameters
-    ----------
-    x : float
-    y : float
-    z : float
-            Position in ECEF (if inv=-1, in ENU)
-    lat0 : float
-    lon0 : float
-    Hgt0 : float
-            Origin for the local system in degrees.
-    inv : 1 or -1
-            Switch (1: XYZ -> ENU, -1: ENU -> XYZ)
+    Args:
+        x:
+        y:
+        z: Position in ECEF (if inv=-1, in ENU)
+        lat0:
+        lon0:
+        Hgt0: Origin for the local system in degrees.
+        inv: Switch (1: XYZ -> ENU, -1: ENU -> XYZ)
 
-    Returns
-    -------
-    e : float
-    n : float
-    u : float
-            Position in ENU (if inv=-1, in ECEF)
+    Returns:
+        e
     """
 
     if inv != 1 and inv != -1:

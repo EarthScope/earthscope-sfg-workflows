@@ -1,5 +1,4 @@
 """Archive URL composition for the EarthScope public archive.
-
 Private to ``data_mgmt``. Callers reach this through
 :meth:`data_mgmt.core.Ingestor.discover_campaign`, which composes the four
 canonical campaign URLs (raw, metadata, RINEX 1Hz, RINEX 10Hz), or through
@@ -23,11 +22,13 @@ def _campaign_year(campaign: str) -> str:
 
 
 def campaign_raw_url(scope: CampaignScope) -> str:
+    """Return the archive URL for the raw data directory of a campaign."""
     year = _campaign_year(scope.campaign)
     return f"{ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/raw"
 
 
 def campaign_metadata_url(scope: CampaignScope) -> str:
+    """Return the archive URL for the metadata directory of a campaign."""
     year = _campaign_year(scope.campaign)
     return f"{ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/metadata"
 
@@ -39,16 +40,17 @@ def campaign_rinex_url(scope: CampaignScope, hz: str) -> str:
 
 
 def site_metadata_url(network: str, station: str) -> str:
+    """Return the archive URL for a station's site metadata JSON."""
     return f"{ARCHIVE_PREFIX}/metadata/{network}/{station}.json"
 
 
 def vessel_metadata_url(vessel_code: str) -> str:
+    """Return the archive URL for a vessel's metadata JSON."""
     return f"{ARCHIVE_PREFIX}/metadata/vessels/{vessel_code}.json"
 
 
 def canonical_campaign_urls(scope: CampaignScope) -> tuple[str, str, str, str]:
     """The four canonical archive URLs for a campaign.
-
     Order: raw, metadata, RINEX 1Hz, RINEX 10Hz. ``Ingestor.discover_campaign``
     consumes them in that order.
     """
@@ -65,7 +67,6 @@ def list_campaign_archive_urls(
     scope: CampaignScope,
 ) -> list[str]:
     """Enumerate every archive file URL for a campaign.
-
     Lists each of :func:`canonical_campaign_urls`, plus the legacy
     ``metadata/ctd`` subdirectory, and returns the concatenated list of
     file URLs. Missing directories are silently skipped (partial campaigns

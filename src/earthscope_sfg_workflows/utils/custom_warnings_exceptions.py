@@ -1,3 +1,6 @@
+"""Project-specific `Warning` and `Exception` classes for CLI integrations."""
+
+
 # Warning to reduce sample frequency of PRIDE-PPP
 class PrideSampleFrequencyWarning(Warning):
     """Warning for when the PRIDE-PPP sample frequency should be reduced."""
@@ -15,6 +18,7 @@ class DYLDLibraryException(Exception):
         self,
         message="\nLibrary not loaded: @rpath/libtiledb.dylib \nDYLD_LIBRARY_PATH does not include TileDB dylib file. Hint: $ export DYLD_LIBRARY_PATH=$CONDA_PREFIX/lib:$DYLD_LIBRARY_PATH",
     ):
+        """Construct with a hint about exporting `DYLD_LIBRARY_PATH`."""
         super().__init__(message)
 
 
@@ -25,6 +29,7 @@ class LDLibraryException(Exception):
         self,
         message="\nLibrary not loaded: @rpath/libtiledb.dylib \nLD_LIBRARY_PATH does not include TileDB tile.h file. Hint: $ export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH",
     ):
+        """Construct with a hint about exporting `LD_LIBRARY_PATH`."""
         super().__init__(message)
 
 

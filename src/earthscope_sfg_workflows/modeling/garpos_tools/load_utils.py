@@ -1,3 +1,9 @@
+"""GARPOS Fortran library bootstrap helpers.
+
+Resolves `GARPOS_PATH` and locates `f90lib/lib_raytrace.so`, which the GARPOS
+ray-tracing layer needs at runtime.
+"""
+
 import importlib.util
 import os
 import sys

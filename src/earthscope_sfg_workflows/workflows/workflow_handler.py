@@ -62,7 +62,6 @@ qc_pipeline_jobs = [
 
 class WorkflowHandler(WorkflowBase):
     """Handles data operations including searching, adding, downloading, and processing.
-
     Owns a single :class:`Workspace` and composes :class:`DataHandler`,
     sharing the workspace. All scope state lives on ``self.workspace``.
     """
@@ -75,14 +74,10 @@ class WorkflowHandler(WorkflowBase):
         workspace=None,
     ) -> None:
         """
-        Parameters
-        ----------
-        directory : Path | str, optional
-            Root path of the data tree. Auto-detected from environment when omitted.
-        s3_sync_bucket : str, optional
-            S3 bucket name/URI for sync operations.
-        workspace : Workspace, optional
-            Pre-constructed workspace. Preferred over ``directory``.
+        Args:
+            directory: Root path of the data tree. Auto-detected from environment when omitted.
+            s3_sync_bucket: S3 bucket name/URI for sync operations.
+            workspace: Pre-constructed workspace. Preferred over ``directory``.
         """
         if workspace is None:
             import os
@@ -133,18 +128,13 @@ class WorkflowHandler(WorkflowBase):
         campaign_id: str | None = None,
     ):
         """Sets the current network, and optionally station and campaign.
-
         Delegates to DataHandler which handles both its own setup and parent
         context switching. Then syncs WorkflowHandler-specific state.
 
-        Parameters
-        ----------
-        network_id : str
-            The ID of the network to set.
-        station_id : str, optional
-            The ID of the station to set. If None, only network context is set.
-        campaign_id : str, optional
-            The ID of the campaign to set. If None, campaign context is not set.
+        Args:
+            network_id: The ID of the network to set.
+            station_id: The ID of the station to set. If None, only network context is set.
+            campaign_id: The ID of the campaign to set. If None, campaign context is not set.
         """
         # DataHandler shares the workspace, so its scope mutators update
         # everything WorkflowHandler observes. No state-sync loop required.
@@ -158,23 +148,17 @@ class WorkflowHandler(WorkflowBase):
     @validate_network_station
     def list_campaign_directories(self) -> list[str]:
         """Lists the campaign directories available for the current station.
-
-        Returns
-        -------
-        list[str]
+        Returns:
             A list of campaign directory names.
 
-        Raises
-        ------
-        ValueError
-            If station metadata is not loaded.
+        Raises:
+            ValueError: If station metadata is not loaded.
 
-        Examples
-        --------
-        >>> workflow = WorkflowHandler("/path/to/data")
-        >>> workflow.set_network_station_campaign("network", "station", "campaign")
-        >>> campaigns = workflow.list_campaign_directories()
-        ['2022_A_1065','2023_A_1063','2025_A_1126']
+        Examples:
+            >>> workflow = WorkflowHandler("/path/to/data"):
+            >>> workflow.set_network_station_campaign("network", "station", "campaign"):
+            >>> campaigns = workflow.list_campaign_directories():
+            ['2022_A_1065','2023_A_1063','2025_A_1126']:
         """
 
         station_dir = (
@@ -188,11 +172,8 @@ class WorkflowHandler(WorkflowBase):
     @validate_network_station_campaign
     def ingest_add_local_data(self, directory_path: Path) -> None:
         """Scans a directory for data files and adds them to the catalog.
-
-        Parameters
-        ----------
-        directory_path : Path
-            The path to the directory to scan.
+        Args:
+            directory_path: The path to the directory to scan.
         """
 
         self.data_handler.discover_data_and_add_files(directory_path=directory_path)
@@ -202,10 +183,8 @@ class WorkflowHandler(WorkflowBase):
         """
         Updates the data catalog with the s3 uri's for data hosted in Earthscope's remote archive for the current network, station, and campaign.
 
-        Notes
-        -----
-        This method does not download any data files. It only updates the catalog with remote file paths. See `ingest_download_archive_data` to download files.
-
+        Notes:
+            This method does not download any data files. It only updates the catalog with remote file paths. See `ingest_download_archive_data` to download files.:
         """
         self.data_handler.update_catalog_from_archive()
 
@@ -218,9 +197,8 @@ class WorkflowHandler(WorkflowBase):
         """
         Downloads data files from the Earthscope archive based on the current catalog entries.
 
-        Notes
-        -----
-        This method requires that the catalog has been populated with remote file paths using `ingest_catalog_archive_data`.
+        Notes:
+            This method requires that the catalog has been populated with remote file paths using `ingest_catalog_archive_data`.:
         """
         self.data_handler.download_data(file_types=file_types, rinex_1Hz=rinex_1Hz)
 
@@ -235,9 +213,8 @@ class WorkflowHandler(WorkflowBase):
         """
         Downloads intermediate data files from the Earthscope archive based on the current catalog entries.
 
-        Notes
-        -----
-        This method requires that the catalog has been populated with remote file paths using `ingest_catalog_archive_data`.
+        Notes:
+            This method requires that the catalog has been populated with remote file paths using `ingest_catalog_archive_data`.:
         """
         self.ingest_download_archive_data(file_types=file_types, rinex_1Hz=rinex_1Hz)
 
@@ -266,29 +243,19 @@ class WorkflowHandler(WorkflowBase):
         ) = None,
     ) -> SV3Pipeline:
         """Creates and configures an SV3 processing pipeline.
+        Args:
+            primary_config: Optional primary configuration for the pipeline.
+            secondary_config: Optional secondary configuration for the pipeline.
 
-        Parameters
-        ----------
-        primary_config : Optional[Union[SV3PipelineConfig, PrideCLIConfig, NovatelConfig, RinexConfig, DFOP00Config, PositionUpdateConfig, dict]], optional
-            Optional primary configuration for the pipeline.
-        secondary_config : Optional[Union[SV3PipelineConfig, PrideCLIConfig, NovatelConfig, RinexConfig, DFOP00Config, PositionUpdateConfig, dict]], optional
-            Optional secondary configuration for the pipeline.
-
-        Returns
-        -------
-        SV3Pipeline
+        Returns:
             Configured SV3Pipeline instance.
 
-        Raises
-        ------
-        AssertionError
-            If current network, station, or campaign is not set.
-        ValueError
-            If configuration validation fails.
+        Raises:
+            AssertionError: If current network, station, or campaign is not set.
+            ValueError: If configuration validation fails.
 
-        See Also
-        --------
-        earthscope_sfg_workflows.workflows.pipelines.config.SV3Pipeline : The pipeline class used for processing.
+        See Also:
+            earthscope_sfg_workflows.workflows.pipelines.config.SV3Pipeline:
         """
 
         base_config = SV3PipelineConfig()
@@ -378,41 +345,31 @@ class WorkflowHandler(WorkflowBase):
         ) = None,
     ) -> None:
         """Runs the SV3 processing pipeline with optional configuration overrides.
-
         This method creates and configures an :class:`~earthscope_sfg_workflows.workflows.pipelines.config.SV3Pipeline`
         instance using the :attr:`data_handler` to access the directory structure and catalog.
 
-        Parameters
-        ----------
-        job : Literal["all", "intermediate" "process_novatel", "build_rinex", "run_pride", "process_kinematic", "process_dfop00", "refine_shotdata", "process_svp"], optional
-            The specific job to run within the pipeline, by default "all".
-        primary_config : Optional[Union[SV3PipelineConfig, dict]], optional
-            Primary configuration to override defaults.
-        secondary_config : Optional[Union[SV3PipelineConfig, dict]], optional
-            Secondary configuration to override primary and defaults.
+        Args:
+            job: The specific job to run within the pipeline, by default "all".
+            primary_config: Primary configuration to override defaults.
+            secondary_config: Secondary configuration to override primary and defaults.
 
-        Raises
-        ------
-        AssertionError
-            If job is not in valid pipeline jobs.
-        ValueError
-            If configuration validation fails.
+        Raises:
+            AssertionError: If job is not in valid pipeline jobs.
+            ValueError: If configuration validation fails.
 
-        See Also
-        --------
-        preprocess_get_pipeline_sv3 : Method that creates the pipeline instance.
-        earthscope_sfg_workflows.workflows.pipelines.config.SV3Pipeline : The pipeline class used.
-        earthscope_sfg_workflows.data_mgmt.data_handler.DataHandler : Data management dependency.
+        See Also:
+            preprocess_get_pipeline_sv3:
+            earthscope_sfg_workflows.workflows.pipelines.config.SV3Pipeline:
+            earthscope_sfg_workflows.data_mgmt.data_handler.DataHandler:
 
-        Examples
-        --------
-        # Run the sv3 pipeline with custom Novatel processing configuration
-        >>> workflow = WorkflowHandler("/path/to/data")
-        >>> workflow.change_working_station("network", "station", "campaign")
-        >>> workflow.preprocess_run_pipeline_sv3(
-        ...     job="process_novatel",
-        ...     primary_config={"novatel_config": {"n_processes": 8}}
-        ... )
+        Examples:
+            # Run the sv3 pipeline with custom Novatel processing configuration:
+            >>> workflow = WorkflowHandler("/path/to/data"):
+            >>> workflow.change_working_station("network", "station", "campaign"):
+            >>> workflow.preprocess_run_pipeline_sv3(:
+            ...     job="process_novatel",:
+            ...     primary_config={"novatel_config":
+            ... ):
         """
         assert job in pipeline_jobs, f"Job must be one of {pipeline_jobs}"
 
@@ -559,29 +516,19 @@ class WorkflowHandler(WorkflowBase):
         ) = None,
     ) -> QCPipeline:
         """Creates and configures a QC processing pipeline.
+        Args:
+            primary_config: Optional primary configuration for the pipeline.
+            secondary_config: Optional secondary configuration for the pipeline.
 
-        Parameters
-        ----------
-        primary_config : Optional[Union[QCPipelineConfig, PrideCLIConfig, RinexConfig, PositionUpdateConfig, QCPinConfig, dict]], optional
-            Optional primary configuration for the pipeline.
-        secondary_config : Optional[Union[QCPipelineConfig, PrideCLIConfig, RinexConfig, PositionUpdateConfig, QCPinConfig, dict]], optional
-            Optional secondary configuration for the pipeline.
-
-        Returns
-        -------
-        QCPipeline
+        Returns:
             Configured QCPipeline instance.
 
-        Raises
-        ------
-        AssertionError
-            If current network, station, or campaign is not set.
-        ValueError
-            If configuration validation fails.
+        Raises:
+            AssertionError: If current network, station, or campaign is not set.
+            ValueError: If configuration validation fails.
 
-        See Also
-        --------
-        earthscope_sfg_workflows.workflows.pipelines.qc_pipeline.QCPipeline : The pipeline class used for QC processing.
+        See Also:
+            earthscope_sfg_workflows.workflows.pipelines.qc_pipeline.QCPipeline:
         """
         base_config = QCPipelineConfig()
         base_config_updated = base_config.model_copy()
@@ -664,40 +611,30 @@ class WorkflowHandler(WorkflowBase):
         ) = None,
     ) -> None:
         """Runs the QC processing pipeline with optional configuration overrides.
-
         This method creates and configures a :class:`~earthscope_sfg_workflows.workflows.pipelines.qc_pipeline.QCPipeline`
         instance for processing QC PIN data from Sonardyne equipment.
 
-        Parameters
-        ----------
-        job : Literal["all", "process_qcpin", "build_rinex", "run_pride", "process_kinematic", "refine_shotdata"], optional
-            The specific job to run within the pipeline, by default "all".
-        primary_config : Optional[Union[QCPipelineConfig, dict]], optional
-            Primary configuration to override defaults.
-        secondary_config : Optional[Union[QCPipelineConfig, dict]], optional
-            Secondary configuration to override primary and defaults.
+        Args:
+            job: The specific job to run within the pipeline, by default "all".
+            primary_config: Primary configuration to override defaults.
+            secondary_config: Secondary configuration to override primary and defaults.
 
-        Raises
-        ------
-        AssertionError
-            If job is not in valid QC pipeline jobs.
-        ValueError
-            If configuration validation fails.
+        Raises:
+            AssertionError: If job is not in valid QC pipeline jobs.
+            ValueError: If configuration validation fails.
 
-        See Also
-        --------
-        preprocess_get_pipeline_qc : Method that creates the pipeline instance.
-        earthscope_sfg_workflows.workflows.pipelines.qc_pipeline.QCPipeline : The pipeline class used.
+        See Also:
+            preprocess_get_pipeline_qc:
+            earthscope_sfg_workflows.workflows.pipelines.qc_pipeline.QCPipeline:
 
-        Examples
-        --------
-        # Run the QC pipeline with custom configuration
-        >>> workflow = WorkflowHandler("/path/to/data")
-        >>> workflow.set_network_station_campaign("network", "station", "campaign")
-        >>> workflow.preprocess_run_pipeline_qc(
-        ...     job="process_qcpin",
-        ...     primary_config={"qcpin_config": {"n_processes": 8}}
-        ... )
+        Examples:
+            # Run the QC pipeline with custom configuration:
+            >>> workflow = WorkflowHandler("/path/to/data"):
+            >>> workflow.set_network_station_campaign("network", "station", "campaign"):
+            >>> workflow.preprocess_run_pipeline_qc(:
+            ...     job="process_qcpin",:
+            ...     primary_config={"qcpin_config":
+            ... ):
         """
         assert job in qc_pipeline_jobs, f"Job must be one of {qc_pipeline_jobs}"
 
@@ -750,25 +687,18 @@ class WorkflowHandler(WorkflowBase):
     @validate_network_station
     def midprocess_get_sitemeta(self, site_metadata: Site | str | None = None) -> Site:
         """Loads and returns the site metadata for the current station. Sets the current_station_metadata attribute.
-
         1. If site_metadata is None, attempts to load from data_handler's current_station_metadata.
         2. If site_metadata is a string or Path, loads the site metadata from the file.
         3. If site_metadata is already a Site instance, uses it directly.
 
-        Parameters
-        ----------
-        site_metadata : Optional[Union[Site, str]], optional
-            Optional site metadata or path to metadata file. If not provided, it will be loaded if available.
+        Args:
+            site_metadata: Optional site metadata or path to metadata file. If not provided, it will be loaded if available.
 
-        Returns
-        -------
-        Site
+        Returns:
             The site metadata.
 
-        Raises
-        ------
-        ValueError
-            If site metadata cannot be loaded or is not provided.
+        Raises:
+            ValueError: If site metadata cannot be loaded or is not provided.
         """
         if site_metadata is None:
             if self.workspace.metadata.site is not None:
@@ -799,23 +729,15 @@ class WorkflowHandler(WorkflowBase):
         override_metadata_require: bool = False,
     ) -> IntermediateDataProcessor:
         """Returns an instance of the IntermediateDataProcessor for the current station.
+        Args:
+            site_metadata: Optional site metadata or path to metadata file. If not provided, it will be loaded if available.
+            override_metadata_require: If True, bypasses the requirement for loaded site metadata, by default False.
 
-        Parameters
-        ----------
-        site_metadata : Optional[Union[Site, str]], optional
-            Optional site metadata or path to metadata file. If not provided, it will be loaded if available.
-        override_metadata_require : bool, optional
-            If True, bypasses the requirement for loaded site metadata, by default False.
-
-        Returns
-        -------
-        IntermediateDataProcessor
+        Returns:
             An instance of IntermediateDataProcessor.
 
-        Raises
-        ------
-        ValueError
-            If site metadata is not loaded and override_metadata_require is False.
+        Raises:
+            ValueError: If site metadata is not loaded and override_metadata_require is False.
         """
         if not override_metadata_require:
             # Ensure site metadata is loaded
@@ -847,22 +769,14 @@ class WorkflowHandler(WorkflowBase):
         survey_id: str | None = None,
     ) -> IntermediateDataProcessor:
         """Parses survey data for the current station.
+        Args:
+            site_metadata: Optional site metadata or path to metadata file. If not provided, it will be loaded if available.
+            override: If True, re-parses existing data, by default False.
+            write_intermediate: If True, writes intermediate files to disk, by default False.
+            survey_id: Optional survey identifier to process. If None, processes all surveys, by default None.
 
-        Parameters
-        ----------
-        site_metadata : Optional[Union[Site, str]], optional
-            Optional site metadata or path to metadata file. If not provided, it will be loaded if available.
-        override : bool, optional
-            If True, re-parses existing data, by default False.
-        write_intermediate : bool, optional
-            If True, writes intermediate files to disk, by default False.
-        survey_id : Optional[str], optional
-            Optional survey identifier to process. If None, processes all surveys, by default None.
-
-        Raises
-        ------
-        ValueError
-            If site metadata is not loaded.
+        Raises:
+            ValueError: If site metadata is not loaded.
         """
         if self.s3_sync_bucket is not None:
             self.data_handler.sync_from_s3(overwrite=override)
@@ -888,24 +802,15 @@ class WorkflowHandler(WorkflowBase):
         write_intermediate: bool = False,
     ) -> None:
         """Prepares data for GARPOS processing.
+        Args:
+            site_metadata: Optional site metadata or path to metadata file. If not provided, it will be loaded if available.
+            survey_id: Optional survey identifier to process. If None, processes all surveys, by default None.
+            custom_filters: Custom filter settings for shot data preparation, by default None.
+            override: If True, re-prepares existing data, by default False.
+            write_intermediate: If True, writes intermediate files, by default False.
 
-        Parameters
-        ----------
-        site_metadata : Optional[Union[Site, str]], optional
-            Optional site metadata or path to metadata file. If not provided, it will be loaded if available.
-        survey_id : Optional[str], optional
-            Optional survey identifier to process. If None, processes all surveys, by default None.
-        custom_filters : dict, optional
-            Custom filter settings for shot data preparation, by default None.
-        override : bool, optional
-            If True, re-prepares existing data, by default False.
-        write_intermediate : bool, optional
-            If True, writes intermediate files, by default False.
-
-        Raises
-        ------
-        ValueError
-            If site metadata is not loaded.
+        Raises:
+            ValueError: If site metadata is not loaded.
         """
         dataPostProcessor: IntermediateDataProcessor = self.midprocess_parse_surveys(
             site_metadata=site_metadata,
@@ -924,17 +829,12 @@ class WorkflowHandler(WorkflowBase):
         self, overwrite: bool = False, override_metadata_require: bool = True
     ) -> None:
         """Uploads intermediate processed data to S3 for the current station.
-        Parameters
-        ----------
-        overwrite : bool, optional
-            If True, overwrites existing data on S3, by default False.
-        override_metadata_require : bool, optional
-            If True, bypasses the requirement for loaded site metadata, by default False.
+        Args:
+            overwrite: If True, overwrites existing data on S3, by default False.
+            override_metadata_require: If True, bypasses the requirement for loaded site metadata, by default False.
 
-        Raises
-        ------
-        ValueError
-            If site metadata is not loaded and ``override_metadata_require`` is False.
+        Raises:
+            ValueError: If site metadata is not loaded and ``override_metadata_require`` is False.
         """
         dataPostProcessor: IntermediateDataProcessor = self.midprocess_get_processor(
             self.current_station_metadata,
@@ -947,18 +847,12 @@ class WorkflowHandler(WorkflowBase):
         self, overwrite: bool = False, override_metadata_require: bool = True
     ) -> None:
         """Uploads intermediate processed data to S3 for the current campaign.
+        Args:
+            overwrite: If True, overwrites existing data on S3, by default False.
+            override_metadata_require: If True, bypasses the requirement for loaded site metadata, by default False.
 
-        Parameters
-        ----------
-        overwrite : bool, optional
-            If True, overwrites existing data on S3, by default False.
-        override_metadata_require : bool, optional
-            If True, bypasses the requirement for loaded site metadata, by default False.
-
-        Raises
-        ------
-        ValueError
-            If site metadata is not loaded and ``override_metadata_require`` is False.
+        Raises:
+            ValueError: If site metadata is not loaded and ``override_metadata_require`` is False.
         """
         dataPostProcessor: IntermediateDataProcessor = self.midprocess_get_processor(
             self.current_station_metadata,
@@ -969,16 +863,11 @@ class WorkflowHandler(WorkflowBase):
     @validate_network_station_campaign
     def modeling_get_garpos_handler(self) -> GarposHandler:
         """Returns an instance of the GarposHandler for the current station.
-
-        Returns
-        -------
-        GarposHandler
+        Returns:
             An instance of GarposHandler.
 
-        Raises
-        ------
-        ValueError
-            If site metadata is not loaded.
+        Raises:
+            ValueError: If site metadata is not loaded.
         """
         if self.current_station_metadata is None:
             raise ValueError("Site metadata not loaded, cannot get GarposHandler")
@@ -1005,26 +894,16 @@ class WorkflowHandler(WorkflowBase):
         custom_settings: dict | None = None,
     ) -> None:
         """Runs GARPOS processing for the current station.
+        Args:
+            survey_id: Optional survey identifier to process. If None, processes all surveys, by default None.
+            run_id: Identifier for the GARPOS run.
+            iterations: Number of GARPOS iterations to perform, by default 1.
+            site_metadata: Optional site metadata or path to metadata file. If not provided, it will be loaded if available.
+            override: If True, re-runs GARPOS even if results exist, by default False.
+            custom_settings: Custom settings to override GARPOS defaults, by default None.
 
-        Parameters
-        ----------
-        survey_id : Optional[str], optional
-            Optional survey identifier to process. If None, processes all surveys, by default None.
-        run_id : str
-            Identifier for the GARPOS run.
-        iterations : int, optional
-            Number of GARPOS iterations to perform, by default 1.
-        site_metadata : Optional[Union[Site, str]], optional
-            Optional site metadata or path to metadata file. If not provided, it will be loaded if available.
-        override : bool, optional
-            If True, re-runs GARPOS even if results exist, by default False.
-        custom_settings : Optional[dict], optional
-            Custom settings to override GARPOS defaults, by default None.
-
-        Raises
-        ------
-        ValueError
-            If site metadata is not loaded.
+        Raises:
+            ValueError: If site metadata is not loaded.
         """
         gp_handler = self.modeling_get_garpos_handler()
         gp_handler.run_garpos(
@@ -1043,15 +922,10 @@ class WorkflowHandler(WorkflowBase):
         show_fig: bool = False,
     ) -> None:
         """Plots the shot data replies per transponder for a given survey.
-
-        Parameters
-        ----------
-        survey_id : str, optional
-            ID of the survey to plot results for, by default None.
-        save_fig : bool, optional
-            If True, save the figure, by default True.
-        show_fig : bool, optional
-            If True, display the figure, by default False.
+        Args:
+            survey_id: ID of the survey to plot results for, by default None.
+            save_fig: If True, save the figure, by default True.
+            show_fig: If True, display the figure, by default False.
         """
         gp_handler = self.modeling_get_garpos_handler()
         gp_handler.plot_shotdata_replies_per_transponder(
@@ -1068,17 +942,11 @@ class WorkflowHandler(WorkflowBase):
         show_fig: bool = False,
     ) -> None:
         """Plots the flagged residuals for a given survey.
-
-        Parameters
-        ----------
-        survey_id : str, optional
-            ID of the survey to plot results for, by default None.
-        run_id : int or str, optional
-            The run ID of the survey results to plot, by default 0.
-        save_fig : bool, optional
-            If True, save the figure, by default True.
-        show_fig : bool, optional
-            If True, display the figure, by default False.
+        Args:
+            survey_id: ID of the survey to plot results for, by default None.
+            run_id: The run ID of the survey results to plot, by default 0.
+            save_fig: If True, save the figure, by default True.
+            show_fig: If True, display the figure, by default False.
         """
         gp_handler = self.modeling_get_garpos_handler()
         gp_handler.plot_residuals_per_transponder_before_and_after(
@@ -1098,20 +966,12 @@ class WorkflowHandler(WorkflowBase):
         show_fig: bool = False,
     ) -> None:
         """Plots the time series results for a given survey.
-
-        Parameters
-        ----------
-        survey_id : str, optional
-            ID of the survey to plot results for, by default None.
-        run_id : int or str, optional
-            The run ID of the survey results to plot, by default 0.
-        res_filter : float, optional
-            The residual filter value to filter outrageous values (m), by
-            default 10.
-        save_fig : bool, optional
-            If True, save the figure, by default True.
-        show_fig : bool, optional
-            If True, display the figure, by default False.
+        Args:
+            survey_id: ID of the survey to plot results for, by default None.
+            run_id: The run ID of the survey results to plot, by default 0.
+            res_filter: The residual filter value to filter outrageous values (m), by default 10.
+            save_fig: If True, save the figure, by default True.
+            show_fig: If True, display the figure, by default False.
         """
         gp_handler = self.modeling_get_garpos_handler()
         gp_handler.plot_remaining_residuals_per_transponder(
@@ -1125,15 +985,10 @@ class WorkflowHandler(WorkflowBase):
     @validate_network_station_campaign
     def qc_get_pipeline(self, config: QCPipelineConfig = None) -> "QCPipeline":
         """Get a configured QCPipeline instance.
+        Args:
+            config: A QCPipelineConfig instance with configuration options, by default None.
 
-        Parameters
-        ----------
-        config : QCPipelineConfig, optional
-            A QCPipelineConfig instance with configuration options, by default None.
-
-        Returns
-        -------
-        QCPipeline
+        Returns:
             A configured QCPipeline instance.
         """
 
@@ -1160,26 +1015,16 @@ class WorkflowHandler(WorkflowBase):
         pre_process_config: QCPipelineConfig = None,
     ) -> None:
         """Process QC files and run GARPOS modeling.
+        Args:
+            site_metadata: Optional site metadata or path to metadata file. If not provided, it will be loaded if available.
+            run_id: Identifier for the GARPOS run, by default 0.
+            iterations: Number of GARPOS iterations to perform, by default 1.
+            garpos_settings: Custom settings to override GARPOS defaults, by default None.
+            garpos_override: If True, re-runs GARPOS even if results exist, by default False.
+            pre_process_config: A QCPipelineConfig instance with configuration options, by default None.
 
-        Parameters
-        ----------
-        site_metadata : Optional[Union[Site, str]], optional
-            Optional site metadata or path to metadata file. If not provided, it will be loaded if available.
-        run_id : str or int, optional
-            Identifier for the GARPOS run, by default 0.
-        iterations : int, optional
-            Number of GARPOS iterations to perform, by default 1.
-        garpos_settings : Optional[dict | InversionParams], optional
-            Custom settings to override GARPOS defaults, by default None.
-        garpos_override : bool, optional
-            If True, re-runs GARPOS even if results exist, by default False.
-        pre_process_config : QCPipelineConfig, optional
-            A QCPipelineConfig instance with configuration options, by default None.
-
-        Raises
-        ------
-        ValueError
-            If site metadata is not provided and cannot be loaded.
+        Raises:
+            ValueError: If site metadata is not provided and cannot be loaded.
         """
         # Get and run the QC pipeline
         qc_pipeline: QCPipeline = self.qc_get_pipeline(config=pre_process_config)
@@ -1224,20 +1069,12 @@ class WorkflowHandler(WorkflowBase):
         show_fig: bool = False,
     ) -> None:
         """Plots the time series results for a given survey.
-
-        Parameters
-        ----------
-        survey_id : str, optional
-            ID of the survey to plot results for, by default None.
-        run_id : int or str, optional
-            The run ID of the survey results to plot, by default 0.
-        res_filter : float, optional
-            The residual filter value to filter outrageous values (m), by
-            default 10.
-        save_fig : bool, optional
-            If True, save the figure, by default True.
-        show_fig : bool, optional
-            If True, display the figure, by default False.
+        Args:
+            survey_id: ID of the survey to plot results for, by default None.
+            run_id: The run ID of the survey results to plot, by default 0.
+            res_filter: The residual filter value to filter outrageous values (m), by default 10.
+            save_fig: If True, save the figure, by default True.
+            show_fig: If True, display the figure, by default False.
         """
         gp_handler = self.modeling_get_garpos_handler()
         gp_handler.plot_ts_results(

@@ -1,5 +1,4 @@
 """SQLite-backed :class:`AssetStore` adapter.
-
 Defines the SQLAlchemy ORM tables (``Assets`` / ``MergeJobs``) that back the
 on-disk asset catalog and exposes them through the :class:`AssetStore` port.
 
@@ -108,6 +107,7 @@ class SqlAssetStore:
     """
 
     def __init__(self, engine: Engine, *, create_schema: bool = True) -> None:
+        """Bind to a SQLAlchemy `Engine`; create tables when `create_schema`."""
         self._engine = engine
         if create_schema:
             Base.metadata.create_all(self._engine)
@@ -119,17 +119,20 @@ class SqlAssetStore:
 
     @classmethod
     def sqlite(cls, db_path: Path, *, create_schema: bool = True) -> "SqlAssetStore":
+        """Build a `SqlAssetStore` backed by a local SQLite file at `db_path`."""
         db_path.parent.mkdir(parents=True, exist_ok=True)
         engine = create_engine(f"sqlite:///{db_path}", future=True)
         return cls(engine, create_schema=create_schema)
 
     @classmethod
     def from_url(cls, url: str, *, create_schema: bool = True) -> "SqlAssetStore":
+        """Build a `SqlAssetStore` from a SQLAlchemy database URL."""
         return cls(create_engine(url, future=True), create_schema=create_schema)
 
     # -- AssetStore protocol ----------------------------------------------
 
     def add(self, asset: AssetEntry) -> AssetEntry:
+        """Insert `asset`, returning the persisted entry with its assigned id."""
         with self._Session.begin() as session:
             row = Assets(**_entry_to_kwargs(asset))
             session.add(row)
@@ -137,6 +140,7 @@ class SqlAssetStore:
             return _row_to_entry(row)
 
     def update(self, asset: AssetEntry) -> bool:
+        """Update an existing row by id; return True iff a row was modified."""
         if asset.id is None:
             return False
         with self._Session.begin() as session:
@@ -145,11 +149,13 @@ class SqlAssetStore:
             return result.rowcount > 0
 
     def by_id(self, asset_id: int) -> AssetEntry | None:
+        """Return the asset with `asset_id`, or None if absent."""
         with self._Session() as session:
             row = session.get(Assets, asset_id)
             return None if row is None else _row_to_entry(row)
 
     def by_local_path(self, path: Path) -> list[AssetEntry]:
+        """Return all assets whose `local_path` matches `path`."""
         with self._Session() as session:
             rows = (
                 session.execute(select(Assets).where(Assets.local_path == str(path)))
@@ -163,6 +169,7 @@ class SqlAssetStore:
         scope: CampaignScope,
         kind: AssetKind | None = None,
     ) -> list[AssetEntry]:
+        """Return assets in `scope`, optionally filtered by `kind`, ordered by id."""
         stmt = select(Assets).where(
             Assets.network == scope.network,
             Assets.station == scope.station,
@@ -179,6 +186,7 @@ class SqlAssetStore:
         scope: CampaignScope,
         kind: AssetKind | None = None,
     ) -> int:
+        """Delete assets in `scope` (optionally filtered by `kind`); return count."""
         stmt = delete(Assets).where(
             Assets.network == scope.network,
             Assets.station == scope.station,
@@ -190,11 +198,13 @@ class SqlAssetStore:
             return session.execute(stmt).rowcount or 0
 
     def delete_by_id(self, asset_id: int) -> bool:
+        """Delete a single asset by id; return True iff a row was deleted."""
         with self._Session.begin() as session:
             result = session.execute(delete(Assets).where(Assets.id == asset_id))
             return (result.rowcount or 0) > 0
 
     def count_by_kind(self, scope: CampaignScope) -> dict[AssetKind, int]:
+        """Return a per-`AssetKind` row count for assets in `scope`."""
         with self._Session() as session:
             rows = (
                 session.execute(
@@ -217,6 +227,7 @@ class SqlAssetStore:
         return dict(counts)
 
     def close(self) -> None:
+        """Dispose of the underlying SQLAlchemy `Engine`."""
         self._engine.dispose()
 
     # -- merge job tracking ----------------------------------------------
@@ -232,6 +243,7 @@ class SqlAssetStore:
         child_type: str,
         parent_ids: list[int] | list[str],
     ) -> None:
+        """Persist a record that a merge from `parent_ids` produced a `child_type`."""
         sig = self._merge_signature(parent_ids)
         with self._Session.begin() as session:
             session.add(
@@ -248,6 +260,7 @@ class SqlAssetStore:
         child_type: str,
         parent_ids: list[int] | list[str],
     ) -> bool:
+        """Return True iff a matching merge job has previously been recorded."""
         sig = self._merge_signature(parent_ids)
         with self._Session() as session:
             row = session.execute(

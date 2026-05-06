@@ -54,27 +54,17 @@ def GP_Transponders_from_benchmarks(
     coord_transformer: CoordTransformer, survey: Survey, site: Site, is_qc: bool = False
 ) -> list[GPTransponder]:
     """Get GP transponders from the benchmarks in the survey.
+    Args:
+        coord_transformer: The coordinate transformer.
+        survey: The survey object.
+        site: The site metadata.
+        is_qc: Flag indicating if the data is for quality control, by default False
 
-    Parameters
-    ----------
-    coord_transformer : CoordTransformer
-        The coordinate transformer.
-    survey : Survey
-        The survey object.
-    site : Site
-        The site metadata.
-    is_qc : bool, optional
-        Flag indicating if the data is for quality control, by default False
-
-    Returns
-    -------
-    List[GPTransponder]
+    Returns:
         List of GPTransponder objects for the survey.
 
-    Raises
-    ------
-    NoGPTranspondersError
-        If no transponders are found for the survey.
+    Raises:
+        NoGPTranspondersError: If no transponders are found for the survey.
     """
     survey_benchmarks = []
     for benchmark in site.benchmarks:
@@ -109,19 +99,12 @@ def create_GPTransponder(
     coord_transformer: CoordTransformer, benchmark: Benchmark, transponder: Transponder
 ) -> GPTransponder:
     """Create a GPTransponder object from a benchmark and transponder.
+    Args:
+        coord_transformer: The coordinate transformer.
+        benchmark: The benchmark object.
+        transponder: The transponder object.
 
-    Parameters
-    ----------
-    coord_transformer : CoordTransformer
-        The coordinate transformer.
-    benchmark : Benchmark
-        The benchmark object.
-    transponder : Transponder
-        The transponder object.
-
-    Returns
-    -------
-    GPTransponder
+    Returns:
         The created GPTransponder object.
     """
     gp_transponder = GPTransponder(
@@ -151,17 +134,11 @@ def create_GPTransponder(
 
 def get_array_dpos_center(coord_transformer: CoordTransformer, transponders: list[GPTransponder]):
     """Get the average transponder position in ENU coordinates.
+    Args:
+        coord_transformer: The coordinate transformer.
+        transponders: List of GPTransponder objects.
 
-    Parameters
-    ----------
-    coord_transformer : CoordTransformer
-        The coordinate transformer.
-    transponders : List[GPTransponder]
-        List of GPTransponder objects.
-
-    Returns
-    -------
-    Tuple[GPPositionENU, GPPositionLLH]
+    Returns:
         Average transponder position in ENU and LLH coordinates.
     """
     _, array_center_llh = avg_transponder_position(transponders)
@@ -178,15 +155,10 @@ def avg_transponder_position(
     transponders: list[GPTransponder],
 ) -> tuple[GPPositionENU, GPPositionLLH]:
     """Calculate the average position of the transponders.
+    Args:
+        transponders: List of transponders.
 
-    Parameters
-    ----------
-    transponders : List[GPTransponder]
-        List of transponders.
-
-    Returns
-    -------
-    Tuple[GPPositionENU, GPPositionLLH]
+    Returns:
         Average position in ENU and LLH.
     """
     pos_array_llh = []
@@ -218,29 +190,19 @@ def prepare_shotdata_for_garpos(
     GPtransponders: list[GPTransponder],
 ):
     """Prepare the shot data for GARPOS.
-
     This is done by rectifying it and saving it to a CSV file.
 
-    Parameters
-    ----------
-    coord_transformer : CoordTransformer
-        The coordinate transformer.
-    shodata_out_path : Path
-        The path to save the shot data CSV file.
-    shot_data : pd.DataFrame
-        The shot data DataFrame to be prepared.
-    GPtransponders : List[GPTransponder]
-        List of GPTransponder objects for the survey.
+    Args:
+        coord_transformer: The coordinate transformer.
+        shodata_out_path: The path to save the shot data CSV file.
+        shot_data: The shot data DataFrame to be prepared.
+        GPtransponders: List of GPTransponder objects for the survey.
 
-    Returns
-    -------
-    pd.DataFrame
+    Returns:
         The rectified shot data DataFrame.
 
-    Raises
-    ------
-    ValueError
-        If the shot data fails validation.
+    Raises:
+        ValueError: If the shot data fails validation.
     """
 
     shot_data_rectified = rectify_shotdata(coord_transformer=coord_transformer, shot_data=shot_data)
@@ -271,29 +233,17 @@ def prepare_garpos_input_from_survey(
     GPtransponders: list[GPTransponder],
 ) -> GarposInput:
     """Prepare the GarposInput object from the survey and shot data.
+    Args:
+        shot_data_path: The path to the shot data CSV file.
+        survey: The survey object.
+        site: The site metadata.
+        campaign: The campaign metadata.
+        ss_path: The relative path to the sound speed profile file.
+        array_dpos_center: The average position of the transponders in ENU coordinates.
+        num_of_shots: The number of shots in the shot data.
+        GPtransponders: List of GPTransponder objects for the survey.
 
-    Parameters
-    ----------
-    shot_data_path : Path
-        The path to the shot data CSV file.
-    survey : Survey
-        The survey object.
-    site : Site
-        The site metadata.
-    campaign : Campaign
-        The campaign metadata.
-    ss_path : str
-        The relative path to the sound speed profile file.
-    array_dpos_center : Tuple[float, float, float]
-        The average position of the transponders in ENU coordinates.
-    num_of_shots : int
-        The number of shots in the shot data.
-    GPtransponders : List[GPTransponder]
-        List of GPTransponder objects for the survey.
-
-    Returns
-    -------
-    GarposInput
+    Returns:
         The prepared GarposInput object.
     """
     garpos_input = GarposInput(
@@ -328,17 +278,11 @@ def prepare_garpos_input_from_survey(
 
 def apply_survey_config(config: GarposSiteConfig, garpos_input: GarposInput) -> GarposInput:
     """Apply the site configuration to the GarposInput object.
+    Args:
+        config: The site configuration.
+        garpos_input: The GarposInput object to be modified.
 
-    Parameters
-    ----------
-    config : GarposSiteConfig
-        The site configuration.
-    garpos_input : GarposInput
-        The GarposInput object to be modified.
-
-    Returns
-    -------
-    GarposInput
+    Returns:
         The modified GarposInput object with the site configuration applied.
     """
     garpos_input.delta_center_position.east_sigma = (
