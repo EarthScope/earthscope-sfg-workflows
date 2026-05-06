@@ -293,14 +293,14 @@ class InversionParams(BaseModel):
     )
 
     def show_params(self) -> None:
-        logger.loginfo("Inversion Parameters:")
+        logger.info("Inversion Parameters:")
         for param in self:
             if param[0] == "delta_center_position":
-                logger.loginfo(f"  {param[0]} : ")
+                logger.info(f"  {param[0]} : ")
                 for param2 in param[1]:
-                    logger.loginfo(f"    {param2[0]} : {param2[1]}")
+                    logger.info(f"    {param2[0]} : {param2[1]}")
             else:
-                logger.loginfo(f"  {param[0]} : {param[1]}")
+                logger.info(f"  {param[0]} : {param[1]}")
 
     class Config:
         coerce = True
@@ -310,11 +310,11 @@ class InversionParams(BaseModel):
         match values.inversiontype:
             case InversionType.gammas:
                 if any([x <= 0 for x in values.positionalOffset]):
-                    logger.logerr("positionalOffset is required for InversionType.positions")
+                    logger.error("positionalOffset is required for InversionType.positions")
             case [InversionType.positions, InversionType.both]:
                 if any([x > 0 for x in values.positionalOffset]):
                     values.positionalOffset = [0.0, 0.0, 0.0]
-                    logger.logerr("positionalOffset is not required for InversionType.gammas")
+                    logger.error("positionalOffset is not required for InversionType.gammas")
 
         return values
 
@@ -630,7 +630,7 @@ class InversionResults(BaseModel):
             InversionResults (obj): Inversion results
         """
 
-        logger.loginfo(f"Reading inversion results from {file_path}")
+        logger.info(f"Reading inversion results from {file_path}")
         with open(file_path) as f:
             lines = f.readlines()
             # Extract data from the file
@@ -677,7 +677,7 @@ class InversionResults(BaseModel):
                     parsed_line = line.split()
                     mu_mt = float(parsed_line[3])
 
-            logger.loginfo(f"Finished reading inversion results from {file_path}")
+            logger.info(f"Finished reading inversion results from {file_path}")
             return cls(
                 delta_center_position=delta_center_position,
                 ABIC=ABIC,

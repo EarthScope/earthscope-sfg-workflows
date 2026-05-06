@@ -63,7 +63,7 @@ def process_single_qcpin(
         processed_asset_queue.append(entry)
         return True
     except Exception as e:
-        ProcessLogger.logerr(f"Error processing {entry.local_path}: {e}")
+        ProcessLogger.error(f"Error processing {entry.local_path}: {e}")
         return False
 
 
@@ -246,14 +246,14 @@ class QCPipeline(WorkflowBase):
         dtype_counts = self.workspace.assets.dtype_counts()
         if dtype_counts == {}:
             message = f"No local files found for {network_id}/{station_id}/{campaign_id}. Ensure data is ingested before processing."
-            ProcessLogger.logerr(message)
+            ProcessLogger.error(message)
             raise NoLocalData(message)
 
         # Update all log directories
         change_all_logger_dirs(self.workspace.layout.campaign().logs)
 
         for dtype, count in dtype_counts.items():
-            ProcessLogger.loginfo(
+            ProcessLogger.info(
                 f"Found {count} local files of type {dtype} for {network_id}/{station_id}/{campaign_id}"
             )
 
@@ -313,11 +313,11 @@ class QCPipeline(WorkflowBase):
         )
         if not qcpin_entries:
             response = f"No QCPIN Files Found for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
-            ProcessLogger.logerr(response)
+            ProcessLogger.error(response)
             raise NoQCPinFound(response)
 
         response = f"Found {len(qcpin_entries)} QCPIN Files"
-        ProcessLogger.loginfo(response)
+        ProcessLogger.info(response)
         count = 0
         rangea_string_queue = deque()
         processed_asset_queue = deque()
@@ -357,7 +357,7 @@ class QCPipeline(WorkflowBase):
 
         second_step.join(timeout=10)
         response = f"Processed {count} out of {len(qcpin_entries)} QCPIN Files"
-        ProcessLogger.loginfo(response)
+        ProcessLogger.info(response)
 
     @validate_network_station_campaign
     def get_rinex_files(self) -> None:
@@ -378,7 +378,7 @@ class QCPipeline(WorkflowBase):
         else:
             year = int(self.current_campaign_name.split("_")[0])
 
-        ProcessLogger.loginfo(
+        ProcessLogger.info(
             f"Generating QC Rinex Files for {self.current_network_name} {self.current_station_name} {year}. This may take a few minutes..."
         )
 
@@ -402,7 +402,7 @@ class QCPipeline(WorkflowBase):
                 )
 
                 if len(rinex_paths) == 0:
-                    ProcessLogger.logwarn(
+                    ProcessLogger.warning(
                         f"No QC Rinex Files generated for {self.current_network_name} {self.current_station_name} {self.current_campaign_name} {year}."
                     )
                     raise NoRinexBuilt(
@@ -431,10 +431,10 @@ class QCPipeline(WorkflowBase):
 
                 self.workspace.assets.add_merge_job(**merge_signature)
 
-                ProcessLogger.loginfo(
+                ProcessLogger.info(
                     f"Generated {len(rinex_entries)} QC Rinex files spanning {rinex_entries[0].timestamp_data_start} to {rinex_entries[-1].timestamp_data_end}"
                 )
-                ProcessLogger.logdebug(
+                ProcessLogger.debug(
                     f"Added {uploadCount} out of {len(rinex_entries)} Rinex files to the catalog"
                 )
 
@@ -443,14 +443,14 @@ class QCPipeline(WorkflowBase):
 
             except Exception as e:
                 if (
-                    message := ProcessLogger.logerr(f"Error generating QC RINEX files: {e}")
+                    message := ProcessLogger.error(f"Error generating QC RINEX files: {e}")
                 ) is not None:
                     print(message)
                 sys.exit(1)
         else:
             rinex_entries = self.workspace.assets.local(AssetKind.RINEX2)
             num_rinex_entries = len(rinex_entries)
-            ProcessLogger.logdebug(
+            ProcessLogger.debug(
                 f"QC RINEX files have already been generated for {self.current_network_name}, {self.current_station_name}, and {year}. Found {num_rinex_entries} entries."
             )
 
@@ -470,7 +470,7 @@ class QCPipeline(WorkflowBase):
             If no RINEX files are found for processing.
         """
         response = f"Running PRIDE-PPPAR on QC Rinex Data for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}. This may take a few minutes..."
-        ProcessLogger.loginfo(response)
+        ProcessLogger.info(response)
 
         prideDir = self.workspace.layout.pride_directory
         intermediateDir = self.workspace.layout.campaign().intermediate
@@ -482,11 +482,11 @@ class QCPipeline(WorkflowBase):
         )
         if not rinex_entries:
             response = f"No Rinex Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
-            ProcessLogger.logerr(response)
+            ProcessLogger.error(response)
             raise NoRinexFound(response)
 
         response = f"Found {len(rinex_entries)} Rinex Files to Process"
-        ProcessLogger.loginfo(response)
+        ProcessLogger.info(response)
 
         # Process Rinex files using PrideProcessor
         processor = PrideProcessor(
@@ -540,7 +540,7 @@ class QCPipeline(WorkflowBase):
                         uploadCount += 1
 
         response = f"Generated {kin_count} Kin Files and {res_count} Residual Files From {len(rinex_entries)} QC Rinex Files, Added {uploadCount} to the Catalog"
-        ProcessLogger.loginfo(response)
+        ProcessLogger.info(response)
 
     @validate_network_station_campaign
     def process_kin(self) -> None:
@@ -557,7 +557,7 @@ class QCPipeline(WorkflowBase):
         NoKinFound
             If no KIN files are found for processing.
         """
-        ProcessLogger.loginfo(
+        ProcessLogger.info(
             f"Looking for QC Kin Files to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
         )
 
@@ -568,10 +568,10 @@ class QCPipeline(WorkflowBase):
 
         if not kin_entries:
             message = f"No QC Kin Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
-            ProcessLogger.loginfo(message)
+            ProcessLogger.info(message)
             raise NoKinFound(message)
 
-        ProcessLogger.loginfo(f"Found {len(kin_entries)} QC Kin Files to Process: processing")
+        ProcessLogger.info(f"Found {len(kin_entries)} QC Kin Files to Process: processing")
 
         processed_count = 0
         for kin_entry in tqdm(kin_entries, desc="Processing QC Kin Files"):
@@ -582,9 +582,9 @@ class QCPipeline(WorkflowBase):
                     self.workspace.assets.update(kin_entry, is_processed=True)
                     self.qcKinPositionTDB.write_df(kin_position_df)
             except Exception as e:
-                ProcessLogger.logerr(f"Error processing {kin_entry.local_path}: {e}")
+                ProcessLogger.error(f"Error processing {kin_entry.local_path}: {e}")
 
-        ProcessLogger.loginfo(
+        ProcessLogger.info(
             f"Generated {processed_count} QC KinPosition Dataframes From {len(kin_entries)} Kin Files"
         )
 
@@ -600,14 +600,14 @@ class QCPipeline(WorkflowBase):
         4. Writes refined shotdata to final QC TileDB array
         5. Records merge job in asset catalog
         """
-        ProcessLogger.loginfo("Updating QC shotdata with interpolated QCKinPosition data")
+        ProcessLogger.info("Updating QC shotdata with interpolated QCKinPosition data")
 
         try:
             merge_signature, dates = get_merge_signature_shotdata(
                 self.qcShotDataPreTDB, self.qcKinPositionTDB
             )
         except Exception as e:
-            ProcessLogger.logerr(e)
+            ProcessLogger.error(e)
             return
 
         merge_job = {
@@ -645,7 +645,7 @@ class QCPipeline(WorkflowBase):
         Each step checks if processing is needed via config overrides or
         catalog status.
         """
-        ProcessLogger.loginfo(
+        ProcessLogger.info(
             f"Starting QC Processing Pipeline for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
         )
 
@@ -671,6 +671,6 @@ class QCPipeline(WorkflowBase):
 
         self.update_shotdata()
 
-        ProcessLogger.loginfo(
+        ProcessLogger.info(
             f"Completed QC Processing Pipeline for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
         )

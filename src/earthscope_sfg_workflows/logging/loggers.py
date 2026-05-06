@@ -167,7 +167,7 @@ class _BaseLogger:
             self.console_handler.setFormatter(self.console_format)
             self.console_handler.setLevel(logging.INFO)
             self.logger.addHandler(self.console_handler)
-            self.logdebug(f"Routing {self.name} logger to console")
+            self.debug(f"Routing {self.name} logger to console")
 
     def non_negotiable_console_log(self, message: str) -> str | None:
         """Log a message to the console if a console handler is present.
@@ -195,9 +195,9 @@ class _BaseLogger:
         for handler in list(self.logger.handlers):
             if type(handler) is logging.StreamHandler:
                 self.logger.removeHandler(handler)
-                self.logdebug(f"Removed console handler from {self.name} logger")
+                self.debug(f"Removed console handler from {self.name} logger")
 
-    def logdebug(self, message) -> None:
+    def debug(self, message) -> None:
         """Log a debug message.
 
         This uses stacklevel=2 so the logging module goes up the stack to get
@@ -210,7 +210,7 @@ class _BaseLogger:
         """
         self.logger.debug(message, stacklevel=2)
 
-    def loginfo(self, message) -> None:
+    def info(self, message) -> None:
         """Log an info message.
 
         This uses stacklevel=2 so the logging module goes up the stack to get
@@ -223,7 +223,7 @@ class _BaseLogger:
         """
         self.logger.info(message, stacklevel=2)
 
-    def logerr(self, message) -> None | str:
+    def error(self, message) -> None | str:
         """Log an error message.
 
         This uses stacklevel=2 so the logging module goes up the stack to get
@@ -242,7 +242,7 @@ class _BaseLogger:
         self.logger.error(message, stacklevel=2)
         return self.non_negotiable_console_log(message)
 
-    def logwarn(self, message) -> None:
+    def warning(self, message) -> None:
         """Log a warning message.
 
         This uses stacklevel=2 so the logging module goes up the stack to get

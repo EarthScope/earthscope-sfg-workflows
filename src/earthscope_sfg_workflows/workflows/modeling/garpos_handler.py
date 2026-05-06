@@ -263,7 +263,7 @@ class GarposHandler(IntermediateDataProcessor):
         if results_path.exists() and not override:
             print(f"Results already exist for {str(results_path)}")
             return None
-        logger.loginfo(
+        logger.info(
             f"Running GARPOS model for {garpos_input.site_name}, {garpos_input.survey_id}. Run ID: {run_id}"
         )
         input_path = results_dir / f"_{run_id}_observation.ini"
@@ -308,7 +308,7 @@ class GarposHandler(IntermediateDataProcessor):
         ValueError
             If the observation file does not exist.
         """
-        logger.loginfo(
+        logger.info(
             f"Running GARPOS model for survey {garpos_survey_dir.root.parent.name}. Run ID: {run_id}"
         )
 
@@ -319,10 +319,10 @@ class GarposHandler(IntermediateDataProcessor):
             try:
                 shutil.rmtree(results_dir)
             except Exception as e:
-                logger.logerr(f"Failed to remove existing results directory {results_dir}: {e}")
+                logger.error(f"Failed to remove existing results directory {results_dir}: {e}")
 
         elif results_dir.exists() and not override:
-            logger.loginfo(
+            logger.info(
                 f"Results directory {results_dir} already exists. Use override=True to overwrite existing results."
             )
             return
@@ -336,7 +336,7 @@ class GarposHandler(IntermediateDataProcessor):
         initialInput = GarposInput.from_datafile(obsfile_path)
 
         for i in range(iterations):
-            logger.loginfo(
+            logger.info(
                 f"Iteration {i + 1} of {iterations} for survey {garpos_survey_dir.root.parent.name}"
             )
 
@@ -389,12 +389,12 @@ class GarposHandler(IntermediateDataProcessor):
         ValueError
             If the observation file does not exist.
         """
-        logger.loginfo(f"Running GARPOS model for survey {survey_id}. Run ID: {run_id}")
+        logger.info(f"Running GARPOS model for survey {survey_id}. Run ID: {run_id}")
 
         try:
             self.set_survey(survey_id=survey_id)
         except ValueError as e:
-            logger.logwarn(f"Skipping survey {survey_id}: {e}")
+            logger.warning(f"Skipping survey {survey_id}: {e}")
             return
 
         results_dir_main = self.current_garpos_survey_dir.results
@@ -404,7 +404,7 @@ class GarposHandler(IntermediateDataProcessor):
             try:
                 shutil.rmtree(results_dir)
             except Exception as e:
-                logger.logerr(f"Failed to remove existing results directory {results_dir}: {e}")
+                logger.error(f"Failed to remove existing results directory {results_dir}: {e}")
 
         results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -416,7 +416,7 @@ class GarposHandler(IntermediateDataProcessor):
         initialInput = GarposInput.from_datafile(obsfile_path)
 
         for i in range(iterations):
-            logger.loginfo(f"Iteration {i + 1} of {iterations} for survey {survey_id}")
+            logger.info(f"Iteration {i + 1} of {iterations} for survey {survey_id}")
 
             obsfile_path = self._run_garpos(
                 custom_settings=custom_settings,
@@ -466,7 +466,7 @@ class GarposHandler(IntermediateDataProcessor):
             Custom GARPOS settings to apply, by default None.
         """
 
-        logger.loginfo(f"Running GARPOS model. Run ID: {run_id}")
+        logger.info(f"Running GARPOS model. Run ID: {run_id}")
         if surveys is None:
             surveys_to_process = (
                 [s.id for s in self.current_campaign_metadata.surveys]
@@ -485,7 +485,7 @@ class GarposHandler(IntermediateDataProcessor):
             return
 
         for survey_id in surveys_to_process:
-            logger.loginfo(f"Running GARPOS model for survey {survey_id}. Run ID: {run_id}")
+            logger.info(f"Running GARPOS model for survey {survey_id}. Run ID: {run_id}")
             self._run_garpos_survey(
                 survey_id=survey_id,
                 run_id=run_id,
@@ -656,7 +656,7 @@ class GarposHandler(IntermediateDataProcessor):
                         alpha=0.1,
                     )
             except Exception:
-                logger.logwarn(f"Error processing {survey_name}")
+                logger.warning(f"Error processing {survey_name}")
         fig.suptitle(
             f"Shotdata Reply Percentages for {self.current_station_name} {self.current_campaign_name}"
         )
@@ -669,7 +669,7 @@ class GarposHandler(IntermediateDataProcessor):
 
         fig_path = f"{self.workspace.layout.campaign().root}/{self.current_station_name}_{self.current_campaign_name}_shotdata_replies.png"
         if savefig:
-            logger.loginfo(f"Saving figure to {fig_path}")
+            logger.info(f"Saving figure to {fig_path}")
             plt.savefig(
                 fig_path,
                 dpi=300,
@@ -699,7 +699,7 @@ class GarposHandler(IntermediateDataProcessor):
                     showfig=showfig,
                 )
             except Exception as e:
-                logger.logwarn(f"Skipping plotting for survey {survey_id}: {e}")
+                logger.warning(f"Skipping plotting for survey {survey_id}: {e}")
                 continue
 
     def _plot_residuals_per_transponder_before_and_after(
@@ -738,7 +738,7 @@ class GarposHandler(IntermediateDataProcessor):
             """
         data_files = sorted(data_files, key=lambda x: int(x.stem.split("_")[-1].split("-")[0]))
         data_file = data_files[-1]
-        logger.loginfo(f"Using data file {data_file} for plotting.")
+        logger.info(f"Using data file {data_file} for plotting.")
 
         garpos_results = GarposInput.from_datafile(data_file)
 
@@ -759,7 +759,7 @@ class GarposHandler(IntermediateDataProcessor):
         df_filter_2 = ~results_df_raw["flag"]
         # results_df = results_df_raw[df_filter_1 & df_filter_2]
         results_df = results_df_raw[df_filter_2]
-        # logger.loginfo(results_df_raw.columns)
+        # logger.info(results_df_raw.columns)
         unique_ids = results_df_raw["MT"].unique()
         # make a plot with 3 subplots showing ResiRange vs time for each unique_id
         fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
@@ -798,7 +798,7 @@ class GarposHandler(IntermediateDataProcessor):
         plt.tight_layout()
         fig_path = f"{self.current_garpos_survey_dir.results}/{self.current_station_name}_{survey_id}_flagged_residuals.png"
         if savefig:
-            logger.loginfo(f"Saving figure to {fig_path}")
+            logger.info(f"Saving figure to {fig_path}")
             plt.savefig(
                 fig_path,
                 dpi=300,
@@ -840,7 +840,7 @@ class GarposHandler(IntermediateDataProcessor):
                     showfig=showfig,
                 )
             except Exception as e:
-                logger.logwarn(f"Skipping plotting for survey {survey_id}: {e}")
+                logger.warning(f"Skipping plotting for survey {survey_id}: {e}")
                 continue
 
     def _plot_remaining_residuals_per_transponder(
@@ -881,7 +881,7 @@ class GarposHandler(IntermediateDataProcessor):
             """
         data_files = sorted(data_files, key=lambda x: int(x.stem.split("_")[-1].split("-")[0]))
         data_file = data_files[-1]
-        logger.loginfo(f"Using data file {data_file} for plotting.")
+        logger.info(f"Using data file {data_file} for plotting.")
 
         garpos_results = GarposInput.from_datafile(data_file)
 
@@ -902,7 +902,7 @@ class GarposHandler(IntermediateDataProcessor):
         df_filter_2 = ~results_df_raw["flag"]
         # results_df = results_df_raw[df_filter_1 & df_filter_2]
         results_df = results_df_raw[df_filter_2]
-        # logger.loginfo(results_df_raw.columns)
+        # logger.info(results_df_raw.columns)
         unique_ids = results_df_raw["MT"].unique()
         colors = ["green", "orange", "blue"]
         if subplots:
@@ -947,7 +947,7 @@ class GarposHandler(IntermediateDataProcessor):
         plt.tight_layout()
         fig_path = f"{self.current_garpos_survey_dir.results}/{self.current_station_name}_{survey_id}_garpos_residuals.png"
         if savefig:
-            logger.loginfo(f"Saving figure to {fig_path}")
+            logger.info(f"Saving figure to {fig_path}")
             plt.savefig(
                 fig_path,
                 dpi=300,
@@ -998,7 +998,7 @@ class GarposHandler(IntermediateDataProcessor):
                     showfig=showfig,
                 )
             except Exception as e:
-                logger.logwarn(f"Skipping plotting for survey {survey_id}: {e}")
+                logger.warning(f"Skipping plotting for survey {survey_id}: {e}")
                 continue
 
     def _plot_ts_results(
@@ -1044,7 +1044,7 @@ class GarposHandler(IntermediateDataProcessor):
         # Get *-res.dat files
         data_files = list(run_dir.glob("*-res.dat"))
         if not data_files:
-            logger.logwarn(
+            logger.warning(
                 f"No *-res.dat files found in run directory {run_dir}. Attempting to find any .dat files."
             )
             return
@@ -1059,7 +1059,7 @@ class GarposHandler(IntermediateDataProcessor):
             """
         data_files = sorted(data_files, key=lambda x: int(x.stem.split("_")[-1].split("-")[0]))
         data_file = data_files[-1]
-        logger.loginfo(f"Using data file {data_file} for plotting.")
+        logger.info(f"Using data file {data_file} for plotting.")
 
         garpos_results = GarposInput.from_datafile(data_file)
 
@@ -1254,7 +1254,7 @@ class GarposHandler(IntermediateDataProcessor):
                     s=100,
                 )
             except ValueError as e:
-                logger.logwarn(
+                logger.warning(
                     f"Transponder {transponder.id} not found in results, skipping plotting. {e}"
                 )
         plt.colorbar(sc, label="Time (hr)", norm=norm)
@@ -1309,7 +1309,7 @@ class GarposHandler(IntermediateDataProcessor):
         fig_path = run_dir / f"_{run_id}_results.png"
 
         if savefig:
-            logger.loginfo(f"Saving figure to {fig_path}")
+            logger.info(f"Saving figure to {fig_path}")
             plt.savefig(
                 fig_path,
                 dpi=300,

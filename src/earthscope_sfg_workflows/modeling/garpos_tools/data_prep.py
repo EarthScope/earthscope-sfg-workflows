@@ -255,7 +255,7 @@ def prepare_shotdata_for_garpos(
     )
     shot_data_rectified = shot_data_rectified.sort_values(by=["ST", "MT"]).reset_index(drop=True)
     shot_data_rectified.to_csv(str(shodata_out_path))
-    logger.loginfo(f"Shot data prepared and saved to {str(shodata_out_path)}")
+    logger.info(f"Shot data prepared and saved to {str(shodata_out_path)}")
 
     return shot_data_rectified
 

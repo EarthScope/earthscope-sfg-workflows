@@ -22,7 +22,7 @@ for parent in GOLANG_BINARY_BUILD_DIR.parents:
 
 
 if GOLANG_BINARY_BUILD_DIR.exists() and not any(GOLANG_BINARY_BUILD_DIR.iterdir()):
-    logger.logwarn(
+    logger.warning(
         f'Golang binaries not built. Navigate to {GOLANG_BINARY_BUILD_DIR.parent} and run "make"'
     )
 
@@ -79,15 +79,12 @@ def parse_cli_logs(result, logger: _BaseLogger | logging.Logger):
             result.stdout.decode("utf-8") if isinstance(result.stdout, bytes) else result.stdout
         )
         stdout_decoded = remove_ansi_escape(stdout_decoded)
-        if hasattr(logger, "logdebug"):
-            logger.logdebug(stdout_decoded)
-        else:
-            logger.debug(stdout_decoded)
+        logger.debug(stdout_decoded)
         result_message = stdout_decoded.split("msg=")
         for log_line in result_message:
             message = log_line.split("\n")[0]
             if "Processed" in message or "Created" in message:
-                logger.loginfo(message)
+                logger.info(message)
             if (exception := raise_exception(message)) is not None:
                 raise exception
     if result.stderr:
@@ -96,30 +93,18 @@ def parse_cli_logs(result, logger: _BaseLogger | logging.Logger):
         )
         stderr_decoded = remove_ansi_escape(stderr_decoded)
         if "error" in stderr_decoded.lower():
-            if hasattr(logger, "logerr"):
-                logger.logerr(stderr_decoded)
-            else:
-                logger.error(stderr_decoded)
+            logger.error(stderr_decoded)
             if (warning := parse_error(stderr_decoded)) is not None:
-                if hasattr(logger, "logwarn"):
-                    logger.logwarn(warning.message)
-                else:
-                    logger.warning(warning.message)
+                logger.warning(warning.message)
                 warnings.warn(warning.message, warning, 3)
         else:
-            if hasattr(logger, "logwarn"):
-                logger.logwarn(stderr_decoded)
-            else:
-                logger.warning(stderr_decoded)
+            logger.warning(stderr_decoded)
 
         result_message = stderr_decoded.split("msg=")
         for log_line in result_message:
             message = log_line.split("\n")[0]
             if "Processing" in message or "Created" in message:
-                if hasattr(logger, "loginfo"):
-                    logger.loginfo(message)
-                else:
-                    logger.info(message)
+                logger.info(message)
             if (exception := raise_exception(message)) is not None:
                 raise exception
 

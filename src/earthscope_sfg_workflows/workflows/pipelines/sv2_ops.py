@@ -103,7 +103,7 @@
 #     """
 #     if not os.path.exists(source.local_path):
 #         response = f"File {source.local_path} not found"
-#         logger.logerr(response)
+#         logger.error(response)
 #         raise FileNotFoundError(response)
 
 #     si_pattern = re.compile(">SI:")  # TODO take this out for now
@@ -126,7 +126,7 @@
 #                     break
 #                 found_ping = False
 #             except UnicodeDecodeError as e:
-#                 logger.logerr(f"Acoustic Parsing:{e} | Error parsing FILE {source} at LINE {line_number}")
+#                 logger.error(f"Acoustic Parsing:{e} | Error parsing FILE {source} at LINE {line_number}")
 #                 pass
 
 #             # Update transponder time offsets if found
@@ -139,13 +139,13 @@
 #                     range_data: List[RangeData] = RangeData.from_sv2(line,main_offset_dict)
 #                     simultaneous_interrogation_set.extend(range_data)
 #                 except ValidationError as e:
-#                     logger.logerr(f"Error parsing into SimultaneousInterrogation from line {line_number} in {source}\n ")
+#                     logger.error(f"Error parsing into SimultaneousInterrogation from line {line_number} in {source}\n ")
 #                     pass
 
 
 #     # Check if any Simultaneous Interrogation data was found
 #     if not simultaneous_interrogation_set:
-#         logger.logerr(rf"Acoustic: No Simultaneous Interrogation data in FILE {source}")
+#         logger.error(rf"Acoustic: No Simultaneous Interrogation data in FILE {source}")
 #         return None
 
 #     df = pd.DataFrame([x.model_dump() for x in simultaneous_interrogation_set])
@@ -157,7 +157,7 @@
 #     )
 #     shot_count: int = int(acoustic_df.shape[0] / len(unique_transponders))
 
-#     logger.loginfo(f"Acoustic Parser: {acoustic_df.shape[0]} shots from FILE {source.local_path} | {len(unique_transponders)} transponders | {shot_count} shots per transponder")
+#     logger.info(f"Acoustic Parser: {acoustic_df.shape[0]} shots from FILE {source.local_path} | {len(unique_transponders)} transponders | {shot_count} shots per transponder")
 
 
 #     return AcousticDataFrame.validate(acoustic_df, lazy=True)
@@ -192,11 +192,11 @@
 #                         position_data.sdx,position_data.sdy,position_data.sdz = gnssMeta.sdx,gnssMeta.sdy,gnssMeta.sdz
 #                         data_list.append(position_data.model_dump())
 #                     except Exception as e:
-#                         logger.logerr(f"IMU Parsing: An error occurred while parsing INVSPA data from FILE {source} at LINE {line_number} \n Error: {line}")
+#                         logger.error(f"IMU Parsing: An error occurred while parsing INVSPA data from FILE {source} at LINE {line_number} \n Error: {line}")
 #                         pass
 
 #             except UnicodeDecodeError as e:
-#                 logger.logerr(f"Position Parsing:{e} | Error parsing FILE {source.local_path} at LINE {line_number}")
+#                 logger.error(f"Position Parsing:{e} | Error parsing FILE {source.local_path} at LINE {line_number}")
 #                 pass
 
 #     df = pd.DataFrame(data_list).rename(columns={
@@ -230,7 +230,7 @@
 #     position = position[(position["time"] >= min_time) & (position["time"] <= max_time)]
 
 #     if acoustic.empty or position.empty:
-#         logger.logerr("No data found in the time range")
+#         logger.error("No data found in the time range")
 #         raise ValueError("No data found in the time range")
 
 #     # sort

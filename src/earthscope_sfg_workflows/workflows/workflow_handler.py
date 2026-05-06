@@ -443,7 +443,7 @@ class WorkflowHandler(WorkflowBase):
                 try:
                     pipeline.pre_process_novatel()
                 except Exception as e:
-                    logger.logerr(f"Novatel processing failed: {e}")
+                    logger.error(f"Novatel processing failed: {e}")
                     raise e
 
             case "build_rinex":
@@ -456,7 +456,7 @@ class WorkflowHandler(WorkflowBase):
                 try:
                     pipeline.get_rinex_files()
                 except Exception as e:
-                    logger.logerr(f"RINEX file generation failed: {e}")
+                    logger.error(f"RINEX file generation failed: {e}")
                     raise e
 
             case "run_pride":
@@ -471,7 +471,7 @@ class WorkflowHandler(WorkflowBase):
                 try:
                     pipeline.process_rinex()
                 except Exception as e:
-                    logger.logerr(f"PRIDE-PPP processing failed: {e}")
+                    logger.error(f"PRIDE-PPP processing failed: {e}")
                     raise e
 
             case "process_kinematic":
@@ -484,7 +484,7 @@ class WorkflowHandler(WorkflowBase):
                 try:
                     pipeline.process_kin()
                 except Exception as e:
-                    logger.logerr(f"Kinematic processing failed: {e}")
+                    logger.error(f"Kinematic processing failed: {e}")
                     raise e
 
             case "process_dfop00":
@@ -497,7 +497,7 @@ class WorkflowHandler(WorkflowBase):
                 try:
                     pipeline.process_dfop00()
                 except Exception as e:
-                    logger.logerr(f"DFOP00 processing failed: {e}")
+                    logger.error(f"DFOP00 processing failed: {e}")
                     raise e
 
             case "refine_shotdata":
@@ -510,7 +510,7 @@ class WorkflowHandler(WorkflowBase):
                 try:
                     pipeline.update_shotdata()
                 except Exception as e:
-                    logger.logerr(f"Shotdata refinement failed: {e}")
+                    logger.error(f"Shotdata refinement failed: {e}")
                     raise e
 
             case "process_svp":
@@ -523,7 +523,7 @@ class WorkflowHandler(WorkflowBase):
                 try:
                     pipeline.process_svp()
                 except Exception as e:
-                    logger.logerr(f"SVP processing failed: {e}")
+                    logger.error(f"SVP processing failed: {e}")
                     raise e
 
             case _:
@@ -706,35 +706,35 @@ class WorkflowHandler(WorkflowBase):
                 try:
                     pipeline.process_qcpin()
                 except pipeline_exceptions.NoQCPinFound as e:
-                    logger.logerr(f"QC PIN processing failed: {e}")
+                    logger.error(f"QC PIN processing failed: {e}")
                     raise e
 
             case "build_rinex":
                 try:
                     pipeline.get_rinex_files()
                 except pipeline_exceptions.NoRinexBuilt as e:
-                    logger.logerr(f"QC RINEX file generation failed: {e}")
+                    logger.error(f"QC RINEX file generation failed: {e}")
                     raise e
 
             case "run_pride":
                 try:
                     pipeline.process_rinex()
                 except pipeline_exceptions.NoRinexFound as e:
-                    logger.logerr(f"QC PRIDE-PPP processing failed: {e}")
+                    logger.error(f"QC PRIDE-PPP processing failed: {e}")
                     raise e
 
             case "process_kinematic":
                 try:
                     pipeline.process_kin()
                 except pipeline_exceptions.NoKinFound as e:
-                    logger.logerr(f"QC Kinematic processing failed: {e}")
+                    logger.error(f"QC Kinematic processing failed: {e}")
                     raise e
 
             case "refine_shotdata":
                 try:
                     pipeline.update_shotdata()
                 except Exception as e:
-                    logger.logerr(f"QC Shotdata refinement failed: {e}")
+                    logger.error(f"QC Shotdata refinement failed: {e}")
                     raise e
 
             case _:

@@ -225,7 +225,7 @@ class IntermediateDataProcessor(WorkflowBase):
             ):
                 df = shotDataTDB.read_df(start=survey.start, end=survey.end)
                 if df.empty:
-                    logger.logwarn(
+                    logger.warning(
                         f"No shot data found for survey {survey.id} from "
                         f"{survey.start} to {survey.end}, skipping survey."
                     )
@@ -245,7 +245,7 @@ class IntermediateDataProcessor(WorkflowBase):
                     kin_tdb = TDBKinPositionArray(tiledb.kin_position)
                     kin_df = kin_tdb.read_df(start=survey.start, end=survey.end)
                     if kin_df.empty:
-                        logger.logwarn(
+                        logger.warning(
                             f"No kinposition data found for survey {survey.id}"
                         )
                     else:
@@ -263,7 +263,7 @@ class IntermediateDataProcessor(WorkflowBase):
                     imu_tdb = TDBIMUPositionArray(tiledb.imu_position)
                     imu_df = imu_tdb.read_df(start=survey.start, end=survey.end)
                     if imu_df.empty:
-                        logger.logwarn(
+                        logger.warning(
                             f"No imuposition data found for survey {survey.id}"
                         )
                     else:
@@ -304,7 +304,7 @@ class IntermediateDataProcessor(WorkflowBase):
 
         for survey in surveys_to_process:
             self.set_survey(survey_id=survey.id)
-            logger.loginfo(f"Processing survey {survey.id}")
+            logger.info(f"Processing survey {survey.id}")
             self.prepare_single_garpos_survey(
                 survey=survey,
                 custom_filters=custom_filters,
@@ -340,7 +340,7 @@ class IntermediateDataProcessor(WorkflowBase):
 
         shot_data_raw = pd.read_csv(shotdata_path)
         if shot_data_raw.empty:
-            logger.logwarn(
+            logger.warning(
                 f"No shot data found for survey {shotdata_path}, "
                 "skipping shot data preparation."
             )
@@ -376,7 +376,7 @@ class IntermediateDataProcessor(WorkflowBase):
                 custom_filters=custom_filters,
             )
             if shot_data_filtered.empty:
-                logger.logwarn(
+                logger.warning(
                     f"No shot data remaining after filtering for survey "
                     f"{survey.id}, skipping survey."
                 )
@@ -408,7 +408,7 @@ class IntermediateDataProcessor(WorkflowBase):
                 GPtransponders=gp_transponders,
             )
             if shot_data_rectified.empty:
-                logger.logwarn(
+                logger.warning(
                     f"No shot data remaining after rectification for survey "
                     f"{survey.id}, skipping survey."
                 )
@@ -420,7 +420,7 @@ class IntermediateDataProcessor(WorkflowBase):
             if campaign.svp_file.exists():
                 shutil.copy(campaign.svp_file, garpos_layout.svp_file)
             else:
-                logger.logwarn(
+                logger.warning(
                     f"No sound speed profile file found for campaign "
                     f"{campaign_meta.name}, GARPOS processing may fail."
                 )
@@ -461,7 +461,7 @@ class IntermediateDataProcessor(WorkflowBase):
         """Upload the active station's TileDB arrays to S3."""
         s3_root = self._s3_root()
         if s3_root is None:
-            logger.logwarn("S3 synchronization skipped: s3_sync_bucket not configured")
+            logger.warning("S3 synchronization skipped: s3_sync_bucket not configured")
             return
 
         s3_station = (
@@ -492,7 +492,7 @@ class IntermediateDataProcessor(WorkflowBase):
                         )
                         upload_counter += 1
                 except Exception as e:
-                    logger.logerr(f"Failed to upload {tdb_file} to S3: {e}")
+                    logger.error(f"Failed to upload {tdb_file} to S3: {e}")
             print(f"Uploaded {upload_counter} files to {s3_array}")
 
     @validate_network_station_campaign
@@ -500,7 +500,7 @@ class IntermediateDataProcessor(WorkflowBase):
         """Upload SVP and intermediate RINEX files for the active campaign to S3."""
         s3_root = self._s3_root()
         if s3_root is None:
-            logger.logwarn("S3 synchronization skipped: s3_sync_bucket not configured")
+            logger.warning("S3 synchronization skipped: s3_sync_bucket not configured")
             return
 
         s3_campaign = (
@@ -517,7 +517,7 @@ class IntermediateDataProcessor(WorkflowBase):
             if local_svp.exists() and not s3_svp.exists():
                 s3_svp.upload_from(local_svp, force_overwrite_to_cloud=overwrite)
         except Exception as e:
-            logger.logerr(f"Failed to upload {local_svp} to S3: {e}")
+            logger.error(f"Failed to upload {local_svp} to S3: {e}")
 
         local_intermediate = campaign.intermediate
         s3_rinex_dest_dir = s3_campaign / "processed" / "rinex"
@@ -544,7 +544,7 @@ class IntermediateDataProcessor(WorkflowBase):
                     s3_file.upload_from(source, force_overwrite_to_cloud=overwrite)
                     print(f"Uploaded {source} to {s3_file}")
             except Exception as e:
-                logger.logerr(f"Failed to upload {source} to S3: {e}")
+                logger.error(f"Failed to upload {source} to S3: {e}")
 
         if local_intermediate.exists():
             print(
@@ -560,7 +560,7 @@ class IntermediateDataProcessor(WorkflowBase):
         """Upload station TileDB arrays + per-campaign SVP/log files to S3."""
         s3_root = self._s3_root()
         if s3_root is None:
-            logger.logwarn("S3 synchronization skipped: s3_sync_bucket not configured")
+            logger.warning("S3 synchronization skipped: s3_sync_bucket not configured")
             return
 
         s3_station = (
@@ -588,7 +588,7 @@ class IntermediateDataProcessor(WorkflowBase):
                             tdb_file, force_overwrite_to_cloud=overwrite
                         )
                 except Exception as e:
-                    logger.logerr(f"Failed to upload {tdb_file} to S3: {e}")
+                    logger.error(f"Failed to upload {tdb_file} to S3: {e}")
 
         # Sync per-campaign svp + logs
         for campaign_name in self.workspace.layout.list_campaigns():
@@ -606,7 +606,7 @@ class IntermediateDataProcessor(WorkflowBase):
                 if local_svp.exists() and not s3_svp.exists():
                     s3_svp.upload_from(local_svp, force_overwrite_to_cloud=overwrite)
             except Exception as e:
-                logger.logerr(f"Failed to upload {local_svp} to S3: {e}")
+                logger.error(f"Failed to upload {local_svp} to S3: {e}")
 
             local_log_dir = local_campaign_dir / "logs"
             s3_log_dir = s3_campaign / "logs"
@@ -620,7 +620,7 @@ class IntermediateDataProcessor(WorkflowBase):
                                 log_file, force_overwrite_to_cloud=overwrite
                             )
                         except Exception as e:
-                            logger.logerr(f"Failed to upload {log_file} to S3: {e}")
+                            logger.error(f"Failed to upload {log_file} to S3: {e}")
 
     # ------------------------------------------------------------------
     # QC pseudo-survey parsing
@@ -633,7 +633,7 @@ class IntermediateDataProcessor(WorkflowBase):
         pseudo_surveys: list[Survey] = []
         dates: list[np.datetime64] = shotdatatdb.get_unique_dates().tolist()
         if not dates:
-            logger.logwarn("No shotdata dates found to generate pseudo-surveys.")
+            logger.warning("No shotdata dates found to generate pseudo-surveys.")
             return pseudo_surveys
 
         campaign_name = self.workspace.campaign_name
@@ -642,7 +642,7 @@ class IntermediateDataProcessor(WorkflowBase):
         current_year = int(campaign_name.split("_")[0])
         filtered_dates = [d for d in dates if d.year == current_year]
         if not filtered_dates:
-            logger.logwarn(
+            logger.warning(
                 f"No shotdata dates found for campaign year {current_year} "
                 "to generate pseudo-surveys."
             )
@@ -702,7 +702,7 @@ class IntermediateDataProcessor(WorkflowBase):
             ):
                 df = shotDataTDB.read_df(start=survey.start, end=survey.end)
                 if df.empty:
-                    logger.logwarn(
+                    logger.warning(
                         f"No shot data found for survey {survey.id} from "
                         f"{survey.start} to {survey.end}, skipping survey."
                     )
@@ -750,7 +750,7 @@ class IntermediateDataProcessor(WorkflowBase):
                         GPtransponders=gp_transponders,
                     )
                     if shotdata_rectified.empty:
-                        logger.logwarn(
+                        logger.warning(
                             f"No shot data remaining after rectification for "
                             f"survey {survey.id}, skipping survey."
                         )

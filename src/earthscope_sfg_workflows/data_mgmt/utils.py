@@ -67,7 +67,7 @@ def get_merge_signature_shotdata(
     dates = np.intersect1d(shotdata_dates, kin_position_dates).tolist()
     if len(dates) == 0:
         error_message = "No common dates found between shotdata and kin_position"
-        logger.logerr(error_message)
+        logger.error(error_message)
         raise ValueError(error_message)
 
     for date in dates:

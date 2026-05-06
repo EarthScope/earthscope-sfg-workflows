@@ -57,7 +57,7 @@ def filter_shotdata(
         filter_config = validate_and_merge_config(
             base_class=filter_config, override_config=custom_filters
         )
-        logger.loginfo(f"Using custom filter configuration: {filter_config}")
+        logger.info(f"Using custom filter configuration: {filter_config}")
 
     """
     Apply acoustic diagnostics filtering. This is based on the SNR, DBV, and XC thresholds.
@@ -73,7 +73,7 @@ def filter_shotdata(
             case FilterLevel.DIFFICULT:
                 new_shot_data_df = difficult_acoustic_diagnostics(new_shot_data_df)
             case _:
-                logger.loginfo("No acoustic filtering applied, using original shot data")
+                logger.info("No acoustic filtering applied, using original shot data")
 
     """
     Apply ping replies filtering. This is based on the minimum number of replies.
@@ -108,10 +108,10 @@ def filter_shotdata(
         )
 
     filtered_count = len(new_shot_data_df)
-    logger.loginfo(
+    logger.info(
         f"Filtered {initial_count - filtered_count} records from shot data based on filtering criteria: {filter_config}"
     )
-    logger.loginfo(f"Remaining shot data records: {filtered_count}")
+    logger.info(f"Remaining shot data records: {filtered_count}")
     return new_shot_data_df
 
 
@@ -160,7 +160,7 @@ def filter_wg_distance_from_center(
     # Filter data
     filtered_df = df[df["distance_from_center"] <= max_distance_m].copy()
 
-    logger.loginfo(
+    logger.info(
         f"Removed {len(df) - len(filtered_df)} records > {max_distance_m}m horizontal distance from array center"
     )
 
@@ -184,14 +184,14 @@ def filter_SNR(df, snr_min=12):
     :rtype: pd.DataFrame
     """
     if "snr" not in df.columns:
-        logger.logerr("SNR column not found, skipping filter")
+        logger.error("SNR column not found, skipping filter")
         return df
 
     initial_count = len(df)
     # Filter based on SNR theshold greater than or equal to snr_min
     df = df[df["snr"] >= snr_min].copy()
 
-    logger.loginfo(f"Removed {initial_count - len(df)} records with SNR < {snr_min}")
+    logger.info(f"Removed {initial_count - len(df)} records with SNR < {snr_min}")
     return df
 
 
@@ -217,13 +217,13 @@ def filter_dbv(df, dbv_min=-36, dbv_max=-3):
         Filtered DataFrame.
     """
     if "dbv" not in df.columns:
-        logger.logerr("DBV column not found, skipping filter")
+        logger.error("DBV column not found, skipping filter")
         return df
 
     initial_count = len(df)
     df = df[(df["dbv"] >= dbv_min) & (df["dbv"] <= dbv_max)].copy()
 
-    logger.loginfo(f"Removed {initial_count - len(df)} records with DBV < {dbv_min} or > {dbv_max}")
+    logger.info(f"Removed {initial_count - len(df)} records with DBV < {dbv_min} or > {dbv_max}")
     return df
 
 
@@ -247,13 +247,13 @@ def filter_xc(df, xc_min=45):
         Filtered DataFrame.
     """
     if "xc" not in df.columns:
-        logger.logerr("XC column not found, skipping filter")
+        logger.error("XC column not found, skipping filter")
         return df
 
     initial_count = len(df)
     df = df[df["xc"] >= xc_min].copy()
 
-    logger.loginfo(f"Removed {initial_count - len(df)} records with XC < {xc_min}")
+    logger.info(f"Removed {initial_count - len(df)} records with XC < {xc_min}")
     return df
 
 
@@ -290,7 +290,7 @@ def filter_acoustic_diagnostics(df, snr_min=12, dbv_min=-36, dbv_max=-3, xc_min=
     df = filter_dbv(df=df, dbv_min=dbv_min, dbv_max=dbv_max)
     df = filter_xc(df=df, xc_min=xc_min)
 
-    logger.loginfo(f"Total acoustic diagnostic filtering removed {initial_count - len(df)} records")
+    logger.info(f"Total acoustic diagnostic filtering removed {initial_count - len(df)} records")
     return df
 
 
@@ -342,7 +342,7 @@ def filter_ping_replies(df, min_replies=3):
     :rtype: pd.DataFrame
     """
     if "pingTime" not in df.columns:
-        logger.logerr("pingTime column not found, skipping filter")
+        logger.error("pingTime column not found, skipping filter")
         return df
 
     # Count replies per ping time
@@ -357,7 +357,7 @@ def filter_ping_replies(df, min_replies=3):
     removed_pings = len(ping_counts) - len(valid_ping_times)
     removed_records = len(df) - len(filtered_df)
 
-    logger.loginfo(
+    logger.info(
         f"Removed {removed_pings} ping times with < {min_replies} replies ({removed_records} total records)"
     )
 
@@ -390,19 +390,19 @@ def filter_pride_residuals(
     pride_data = TDBKinPositionArray(kinPostionTDBUri)
     ppp_df = pride_data.read_df(start=start_time, end=end_time)
     if ppp_df.empty:
-        logger.logerr("No Pride PPP data found, skipping residual filter")
+        logger.error("No Pride PPP data found, skipping residual filter")
         return df
 
     # Check if wrms column exists
     if "wrms" not in ppp_df.columns:
-        logger.logerr("WRMS column not found in Pride data, skipping residual filter")
+        logger.error("WRMS column not found in Pride data, skipping residual filter")
         return df
 
     # Filter Pride data for high WRMS values
     high_wrms_times = ppp_df[ppp_df["wrms"] > max_wrms]["time"].tolist()
 
     if not high_wrms_times:
-        logger.loginfo(f"No Pride PPP data exceeds WRMS threshold of {max_wrms}mm")
+        logger.info(f"No Pride PPP data exceeds WRMS threshold of {max_wrms}mm")
         return df
 
     # Convert Pride PPP datetime to Unix timestamp to match pingTime format
@@ -438,9 +438,9 @@ def filter_pride_residuals(
     filtered_df = df[mask].copy()
 
     removed_count = initial_count - len(filtered_df)
-    logger.loginfo(
+    logger.info(
         f"Removed {removed_count} shot records due to high WRMS (>{max_wrms}mm) in Pride PPP data"
     )
-    logger.loginfo(f"Used {len(exclusion_ranges)} time exclusion ranges with ±1s buffer")
+    logger.info(f"Used {len(exclusion_ranges)} time exclusion ranges with ±1s buffer")
 
     return filtered_df  # Return filtered_df instead of original df

@@ -28,13 +28,13 @@ def load_lib() -> tuple[str, str]:
     garpos_path = Path(garpos_path)
     if not garpos_path.exists():
         raise FileNotFoundError(f"GARPOS_PATH {garpos_path} does not exist")
-    logger.logdebug(f"Found GARPOS_PATH: {garpos_path}")
+    logger.debug(f"Found GARPOS_PATH: {garpos_path}")
     f90lib_path = None
     # find /f90lib dir
     for dirs in garpos_path.glob("**/f90lib"):
         if dirs.is_dir():
             f90lib_path = dirs
-            logger.logdebug(f"Found f90lib directory: {f90lib_path}")
+            logger.debug(f"Found f90lib directory: {f90lib_path}")
             break
     if f90lib_path is None:
         raise FileNotFoundError("f90lib directory not found in GARPOS_PATH")
@@ -44,7 +44,7 @@ def load_lib() -> tuple[str, str]:
     lib_raytrace = f90lib_path / "lib_raytrace.so"
     if not lib_raytrace.exists():
         raise FileNotFoundError("lib_raytrace.so not found in f90lib directory")
-    logger.logdebug(f"Found lib_raytrace.so: {lib_raytrace}")
+    logger.debug(f"Found lib_raytrace.so: {lib_raytrace}")
     return str(f90lib_path), str(lib_raytrace)
 
 
@@ -74,14 +74,14 @@ def load_drive_garpos() -> Callable:
     garpos_path = Path(garpos_path_env)
     if not garpos_path.exists():
         raise FileNotFoundError(f"GARPOS_PATH {garpos_path} does not exist")
-    logger.logdebug(f"Found GARPOS_PATH: {garpos_path}")
+    logger.debug(f"Found GARPOS_PATH: {garpos_path}")
 
     # find the function drive_garpos in garpos_main.py
     garpos_main = None
     for file in list(garpos_path.rglob("*.py")):
         if "garpos_main" in file.name:
             garpos_main = file
-            logger.logdebug(f"Found garpos_main.py: {str(garpos_main)}")
+            logger.debug(f"Found garpos_main.py: {str(garpos_main)}")
             break
 
     if not garpos_main:

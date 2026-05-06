@@ -191,7 +191,7 @@ def prepare_kinematic_data(
     gps_df = gps_df[east_z_filter & north_z_filter & up_z_filter]
 
     filtered_len = len(gps_df)
-    logger.loginfo(
+    logger.info(
         f"Kinematic data filtered from {original_len} to {filtered_len} rows for a {((original_len - filtered_len) / original_len * 100):.2f} % reduction using z-score threshold of {z_thresh}."
     )
     return gps_df
@@ -245,7 +245,7 @@ def combine_data(
     df_all = df_all.sort_values(by="time")
     # Don't dropna here, as kinematic velocities are NaN
 
-    logger.loginfo(f"Combined data shape: {df_all.shape}")
+    logger.info(f"Combined data shape: {df_all.shape}")
     return df_all
 
 
@@ -284,7 +284,7 @@ def run_kalman_filter_and_smooth(
         return pd.DataFrame()
 
     x, P, _, _ = run_filter_simulation(df_all.to_numpy(), start_dt, gnss_pos_psd, vel_psd, cov_err)
-    logger.loginfo(
+    logger.info(
         f"Filter Parameters - Start DT: {start_dt}, GNSS_POS_PSD: {gnss_pos_psd}, VEL_PSD: {vel_psd}, COV_ERR: {cov_err}"
     )
 
@@ -338,7 +338,7 @@ def analyze_offsets(merged_positions: pd.DataFrame) -> None:
     """
 
     if merged_positions.empty:
-        logger.loginfo("No merged positions to analyze.")
+        logger.info("No merged positions to analyze.")
         return
 
     offset_x = (merged_positions["ant_x_smoothed"] - merged_positions["ant_x"]).abs()
@@ -353,7 +353,7 @@ def analyze_offsets(merged_positions: pd.DataFrame) -> None:
         }
     )
 
-    logger.loginfo(summary_df.round(6).to_string())
+    logger.info(summary_df.round(6).to_string())
 
 
 def update_shotdata_with_smoothed_positions(
@@ -374,7 +374,7 @@ def update_shotdata_with_smoothed_positions(
         The updated shotdata DataFrame.
     """
     if smoothed_results.empty:
-        logger.loginfo("No smoothed results to interpolate from.")
+        logger.info("No smoothed results to interpolate from.")
         return shotdata
 
     X_train = smoothed_results.time.to_numpy().reshape(-1, 1)
@@ -384,7 +384,7 @@ def update_shotdata_with_smoothed_positions(
     position_interpolator.fit(X_train, Y_train)
 
     train_score = position_interpolator.score(X_train, Y_train)
-    logger.loginfo(f"Position Interpolator Train Score: {train_score:.4f}")
+    logger.info(f"Position Interpolator Train Score: {train_score:.4f}")
 
     ping_times = shotdata.pingTime.to_numpy().reshape(-1, 1)
     return_times = shotdata.returnTime.to_numpy().reshape(-1, 1)
@@ -405,11 +405,11 @@ def update_shotdata_with_smoothed_positions(
     nan_pings = np.isnan(predicted_ping_pos).any(axis=1).sum()
     nan_returns = np.isnan(predicted_return_pos).any(axis=1).sum()
     if nan_pings > 0:
-        logger.loginfo(
+        logger.info(
             f"Warning: {nan_pings} ping times could not be interpolated (no smoothed data within radius)."
         )
     if nan_returns > 0:
-        logger.loginfo(
+        logger.info(
             f"Warning: {nan_returns} return times could not be interpolated (no smoothed data within radius)."
         )
 
@@ -439,7 +439,7 @@ def filter_spatial_outliers(df: pd.DataFrame, radius: float = 5000) -> pd.DataFr
     )
     df_filtered = df[position_filters]
     filtered_len = len(df_filtered)
-    logger.loginfo(
+    logger.info(
         f"Data filtered from {original_len} to {filtered_len} rows for a {((original_len - filtered_len) / original_len * 100):.2f} % reduction using {radius}m position threshold."
     )
     return df_filtered
@@ -490,7 +490,7 @@ def main(
     """
 
     if positions_data.empty:
-        logger.loginfo("No positions data provided.")
+        logger.info("No positions data provided.")
         return shotdata
 
     if prepare_position_data:
@@ -499,7 +499,7 @@ def main(
         positions_data_copy = positions_data.copy()
 
     if kin_positions.empty:
-        logger.loginfo("No kinematic positions data provided.")
+        logger.info("No kinematic positions data provided.")
         gps_data = pd.DataFrame(columns=positions_data_copy.columns)
     else:
         gps_data = prepare_kinematic_data(kin_positions)
@@ -515,7 +515,7 @@ def main(
     )
 
     if smoothed_results.empty:
-        logger.loginfo("Kalman filter returned no results.")
+        logger.info("Kalman filter returned no results.")
         return shotdata
 
     merged_positions = pd.merge_asof(
@@ -526,8 +526,8 @@ def main(
         direction="nearest",
         suffixes=("", "_smoothed"),
     )
-    logger.loginfo("\n--- Offset Analysis ---")
-    logger.loginfo("----Results vs Original Positions----")
+    logger.info("\n--- Offset Analysis ---")
+    logger.info("----Results vs Original Positions----")
     analyze_offsets(merged_positions)
 
     shotdata_updated = update_shotdata_with_smoothed_positions(shotdata, smoothed_results)
@@ -566,7 +566,7 @@ def merge_shotdata_kinposition(
         The updated shotdata array.
     """
 
-    logger.loginfo("Merging shotdata and kin_position data")
+    logger.info("Merging shotdata and kin_position data")
     for date in dates:
         shotdata_df = shotdata_pre.read_df(start=date)
         kin_position_df = kin_position.read_df(start=date)
@@ -574,7 +574,7 @@ def merge_shotdata_kinposition(
         try:
             position_df = position_data.read_df(start=date) if position_data is not None else None
         except Exception as e:
-            logger.loginfo(
+            logger.info(
                 f"Error reading position data for date {str(date)}: {e}. Proceeding without position data."
             )
             position_df = None
@@ -583,7 +583,7 @@ def merge_shotdata_kinposition(
         if shotdata_df.empty:
             continue
 
-        logger.loginfo(f"Interpolating shotdata for date {str(date)}")
+        logger.info(f"Interpolating shotdata for date {str(date)}")
 
         # interpolate the enu values
         shotdata_df_updated = main(
@@ -625,7 +625,7 @@ def merge_shotdata_qc(
         This function writes the updated shotdata to the provided TDBShotDataArray.
     """
 
-    logger.loginfo("Merging shotdata and kin_position data for QC")
+    logger.info("Merging shotdata and kin_position data for QC")
     for date in dates:
         shotdata_df = shotdata_pre.read_df(start=date)
         kin_position_df = kin_position.read_df(start=date)
@@ -634,7 +634,7 @@ def merge_shotdata_qc(
         if shotdata_df.empty:
             continue
 
-        logger.loginfo(f"Interpolating shotdata for date {str(date)}")
+        logger.info(f"Interpolating shotdata for date {str(date)}")
         positions_data: pd.DataFrame = shotdata_to_imu_position_df(shotdata_df)
         # interpolate the enu values
         shotdata_df_updated = main(
@@ -678,7 +678,7 @@ def interpolate_enu(
         interpolated enu values predicted at the time values from tenu_r.
     """
 
-    logger.loginfo("Interpolating ENU values")
+    logger.info("Interpolating ENU values")
     length_scale = 3  # seconds
     kernel = RBF(length_scale=length_scale)
     X_train = np.hstack((tenu_l[:, 0], tenu_r[:, 0])).T.astype(float).reshape(-1, 1)
@@ -712,7 +712,7 @@ def interpolate_enu(
                 enu_r_sig[idx, j] = y_std
                 tenu_r[idx, j + 1] = y_mean
 
-    logger.loginfo(
+    logger.info(
         f"Interpolation took {time.time() - start:.3f} seconds for {tenu_r.shape[0]} x {tenu_r.shape[1]} points"
     )
     return tenu_r.astype(float), enu_r_sig.astype(float)
@@ -738,7 +738,7 @@ def interpolate_enu_kernelridge(
         The interpolated enu values at the time values from tenu_r.
     """
 
-    logger.loginfo("Interpolating ENU values using Kernel Ridge Regression")
+    logger.info("Interpolating ENU values using Kernel Ridge Regression")
     # First, we need to find the indices of tenu_l that are within the lengthscale of tenu_r
     # We will use a KDTree to find the indices efficiently
     KIN_POSITION_DATA_TREE = KDTree(kin_position_data[:, 0].astype(float).reshape(-1, 1))
@@ -752,7 +752,7 @@ def interpolate_enu_kernelridge(
     shotdata_to_update = shot_data[shotdata_to_update_filter, :]
 
     if shotdata_to_update.shape[0] == 0:
-        logger.loginfo("No points to update, returning original shot_data")
+        logger.info("No points to update, returning original shot_data")
         return shot_data
 
     kin_position_training_data_inds = KIN_POSITION_DATA_TREE.query_radius(
@@ -766,7 +766,7 @@ def interpolate_enu_kernelridge(
     ).astype(int)
 
     if len(kin_position_training_data_inds) == 0:
-        logger.loginfo("No points to update, returning original tenu_r")
+        logger.info("No points to update, returning original tenu_r")
         return shot_data
 
     scaler = StandardScaler(with_std=False)  # we do not want to scale the standard deviation
@@ -792,8 +792,8 @@ def interpolate_enu_kernelridge(
 
     train_score = kernal_ridge.score(X_train, Y_train)
 
-    logger.loginfo(f"Kernel Ridge Regression model score: {err:.3f}")
-    logger.loginfo(f"Kernel Ridge Regression model training score: {train_score:.3f}")
+    logger.info(f"Kernel Ridge Regression model score: {err:.3f}")
+    logger.info(f"Kernel Ridge Regression model training score: {train_score:.3f}")
     # predict the values at the tenu_r timestamps
     updated_shotdata_scaled = kernal_ridge.predict(X_predict)
     # create a merged array with each column being the East, North, Up values
@@ -811,13 +811,13 @@ def interpolate_enu_kernelridge(
     # compute the offset between the predicted values and the original values
     offset = np.abs(updated_shotdata - shotdata_to_update[:, :-1])
     if offset.max() > 1:
-        logger.logwarn(
+        logger.warning(
             f"Offset between predicted and original values is too high: {offset.max():.2f}. This may indicate a problem with the data or the model."
         )
     east_offset_max = offset[:, 0].max()
     north_offset_max = offset[:, 1].max()
     up_offset_max = offset[:, 2].max()
-    logger.loginfo(
+    logger.info(
         f"Max offset for East: {east_offset_max}, North: {north_offset_max}, Up: {up_offset_max}"
     )
 
@@ -830,8 +830,8 @@ def interpolate_enu_kernelridge(
     #     tenu_r = np.vstack((tenu_r[to_update_filter], tenu_r[~to_update_filter]))
     # else:
     #     tenu_r = tenu_r[to_update_filter]
-    logger.loginfo(f"Interpolated {updated_shotdata.shape[0]} points using Kernel Ridge Regression")
-    logger.loginfo(f"Returning {shot_data.shape[0]} points")
+    logger.info(f"Interpolated {updated_shotdata.shape[0]} points using Kernel Ridge Regression")
+    logger.info(f"Returning {shot_data.shape[0]} points")
 
     # # sort the tenu_r array by the first column (time)
     # tenu_r = tenu_r[np.argsort(tenu_r[:, 0])].astype(float)
@@ -880,14 +880,14 @@ def interpolate_enu_radius_regression(
     )
     KIN_POSITION_DATA_TREE.fit(X_train, Y_train)
     train_score = KIN_POSITION_DATA_TREE.score(X_train, Y_train)
-    logger.loginfo(f"Training Score: {train_score}")
+    logger.info(f"Training Score: {train_score}")
     pred_ping = KIN_POSITION_DATA_TREE.predict(XY_predict_ping[:, 0][:, np.newaxis])
     pred_return = KIN_POSITION_DATA_TREE.predict(XY_predict_return[:, 0][:, np.newaxis])
 
     # Get offsets between predicted and original values
     offset_ping = np.abs(pred_ping - XY_predict_ping[:, 1:])
     offset_return = np.abs(pred_return - XY_predict_return[:, 1:])
-    logger.loginfo(f"Max offset for ping: {offset_ping.max()}, return: {offset_return.max()}")
+    logger.info(f"Max offset for ping: {offset_ping.max()}, return: {offset_return.max()}")
 
     # update isUpdated flag
     isUpdated_1 = np.logical_or(isUpdated, np.any((offset_ping > 1e-3), axis=1)[:, np.newaxis])
@@ -896,7 +896,7 @@ def interpolate_enu_radius_regression(
     shotdata_df["isUpdated"] = isUpdated_2
     shotdata_df[["east0", "north0", "up0"]] = pred_ping
     shotdata_df[["east1", "north1", "up1"]] = pred_return
-    logger.loginfo(
+    logger.info(
         f"Interpolated {percentage_updated:.2f}% points using Radius Neighbors Regression with lengthscale {lengthscale:.2f} seconds"
     )
     return shotdata_df
@@ -933,9 +933,9 @@ def merge_shotdata_kinposition_radius_regression(
         The updated shotdata array.
     """
 
-    logger.loginfo("Merging shotdata and kin_position data")
+    logger.info("Merging shotdata and kin_position data")
     for start, end in zip(dates, dates[1:], strict=False):
-        logger.loginfo(f"Interpolating shotdata for date {str(start)}")
+        logger.info(f"Interpolating shotdata for date {str(start)}")
 
         shotdata_df = shotdata_pre.read_df(start=start, end=end)
         kin_position_df = kin_position.read_df(start=start, end=end)

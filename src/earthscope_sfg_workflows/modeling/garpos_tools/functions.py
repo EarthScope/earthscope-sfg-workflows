@@ -393,7 +393,7 @@ def process_garpos_results(results: GarposInput) -> tuple[GarposInput, pd.DataFr
     """
 
     # Process garpos results to get delta x,y,z and relevant fields
-    logger.loginfo("Processing GARPOS results")
+    logger.info("Processing GARPOS results")
 
     # Get the harmonic mean of the svp data, and use that to convert ResiTT to meters
     svp_df = pd.read_csv(results.sound_speed_data)
@@ -417,7 +417,7 @@ def process_garpos_results(results: GarposInput) -> tuple[GarposInput, pd.DataFr
     # save updated df
     results_df.to_csv(results.shot_data)
 
-    logger.loginfo("GARPOS results processed, returning results tuple")
+    logger.info("GARPOS results processed, returning results tuple")
     return results, results_df
 
 
