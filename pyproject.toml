@@ -54,9 +54,7 @@ ruff = ">=0.4"
 
 [tool.pixi.pypi-dependencies]
 earthscope_sfg_workflows = { path = ".", editable = true }
-# Local sibling dependency for split-repo development in this workspace.
-# If working with this repo in isolation, replace this with a published version.
-earthscope_sfg_tools = { path = "../earthscope-sfg-tools", editable = true, extras = ["tiledb"] }
+earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-tools.git", branch = "feature/rinex-compression-utils", extras = ["tiledb"] }
 
 [tool.pixi.feature.tiledb.dependencies]
 tiledb = ">=2.27"

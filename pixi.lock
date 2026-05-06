@@ -131,6 +131,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4b/32/e0f13a1c5b0f8572d0ec6ae2f6c677b7991fafd95da523159c19eff0696a/contourpy-1.3.3-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?branch=feature%2Frinex-compression-utils#cd9dd06d189cd38b5822ed42b08e7c83e7c9e138
       - pypi: https://files.pythonhosted.org/packages/1b/39/c10d653d46f4ce2f7dbd111595fe750bff42135503ac3535eb07ec225447/earthscope_cli-1.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5a/8c/34d8cf10098bbbfde809b76e06d6af7a40561252e6c75e11a5de052a3776/earthscope_sdk-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e2/98/8b1e801939839d405f1f122e7d175cebe9aeb4e114f95bfc45e3152af9a7/fonttools-4.62.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
@@ -188,7 +189,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/40/ed/1c4631ad5909487ea8907cd326d9855c2207d790e3936e77bda48173b8be/xarray-2024.11.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/66/fe/b1e10b08d287f518994f1e2ff9b6d26f0adeecd8dd7d533b01bab29a3eda/yarl-1.23.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
-      - pypi: ../earthscope-sfg-tools
       - pypi: ./
       osx-64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/anyio-4.13.0-pyhcf101f3_0.conda
@@ -304,6 +304,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/68/35/0167aad910bbdb9599272bd96d01a9ec6852f36b9455cf2ca67bd4cc2d23/contourpy-1.3.3-cp313-cp313-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?branch=feature%2Frinex-compression-utils#cd9dd06d189cd38b5822ed42b08e7c83e7c9e138
       - pypi: https://files.pythonhosted.org/packages/1b/39/c10d653d46f4ce2f7dbd111595fe750bff42135503ac3535eb07ec225447/earthscope_cli-1.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5a/8c/34d8cf10098bbbfde809b76e06d6af7a40561252e6c75e11a5de052a3776/earthscope_sdk-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/03/c5/0e3966edd5ec668d41dfe418787726752bc07e2f5fd8c8f208615e61fa89/fonttools-4.62.1-cp313-cp313-macosx_10_13_x86_64.whl
@@ -361,7 +362,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/40/ed/1c4631ad5909487ea8907cd326d9855c2207d790e3936e77bda48173b8be/xarray-2024.11.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/67/b6/8925d68af039b835ae876db5838e82e76ec87b9782ecc97e192b809c4831/yarl-1.23.0-cp313-cp313-macosx_10_13_x86_64.whl
-      - pypi: ../earthscope-sfg-tools
       - pypi: ./
       osx-arm64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/anyio-4.13.0-pyhcf101f3_0.conda
@@ -476,6 +476,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/96/e4/7adcd9c8362745b2210728f209bfbcf7d91ba868a2c5f40d8b58f54c509b/contourpy-1.3.3-cp313-cp313-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?branch=feature%2Frinex-compression-utils#cd9dd06d189cd38b5822ed42b08e7c83e7c9e138
       - pypi: https://files.pythonhosted.org/packages/1b/39/c10d653d46f4ce2f7dbd111595fe750bff42135503ac3535eb07ec225447/earthscope_cli-1.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5a/8c/34d8cf10098bbbfde809b76e06d6af7a40561252e6c75e11a5de052a3776/earthscope_sdk-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/3b/56/6f389de21c49555553d6a5aeed5ac9767631497ac836c4f076273d15bd72/fonttools-4.62.1-cp313-cp313-macosx_10_13_universal2.whl
@@ -532,7 +533,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/40/ed/1c4631ad5909487ea8907cd326d9855c2207d790e3936e77bda48173b8be/xarray-2024.11.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ae/50/06d511cc4b8e0360d3c94af051a768e84b755c5eb031b12adaaab6dec6e5/yarl-1.23.0-cp313-cp313-macosx_11_0_arm64.whl
-      - pypi: ../earthscope-sfg-tools
       - pypi: ./
       win-64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/anyio-4.13.0-pyhcf101f3_0.conda
@@ -644,6 +644,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/18/0b/0098c214843213759692cc638fce7de5c289200a830e5035d1791d7a2338/contourpy-1.3.3-cp313-cp313-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?branch=feature%2Frinex-compression-utils#cd9dd06d189cd38b5822ed42b08e7c83e7c9e138
       - pypi: https://files.pythonhosted.org/packages/1b/39/c10d653d46f4ce2f7dbd111595fe750bff42135503ac3535eb07ec225447/earthscope_cli-1.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5a/8c/34d8cf10098bbbfde809b76e06d6af7a40561252e6c75e11a5de052a3776/earthscope_sdk-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/38/60/35186529de1db3c01f5ad625bde07c1f576305eab6d86bbda4c58445f721/fonttools-4.62.1-cp313-cp313-win_amd64.whl
@@ -701,7 +702,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/40/ed/1c4631ad5909487ea8907cd326d9855c2207d790e3936e77bda48173b8be/xarray-2024.11.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7a/84/266e8da36879c6edcd37b02b547e2d9ecdfea776be49598e75696e3316e1/yarl-1.23.0-cp313-cp313-win_amd64.whl
-      - pypi: ../earthscope-sfg-tools
       - pypi: ./
   geolab:
     channels:
@@ -930,6 +930,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4b/32/e0f13a1c5b0f8572d0ec6ae2f6c677b7991fafd95da523159c19eff0696a/contourpy-1.3.3-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?branch=feature%2Frinex-compression-utils#cd9dd06d189cd38b5822ed42b08e7c83e7c9e138
       - pypi: https://files.pythonhosted.org/packages/1b/39/c10d653d46f4ce2f7dbd111595fe750bff42135503ac3535eb07ec225447/earthscope_cli-1.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5a/8c/34d8cf10098bbbfde809b76e06d6af7a40561252e6c75e11a5de052a3776/earthscope_sdk-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e2/98/8b1e801939839d405f1f122e7d175cebe9aeb4e114f95bfc45e3152af9a7/fonttools-4.62.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
@@ -987,7 +988,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/40/ed/1c4631ad5909487ea8907cd326d9855c2207d790e3936e77bda48173b8be/xarray-2024.11.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/66/fe/b1e10b08d287f518994f1e2ff9b6d26f0adeecd8dd7d533b01bab29a3eda/yarl-1.23.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
-      - pypi: ../earthscope-sfg-tools
       - pypi: ./
       osx-64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_2.conda
@@ -1202,6 +1202,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/68/35/0167aad910bbdb9599272bd96d01a9ec6852f36b9455cf2ca67bd4cc2d23/contourpy-1.3.3-cp313-cp313-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?branch=feature%2Frinex-compression-utils#cd9dd06d189cd38b5822ed42b08e7c83e7c9e138
       - pypi: https://files.pythonhosted.org/packages/1b/39/c10d653d46f4ce2f7dbd111595fe750bff42135503ac3535eb07ec225447/earthscope_cli-1.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5a/8c/34d8cf10098bbbfde809b76e06d6af7a40561252e6c75e11a5de052a3776/earthscope_sdk-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/03/c5/0e3966edd5ec668d41dfe418787726752bc07e2f5fd8c8f208615e61fa89/fonttools-4.62.1-cp313-cp313-macosx_10_13_x86_64.whl
@@ -1259,7 +1260,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/40/ed/1c4631ad5909487ea8907cd326d9855c2207d790e3936e77bda48173b8be/xarray-2024.11.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/67/b6/8925d68af039b835ae876db5838e82e76ec87b9782ecc97e192b809c4831/yarl-1.23.0-cp313-cp313-macosx_10_13_x86_64.whl
-      - pypi: ../earthscope-sfg-tools
       - pypi: ./
       osx-arm64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_2.conda
@@ -1473,6 +1473,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/96/e4/7adcd9c8362745b2210728f209bfbcf7d91ba868a2c5f40d8b58f54c509b/contourpy-1.3.3-cp313-cp313-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?branch=feature%2Frinex-compression-utils#cd9dd06d189cd38b5822ed42b08e7c83e7c9e138
       - pypi: https://files.pythonhosted.org/packages/1b/39/c10d653d46f4ce2f7dbd111595fe750bff42135503ac3535eb07ec225447/earthscope_cli-1.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5a/8c/34d8cf10098bbbfde809b76e06d6af7a40561252e6c75e11a5de052a3776/earthscope_sdk-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/3b/56/6f389de21c49555553d6a5aeed5ac9767631497ac836c4f076273d15bd72/fonttools-4.62.1-cp313-cp313-macosx_10_13_universal2.whl
@@ -1529,7 +1530,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/40/ed/1c4631ad5909487ea8907cd326d9855c2207d790e3936e77bda48173b8be/xarray-2024.11.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ae/50/06d511cc4b8e0360d3c94af051a768e84b755c5eb031b12adaaab6dec6e5/yarl-1.23.0-cp313-cp313-macosx_11_0_arm64.whl
-      - pypi: ../earthscope-sfg-tools
       - pypi: ./
       win-64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_2.conda
@@ -1738,6 +1738,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/18/0b/0098c214843213759692cc638fce7de5c289200a830e5035d1791d7a2338/contourpy-1.3.3-cp313-cp313-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?branch=feature%2Frinex-compression-utils#cd9dd06d189cd38b5822ed42b08e7c83e7c9e138
       - pypi: https://files.pythonhosted.org/packages/1b/39/c10d653d46f4ce2f7dbd111595fe750bff42135503ac3535eb07ec225447/earthscope_cli-1.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5a/8c/34d8cf10098bbbfde809b76e06d6af7a40561252e6c75e11a5de052a3776/earthscope_sdk-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/38/60/35186529de1db3c01f5ad625bde07c1f576305eab6d86bbda4c58445f721/fonttools-4.62.1-cp313-cp313-win_amd64.whl
@@ -1795,7 +1796,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/40/ed/1c4631ad5909487ea8907cd326d9855c2207d790e3936e77bda48173b8be/xarray-2024.11.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7a/84/266e8da36879c6edcd37b02b547e2d9ecdfea776be49598e75696e3316e1/yarl-1.23.0-cp313-cp313-win_amd64.whl
-      - pypi: ../earthscope-sfg-tools
       - pypi: ./
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
@@ -4218,10 +4218,9 @@ packages:
   - pytest-asyncio ; extra == 'dev'
   - ruff ; extra == 'dev'
   requires_python: '>=3.9'
-- pypi: ../earthscope-sfg-tools
+- pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?branch=feature%2Frinex-compression-utils#cd9dd06d189cd38b5822ed42b08e7c83e7c9e138
   name: earthscope-sfg-tools
   version: 0.1.0
-  sha256: 7cc0d48e858d1a1fef4633b4f16d96464da5df6a6a85870558f57251374b0e07
   requires_dist:
   - julian>=0.14
   - numpy>=1.26
@@ -4234,7 +4233,7 @@ packages:
 - pypi: ./
   name: earthscope-sfg-workflows
   version: 0.1.0
-  sha256: 7ad94483b79d9db712d55a4fde45098b793625084d8212ecd577a64c049184c8
+  sha256: 767b520017b5ee4956715bdfd7ce8bd2ab25847c75f0b475776e4efc25e526b7
   requires_dist:
   - earthscope-sfg-tools[tiledb]>=0.1.0
   - boto3>=1.40
