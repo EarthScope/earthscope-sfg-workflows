@@ -124,8 +124,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c3/1c/f06ad85180e7dd9855aa5ede901bfc2be858d7bee17d4e978a14c0ecec14/astropy-7.2.0-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/ed/f8/077fbdeb102d298dd4e6b9ad024881156c4bbd96e60eeeb13e7d7487448f/astropy_iers_data-0.2026.5.4.1.4.54-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c8/ad/8a6946a329f0127322108e537dc1c0d9f8eea4f1d1231702c073d2e85f46/boto3-1.43.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/be/99/1d9e296edf244f47e0508032f20999f8fd40704dd3c5b601fed099424eb6/botocore-1.43.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/cd/85/b25499be693449df63c2c91e4e966ee81e46eb86071747e699f458583ebc/boto3-1.43.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/5d/53/8dfb1f8f0be68cce735181d876d8f7c537c5c44656b3b9ab4b3b9e973320/botocore-1.43.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ba/08/52f06ff2f04d376f9cd2c211aefcf2b37f1978e43289341f362fc99f6a0e/cftime-1.6.5-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/ae/44/c1221527f6a71a01ec6fbad7fa78f1d50dfa02217385cf0fa3eec7087d59/click-8.3.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
@@ -297,8 +297,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b4/6d/6330a844bad8dfc4875e0f2fa1db1fee87837ba9805aa8a8d048c071363a/astropy-7.2.0-cp311-abi3-macosx_10_9_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/ed/f8/077fbdeb102d298dd4e6b9ad024881156c4bbd96e60eeeb13e7d7487448f/astropy_iers_data-0.2026.5.4.1.4.54-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c8/ad/8a6946a329f0127322108e537dc1c0d9f8eea4f1d1231702c073d2e85f46/boto3-1.43.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/be/99/1d9e296edf244f47e0508032f20999f8fd40704dd3c5b601fed099424eb6/botocore-1.43.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/cd/85/b25499be693449df63c2c91e4e966ee81e46eb86071747e699f458583ebc/boto3-1.43.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/5d/53/8dfb1f8f0be68cce735181d876d8f7c537c5c44656b3b9ab4b3b9e973320/botocore-1.43.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2e/60/74ea344b3b003fada346ed98a6899085d6fd4c777df608992d90c458fda6/cftime-1.6.5-cp313-cp313-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/ae/44/c1221527f6a71a01ec6fbad7fa78f1d50dfa02217385cf0fa3eec7087d59/click-8.3.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
@@ -469,8 +469,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a6/ba/3418133ba144dfcd1530bca5a6b695f4cdd21a8abaaa2ac4e5450d11b028/astropy-7.2.0-cp311-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/ed/f8/077fbdeb102d298dd4e6b9ad024881156c4bbd96e60eeeb13e7d7487448f/astropy_iers_data-0.2026.5.4.1.4.54-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c8/ad/8a6946a329f0127322108e537dc1c0d9f8eea4f1d1231702c073d2e85f46/boto3-1.43.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/be/99/1d9e296edf244f47e0508032f20999f8fd40704dd3c5b601fed099424eb6/botocore-1.43.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/cd/85/b25499be693449df63c2c91e4e966ee81e46eb86071747e699f458583ebc/boto3-1.43.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/5d/53/8dfb1f8f0be68cce735181d876d8f7c537c5c44656b3b9ab4b3b9e973320/botocore-1.43.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1e/14/adb293ac6127079b49ff11c05cf3d5ce5c1f17d097f326dc02d74ddfcb6e/cftime-1.6.5-cp313-cp313-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/ae/44/c1221527f6a71a01ec6fbad7fa78f1d50dfa02217385cf0fa3eec7087d59/click-8.3.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
@@ -637,8 +637,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ec/bc/f4378f586dd63902c37d16f68f35f7d555b3b32e08ac6b1d633eb0a48805/astropy-7.2.0-cp311-abi3-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/ed/f8/077fbdeb102d298dd4e6b9ad024881156c4bbd96e60eeeb13e7d7487448f/astropy_iers_data-0.2026.5.4.1.4.54-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c8/ad/8a6946a329f0127322108e537dc1c0d9f8eea4f1d1231702c073d2e85f46/boto3-1.43.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/be/99/1d9e296edf244f47e0508032f20999f8fd40704dd3c5b601fed099424eb6/botocore-1.43.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/cd/85/b25499be693449df63c2c91e4e966ee81e46eb86071747e699f458583ebc/boto3-1.43.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/5d/53/8dfb1f8f0be68cce735181d876d8f7c537c5c44656b3b9ab4b3b9e973320/botocore-1.43.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a4/60/a0cfba63847b43599ef1cdbbf682e61894994c22b9a79fd9e1e8c7e9de41/cftime-1.6.5-cp313-cp313-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/ae/44/c1221527f6a71a01ec6fbad7fa78f1d50dfa02217385cf0fa3eec7087d59/click-8.3.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
@@ -794,7 +794,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_console-6.6.3-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_core-5.9.1-pyhc90fa1f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_events-0.12.1-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server-2.18.1-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server-2.18.2-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server_terminals-0.5.4-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyterlab-4.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyterlab_pygments-0.3.0-pyhd8ed1ab_2.conda
@@ -898,7 +898,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_h366c992_103.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tomli-2.4.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tornado-6.5.5-py313h07c4f96_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/traitlets-5.14.3-pyhd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/traitlets-5.15.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing-extensions-4.15.0-h396c80c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing_extensions-4.15.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing_utils-0.1.0-pyhd8ed1ab_1.conda
@@ -923,8 +923,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c3/1c/f06ad85180e7dd9855aa5ede901bfc2be858d7bee17d4e978a14c0ecec14/astropy-7.2.0-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/ed/f8/077fbdeb102d298dd4e6b9ad024881156c4bbd96e60eeeb13e7d7487448f/astropy_iers_data-0.2026.5.4.1.4.54-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c8/ad/8a6946a329f0127322108e537dc1c0d9f8eea4f1d1231702c073d2e85f46/boto3-1.43.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/be/99/1d9e296edf244f47e0508032f20999f8fd40704dd3c5b601fed099424eb6/botocore-1.43.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/cd/85/b25499be693449df63c2c91e4e966ee81e46eb86071747e699f458583ebc/boto3-1.43.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/5d/53/8dfb1f8f0be68cce735181d876d8f7c537c5c44656b3b9ab4b3b9e973320/botocore-1.43.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ba/08/52f06ff2f04d376f9cd2c211aefcf2b37f1978e43289341f362fc99f6a0e/cftime-1.6.5-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/ae/44/c1221527f6a71a01ec6fbad7fa78f1d50dfa02217385cf0fa3eec7087d59/click-8.3.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
@@ -1072,7 +1072,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_console-6.6.3-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_core-5.9.1-pyhc90fa1f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_events-0.12.1-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server-2.18.1-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server-2.18.2-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server_terminals-0.5.4-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyterlab-4.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyterlab_pygments-0.3.0-pyhd8ed1ab_2.conda
@@ -1170,7 +1170,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/tk-8.6.13-h7142dee_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tomli-2.4.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/tornado-6.5.5-py313hf59fe81_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/traitlets-5.14.3-pyhd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/traitlets-5.15.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing-extensions-4.15.0-h396c80c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing_extensions-4.15.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing_utils-0.1.0-pyhd8ed1ab_1.conda
@@ -1195,8 +1195,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b4/6d/6330a844bad8dfc4875e0f2fa1db1fee87837ba9805aa8a8d048c071363a/astropy-7.2.0-cp311-abi3-macosx_10_9_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/ed/f8/077fbdeb102d298dd4e6b9ad024881156c4bbd96e60eeeb13e7d7487448f/astropy_iers_data-0.2026.5.4.1.4.54-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c8/ad/8a6946a329f0127322108e537dc1c0d9f8eea4f1d1231702c073d2e85f46/boto3-1.43.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/be/99/1d9e296edf244f47e0508032f20999f8fd40704dd3c5b601fed099424eb6/botocore-1.43.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/cd/85/b25499be693449df63c2c91e4e966ee81e46eb86071747e699f458583ebc/boto3-1.43.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/5d/53/8dfb1f8f0be68cce735181d876d8f7c537c5c44656b3b9ab4b3b9e973320/botocore-1.43.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2e/60/74ea344b3b003fada346ed98a6899085d6fd4c777df608992d90c458fda6/cftime-1.6.5-cp313-cp313-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/ae/44/c1221527f6a71a01ec6fbad7fa78f1d50dfa02217385cf0fa3eec7087d59/click-8.3.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
@@ -1343,7 +1343,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_console-6.6.3-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_core-5.9.1-pyhc90fa1f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_events-0.12.1-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server-2.18.1-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server-2.18.2-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server_terminals-0.5.4-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyterlab-4.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyterlab_pygments-0.3.0-pyhd8ed1ab_2.conda
@@ -1441,7 +1441,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tk-8.6.13-h010d191_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tomli-2.4.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tornado-6.5.5-py313h0997733_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/traitlets-5.14.3-pyhd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/traitlets-5.15.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing-extensions-4.15.0-h396c80c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing_extensions-4.15.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing_utils-0.1.0-pyhd8ed1ab_1.conda
@@ -1466,8 +1466,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a6/ba/3418133ba144dfcd1530bca5a6b695f4cdd21a8abaaa2ac4e5450d11b028/astropy-7.2.0-cp311-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/ed/f8/077fbdeb102d298dd4e6b9ad024881156c4bbd96e60eeeb13e7d7487448f/astropy_iers_data-0.2026.5.4.1.4.54-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c8/ad/8a6946a329f0127322108e537dc1c0d9f8eea4f1d1231702c073d2e85f46/boto3-1.43.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/be/99/1d9e296edf244f47e0508032f20999f8fd40704dd3c5b601fed099424eb6/botocore-1.43.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/cd/85/b25499be693449df63c2c91e4e966ee81e46eb86071747e699f458583ebc/boto3-1.43.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/5d/53/8dfb1f8f0be68cce735181d876d8f7c537c5c44656b3b9ab4b3b9e973320/botocore-1.43.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1e/14/adb293ac6127079b49ff11c05cf3d5ce5c1f17d097f326dc02d74ddfcb6e/cftime-1.6.5-cp313-cp313-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/ae/44/c1221527f6a71a01ec6fbad7fa78f1d50dfa02217385cf0fa3eec7087d59/click-8.3.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
@@ -1612,7 +1612,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_console-6.6.3-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_core-5.9.1-pyh6dadd2b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_events-0.12.1-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server-2.18.1-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server-2.18.2-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server_terminals-0.5.4-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyterlab-4.5.7-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/jupyterlab_pygments-0.3.0-pyhd8ed1ab_2.conda
@@ -1699,7 +1699,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/tk-8.6.13-h6ed50ae_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tomli-2.4.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/tornado-6.5.5-py313h5ea7bf4_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/traitlets-5.14.3-pyhd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/traitlets-5.15.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing-extensions-4.15.0-h396c80c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing_extensions-4.15.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing_utils-0.1.0-pyhd8ed1ab_1.conda
@@ -1731,8 +1731,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ec/bc/f4378f586dd63902c37d16f68f35f7d555b3b32e08ac6b1d633eb0a48805/astropy-7.2.0-cp311-abi3-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/ed/f8/077fbdeb102d298dd4e6b9ad024881156c4bbd96e60eeeb13e7d7487448f/astropy_iers_data-0.2026.5.4.1.4.54-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c8/ad/8a6946a329f0127322108e537dc1c0d9f8eea4f1d1231702c073d2e85f46/boto3-1.43.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/be/99/1d9e296edf244f47e0508032f20999f8fd40704dd3c5b601fed099424eb6/botocore-1.43.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/cd/85/b25499be693449df63c2c91e4e966ee81e46eb86071747e699f458583ebc/boto3-1.43.4-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/5d/53/8dfb1f8f0be68cce735181d876d8f7c537c5c44656b3b9ab4b3b9e973320/botocore-1.43.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a4/60/a0cfba63847b43599ef1cdbbf682e61894994c22b9a79fd9e1e8c7e9de41/cftime-1.6.5-cp313-cp313-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/ae/44/c1221527f6a71a01ec6fbad7fa78f1d50dfa02217385cf0fa3eec7087d59/click-8.3.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c2/5b/ba933f896d9b0b07608d575a8501e2b4e32166b60d84c430a4a7285ebe64/cloudpathlib-0.24.0-py3-none-any.whl
@@ -3495,20 +3495,20 @@ packages:
   purls: []
   size: 4409
   timestamp: 1770719370682
-- pypi: https://files.pythonhosted.org/packages/c8/ad/8a6946a329f0127322108e537dc1c0d9f8eea4f1d1231702c073d2e85f46/boto3-1.43.3-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/cd/85/b25499be693449df63c2c91e4e966ee81e46eb86071747e699f458583ebc/boto3-1.43.4-py3-none-any.whl
   name: boto3
-  version: 1.43.3
-  sha256: fb9fe51849ef2a78198d582756fc06f14f7de27f73e0fa90275d6aa4171eb4d0
+  version: 1.43.4
+  sha256: c4910b54c1f2401ab55d9fbca3d92df0a68e4ac64a69f2bab47a079e384a9d4f
   requires_dist:
-  - botocore>=1.43.3,<1.44.0
+  - botocore>=1.43.4,<1.44.0
   - jmespath>=0.7.1,<2.0.0
   - s3transfer>=0.17.0,<0.18.0
   - botocore[crt]>=1.21.0,<2.0a0 ; extra == 'crt'
   requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/be/99/1d9e296edf244f47e0508032f20999f8fd40704dd3c5b601fed099424eb6/botocore-1.43.3-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/5d/53/8dfb1f8f0be68cce735181d876d8f7c537c5c44656b3b9ab4b3b9e973320/botocore-1.43.4-py3-none-any.whl
   name: botocore
-  version: 1.43.3
-  sha256: ec0769eb0f7c5034856bb406a92698dbc02a3d4be0f78a384747106b161d8ea3
+  version: 1.43.4
+  sha256: f1897d3254965cacac7514cfed1b6ff016166b165ee2e06232b4a3954cf9d713
   requires_dist:
   - jmespath>=0.7.1,<2.0.0
   - python-dateutil>=2.1,<3.0.0
@@ -5265,9 +5265,9 @@ packages:
   - pkg:pypi/jupyter-events?source=compressed-mapping
   size: 24002
   timestamp: 1776861872237
-- conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server-2.18.1-pyhcf101f3_0.conda
-  sha256: b613da32590f531be5ac5e9656649e7bebf3b948a4243050a4f205dd198efd68
-  md5: 0bfbcb99dbf7d3b833cbca0ea5273fc2
+- conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server-2.18.2-pyhcf101f3_0.conda
+  sha256: 04fb8ea7749f67abaf76df6257bf86688e1389ceed55eb4fb0176fd2e882dbd6
+  md5: 5ee7945accf0f215ddd6055d25d7cd83
   depends:
   - anyio >=3.1.0
   - argon2-cffi >=21.1
@@ -5292,8 +5292,8 @@ packages:
   license: BSD-3-Clause
   purls:
   - pkg:pypi/jupyter-server?source=compressed-mapping
-  size: 359767
-  timestamp: 1777985971226
+  size: 360522
+  timestamp: 1778060967727
 - conda: https://conda.anaconda.org/conda-forge/noarch/jupyter_server_terminals-0.5.4-pyhcf101f3_0.conda
   sha256: 5eda79ed9f53f590031d29346abd183051263227dd9ee667b5ca1133ce297654
   md5: 7b8bace4943e0dc345fc45938826f2b8
@@ -10404,17 +10404,17 @@ packages:
   - requests ; extra == 'telegram'
   - ipywidgets>=6 ; extra == 'notebook'
   requires_python: '>=3.7'
-- conda: https://conda.anaconda.org/conda-forge/noarch/traitlets-5.14.3-pyhd8ed1ab_1.conda
-  sha256: f39a5620c6e8e9e98357507262a7869de2ae8cc07da8b7f84e517c9fd6c2b959
-  md5: 019a7385be9af33791c989871317e1ed
+- conda: https://conda.anaconda.org/conda-forge/noarch/traitlets-5.15.0-pyhcf101f3_0.conda
+  sha256: dfb681579be59c2e790c95f7f49b7529a9b0511d6385ad276e3c8988cbd54d2c
+  md5: 4bada6a6d908a27262af8ebddf4f7492
   depends:
-  - python >=3.9
+  - python >=3.10
+  - python
   license: BSD-3-Clause
-  license_family: BSD
   purls:
-  - pkg:pypi/traitlets?source=hash-mapping
-  size: 110051
-  timestamp: 1733367480074
+  - pkg:pypi/traitlets?source=compressed-mapping
+  size: 115165
+  timestamp: 1778074251714
 - pypi: https://files.pythonhosted.org/packages/91/88/b55b3117287a8540b76dbdd87733808d4d01c8067a3b339408c250bb3600/typeguard-4.5.1-py3-none-any.whl
   name: typeguard
   version: 4.5.1
