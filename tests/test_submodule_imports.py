@@ -10,8 +10,6 @@ SUBMODULES = [
     "earthscope_sfg_workflows.utils.command_line_utils",
     "earthscope_sfg_workflows.utils.model_update",
     "earthscope_sfg_workflows.utils.custom_warnings_exceptions",
-    "earthscope_sfg_workflows.binary_ops.binary_paths",
-    "earthscope_sfg_workflows.binary_ops.novatel_binary_operations",
     "earthscope_sfg_workflows.config",
     "earthscope_sfg_workflows.config.env_config",
     "earthscope_sfg_workflows.config.file_config",

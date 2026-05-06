@@ -16,13 +16,13 @@ import pandas as pd
 from cloudpathlib import CloudPath
 
 from earthscope_sfg_tools.datamodels.metadata import Campaign, Site, Survey
+from earthscope_sfg_tools.rinex_tools import crinex_compress
 from earthscope_sfg_tools.tiledb_integration import (
     TDBIMUPositionArray,
     TDBKinPositionArray,
     TDBShotDataArray,
 )
 
-from earthscope_sfg_workflows.binary_ops.crinex_operations import crinex_compress
 from earthscope_sfg_workflows.logging import GarposLogger as logger
 from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
 

@@ -55,7 +55,7 @@ ruff = ">=0.4"
 earthscope_sfg_workflows = { path = ".", editable = true }
 # Local sibling dependency for split-repo development in this workspace.
 # If working with this repo in isolation, replace this with a published version.
-earthscope_sfg_tools = { path = "../earthscope-sfg-tools", editable = true }
+earthscope_sfg_tools = { path = "../earthscope-sfg-tools", editable = true, extras = ["tiledb"] }
 
 [tool.pixi.feature.tiledb.dependencies]
 tiledb = ">=2.27"
