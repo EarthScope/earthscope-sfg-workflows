@@ -13,6 +13,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from cloudpathlib import S3Path
 
 from earthscope_sfg_workflows.data_mgmt import (
     ArchiveAuthError,
@@ -97,10 +98,14 @@ class TestS3FileStoreShape:
         assert fs.read_bytes(target) == b"hello"
         assert fs.get_size(target) == 5
 
-    def test_mkdir_on_s3_path_is_noop(self) -> None:
+    def test_mkdir_on_s3_path_is_noop(self, tmp_path: Path, monkeypatch) -> None:
         from earthscope_sfg_workflows.data_mgmt.adapters import S3FileStore
 
         # Should not raise even though no S3 client is configured: we never
-        # actually contact S3 here.
+        # actually contact S3 here. Run from a tmp cwd so that any accidental
+        # local fallback doesn't pollute the repo root.
+        monkeypatch.chdir(tmp_path)
         fs = S3FileStore()
-        fs.mkdir(Path("s3://bucket/some/prefix"))
+        fs.mkdir(S3Path("s3://bucket/some/prefix"))
+        # Sanity: no local "s3:" directory was materialized as a side effect.
+        assert not (tmp_path / "s3:").exists()
