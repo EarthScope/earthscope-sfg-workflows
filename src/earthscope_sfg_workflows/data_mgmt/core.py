@@ -30,7 +30,7 @@ from .model import (
     IngestReport,
     TileDBLayout,
 )
-from .ports import ArchiveError, ArchiveSource, AssetStore, FileStore
+from .ports import ArchiveError, ArchiveSourcePort, AssetCatalogPort, FileStorePort
 
 
 # ---------------------------------------------------------------------------
@@ -59,24 +59,6 @@ DEFAULT_PATTERNS: tuple[tuple[re.Pattern[str], AssetKind], ...] = (
 )
 
 
-class FileTypeDetector:
-    """Maps filenames to :class:`AssetKind` using regex patterns."""
-
-    def __init__(
-        self,
-        patterns: Iterable[tuple[re.Pattern[str], AssetKind]] | None = None,
-    ) -> None:
-        self._patterns: tuple[tuple[re.Pattern[str], AssetKind], ...] = tuple(
-            patterns if patterns is not None else DEFAULT_PATTERNS
-        )
-
-    def detect(self, filename: str) -> AssetKind | None:
-        """Return the first matching kind, or ``None`` if no pattern matches."""
-        for pattern, kind in self._patterns:
-            if pattern.search(filename):
-                return kind
-        return None
-
 
 # ---------------------------------------------------------------------------
 # FileManager — materializes a DirectoryTree on a FileStore
@@ -86,44 +68,42 @@ class FileTypeDetector:
 class FileManager:
     """Creates and validates workspace directories on a :class:`FileStore`."""
 
-    def __init__(self, tree: DirectoryTree, files: FileStore) -> None:
-        self._tree = tree
-        self._files = files
+    def __init__(self, directory_tree: DirectoryTree, file_backend: FileStorePort) -> None:
+        self.directory_tree = directory_tree
+        self.file_backend = file_backend
 
-    @property
-    def directory_tree(self) -> DirectoryTree:
-        return self._tree
+
 
     def ensure_workspace(self) -> None:
         """Create the workspace root and Pride directory."""
-        self._files.mkdir(self._tree.root)
-        self._files.mkdir(self._tree.pride_dir)
+        self.file_backend.mkdir(self.directory_tree.root)
+        self.file_backend.mkdir(self.directory_tree.pride_dir)
 
     def ensure_station(self, scope: CampaignScope) -> TileDBLayout:
         """Materialize the station and TileDB array directories; return the layout."""
-        self._files.mkdir(self._tree.station_dir(scope))
-        layout = self._tree.tiledb(scope)
+        self.file_backend.mkdir(self.directory_tree.station_dir(scope))
+        layout = self.directory_tree.tiledb(scope)
         for path in layout.all_paths:
-            self._files.mkdir(path)
+            self.file_backend.mkdir(path)
         return layout
 
     def ensure_campaign(self, scope: CampaignScope) -> CampaignLayout:
         """Materialize the campaign directory tree (top-down); return the layout."""
-        self._files.mkdir(self._tree.network_dir(scope.network))
-        self._files.mkdir(self._tree.station_dir(scope))
-        layout = self._tree.campaign(scope)
+        self.file_backend.mkdir(self.directory_tree.network_dir(scope.network))
+        self.file_backend.mkdir(self.directory_tree.station_dir(scope))
+        layout = self.directory_tree.campaign(scope)
         for path in layout.standard_dirs:
-            self._files.mkdir(path)
+            self.file_backend.mkdir(path)
         return layout
 
     def ensure_garpos_survey(self, scope: CampaignScope) -> GARPOSLayout:
         """Materialize the GARPOS survey directory tree; requires ``scope.survey``."""
         if scope.survey is None:
             raise ValueError("CampaignScope.survey is required for GARPOS materialization")
-        self._files.mkdir(self._tree.survey_dir(scope))
-        layout = self._tree.garpos(scope)
+        self.file_backend.mkdir(self.directory_tree.survey_dir(scope))
+        layout = self.directory_tree.garpos(scope)
         for path in layout.standard_dirs:
-            self._files.mkdir(path)
+            self.file_backend.mkdir(path)
         return layout
 
 
@@ -144,9 +124,9 @@ class Ingestor:
 
     def __init__(
         self,
-        catalog: AssetStore,
+        catalog: AssetCatalogPort,
         file_manager: FileManager,
-        archive: ArchiveSource,
+        archive: ArchiveSourcePort,
         patterns: Iterable[tuple[re.Pattern[str], AssetKind]] | None = None,
     ) -> None:
         self._catalog = catalog
@@ -165,14 +145,14 @@ class Ingestor:
 
     def ingest_local(self, scope: CampaignScope, source_dir: Path) -> IngestReport:
         """Catalog every recognized file under ``source_dir``."""
-        if not self._file_manager._files.is_dir(source_dir):
+        if not self._file_manager.file_backend.is_dir(source_dir):
             return IngestReport(errors=(f"Not a directory: {source_dir}",))
 
         cataloged = 0
         skipped = 0
         errors: list[str] = []
 
-        for info in self._file_manager._files.list_files(source_dir, recursive=True):
+        for info in self._file_manager.file_backend.list_files(source_dir, recursive=True):
             if not info.is_file or info.path.name.startswith("._"):
                 skipped += 1
                 continue
@@ -421,7 +401,7 @@ class Ingestor:
             local_dir = dest_dir or (
                 layout.intermediate if asset.kind is AssetKind.RINEX2 else layout.raw
             )
-            self._file_manager._files.mkdir(UPath(local_dir))
+            self._file_manager.file_backend.mkdir(UPath(local_dir))
             assert asset.remote_path is not None
             local_path = self._download_http_file(asset.remote_path, Path(str(local_dir)))
             if local_path is not None and asset.id is not None:
@@ -452,7 +432,7 @@ class Ingestor:
 class LayoutInspector:
     """File-store-backed introspection of pure :mod:`data_mgmt.model` layouts."""
 
-    def __init__(self, files: FileStore) -> None:
+    def __init__(self, files: FileStorePort) -> None:
         self._files = files
 
     def is_garpos_directory(self, layout: GARPOSLayout) -> bool:

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
+from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import (
     FakeArchive,
     InMemoryAssetStore,
     InMemoryFileStore,

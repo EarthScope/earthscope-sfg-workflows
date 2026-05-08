@@ -45,7 +45,7 @@ class ArchiveNotFoundError(ArchiveError):
 
 
 @runtime_checkable
-class AssetStore(Protocol):
+class AssetCatalogPort(Protocol):
     """Persistence port for the asset catalog.
     Guarantees:
 
@@ -126,7 +126,7 @@ class AssetStore(Protocol):
 
 
 @runtime_checkable
-class FileStore(Protocol):
+class FileStorePort(Protocol):
     """Filesystem abstraction. Implementations: local, S3, in-memory."""
 
     def exists(self, path: UPath) -> bool: ...
@@ -141,9 +141,12 @@ class FileStore(Protocol):
         """List files under ``directory``. Hidden ``._*`` entries are excluded."""
         ...
 
-    def read_bytes(self, path: UPath) -> bytes: ...
-    def write_bytes(self, path: UPath, data: bytes) -> None:
-        """Write ``data`` to ``path``, creating parent dirs as needed."""
+    def get_remote(self, source: str, target: UPath) -> None:
+        """Copy the file at ``source`` URL/path to the local ``target``."""
+        ...
+
+    def put_remote(self, source: UPath, target: str) -> None:
+        """Copy the local ``source`` file to the remote ``target`` URL/path."""
         ...
 
     def mkdir(self, path: UPath, parents: bool = True) -> None:
@@ -167,7 +170,7 @@ class FileStore(Protocol):
 
 
 @runtime_checkable
-class ArchiveSource(Protocol):
+class ArchiveSourcePort(Protocol):
     """External archive discovery & download (EarthScope, S3, fake).
     All I/O is explicit. Callers manage authentication lifecycle via
     ``authenticate``.
@@ -192,7 +195,7 @@ __all__ = [
     "ArchiveError",
     "ArchiveAuthError",
     "ArchiveNotFoundError",
-    "AssetStore",
-    "FileStore",
-    "ArchiveSource",
+    "AssetCatalogPort",
+    "FileStorePort",
+    "ArchiveSourcePort",
 ]

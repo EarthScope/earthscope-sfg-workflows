@@ -9,16 +9,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .local_fs import FsspecFileStore, LocalFileStore, S3FileStore
-from .memory import (
+from .disk_filestore import FsspecFileStore, LocalFileStore, S3FileStore
+from .test_adapters import (
     FakeArchive,
     InMemoryAssetStore,
     InMemoryFileStore,
 )
-from ..assetcatalog.sql import AssetCatalog
+from .sql_asset_catalog import AssetCatalog
 
 if TYPE_CHECKING:  # pragma: no cover
-    from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import EarthScopeArchive
+    from earthscope_sfg_workflows.data_mgmt.adapters.earthscope_archive import EarthScopeArchive
 
 
 _LAZY = {

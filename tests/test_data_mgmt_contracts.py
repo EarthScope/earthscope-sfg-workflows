@@ -20,7 +20,7 @@ from earthscope_sfg_workflows.data_mgmt import (
     FileTypeDetector,
     Ingestor,
 )
-from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
+from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import (
     FakeArchive,
     InMemoryAssetStore,
     InMemoryFileStore,
@@ -330,7 +330,7 @@ class TestIngestor:
         self, scope: CampaignScope, workspace_tree: DirectoryTree, tmp_path: Path
     ) -> None:
         # Need a real local fs for download because FakeArchive writes to disk.
-        from earthscope_sfg_workflows.data_mgmt.adapters.local_fs import LocalFileStore
+        from earthscope_sfg_workflows.data_mgmt.adapters.disk_filestore import LocalFileStore
 
         catalog = InMemoryAssetStore()
         files = LocalFileStore(root=tmp_path)

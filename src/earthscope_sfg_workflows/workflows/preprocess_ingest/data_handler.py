@@ -43,10 +43,10 @@ from ...config.file_config import (
     REMOTE_TYPE,
     AssetType,
 )
-from ...data_mgmt.archives.earthscope_archive import EarthScopeArchive
-from ...data_mgmt.adapters.local_fs import LocalFileStore
-from ...data_mgmt.adapters.local_fs import S3FileStore
-from ...data_mgmt.assetcatalog.sql import AssetCatalog
+from ...data_mgmt.adapters.earthscope_archive import EarthScopeArchive
+from ...data_mgmt.adapters.disk_filestore import LocalFileStore
+from ...data_mgmt.adapters.disk_filestore import S3FileStore
+from ...data_mgmt.adapters.sql_asset_catalog import AssetCatalog
 from ...data_mgmt.core import FileTypeDetector
 from ...data_mgmt.model import AssetEntry, AssetKind
 

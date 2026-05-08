@@ -31,7 +31,7 @@ from earthscope_sfg_workflows.data_mgmt.model import (
     IngestReport,
     TileDBLayout,
 )
-from earthscope_sfg_workflows.data_mgmt.ports import AssetStore
+from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +177,7 @@ class AssetQueryFacade:
     :class:`AssetEntry` updates.
     """
 
-    _catalog: AssetStore
+    _catalog: AssetCatalogPort
     _scope: CampaignScope
 
     def all(self, kind: AssetKind | None = None) -> list[AssetEntry]:

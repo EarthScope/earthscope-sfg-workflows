@@ -20,9 +20,9 @@ from .ports import (
     ArchiveAuthError,
     ArchiveError,
     ArchiveNotFoundError,
-    ArchiveSource,
-    AssetStore,
-    FileStore,
+    ArchiveSourcePort,
+    AssetCatalogPort,
+    FileStorePort,
 )
 
 __all__ = [
@@ -38,9 +38,9 @@ __all__ = [
     "FileInfo",
     "ArchiveFile",
     # ports
-    "AssetStore",
-    "FileStore",
-    "ArchiveSource",
+    "AssetCatalogPort",
+    "FileStorePort",
+    "ArchiveSourcePort",
     "ArchiveError",
     "ArchiveAuthError",
     "ArchiveNotFoundError",

@@ -15,7 +15,7 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from earthscope_sfg_workflows.data_mgmt.adapters.memory import InMemoryAssetStore
+from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import InMemoryAssetStore
 from earthscope_sfg_workflows.data_mgmt.core import (
     FileManager,
     FileTypeDetector,
@@ -24,11 +24,11 @@ from earthscope_sfg_workflows.data_mgmt.core import (
 )
 from earthscope_sfg_workflows.data_mgmt.model import CampaignScope, DirectoryTree
 from earthscope_sfg_workflows.data_mgmt.ports import (
-    ArchiveSource,
-    AssetStore,
-    FileStore,
+    ArchiveSourcePort,
+    AssetCatalogPort,
+    FileStorePort,
 )
-from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
+from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import (
     FakeArchive,
     InMemoryAssetStore,
     InMemoryFileStore,
@@ -62,9 +62,9 @@ class Workspace(AbstractContextManager["Workspace"]):
     def __init__(
         self,
         root_dir: Path | str,
-        catalog: AssetStore,
-        files: FileStore,
-        archive: ArchiveSource,
+        catalog: AssetCatalogPort,
+        files: FileStorePort,
+        archive: ArchiveSourcePort,
         *,
         detector: FileTypeDetector | None = None,
     ) -> None:
@@ -378,7 +378,7 @@ class Workspace(AbstractContextManager["Workspace"]):
         return IngestFacade(_ingestor=self._ingestor, _scope=self.scope)
 
     @property
-    def archive(self) -> ArchiveSource:
+    def archive(self) -> ArchiveSourcePort:
         """Return the injected :class:`ArchiveSource` adapter.
         Exposed for callers that need archive operations beyond what
         :class:`IngestFacade` covers (e.g. metadata loading).

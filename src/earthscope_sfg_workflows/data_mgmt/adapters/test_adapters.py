@@ -235,6 +235,19 @@ class InMemoryFileStore:
             self.mkdir(path.parent, parents=True)
             self._files[path] = data
 
+    def get_remote(self, source: str, target: UPath) -> None:
+        """Copy seeded bytes for ``source`` to the real filesystem at ``target``."""
+        with self._lock:
+            data = self._files.get(UPath(source))
+        if data is None:
+            raise FileNotFoundError(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+
+    def put_remote(self, source: UPath, target: str) -> None:
+        """Read ``source`` from the real filesystem and seed it under ``target``."""
+        self.write_bytes(UPath(target), source.read_bytes())
+
     def remove(self, path: UPath) -> bool:
         """Remove the file at `path`; return True iff it existed."""
         with self._lock:

@@ -18,8 +18,8 @@ from earthscope_sfg_workflows.data_mgmt import (
     ArchiveAuthError,
     ArchiveError,
     ArchiveNotFoundError,
-    ArchiveSource,
-    FileStore,
+    ArchiveSourcePort,
+    FileStorePort,
 )
 
 
@@ -33,7 +33,7 @@ class TestEarthScopeArchiveShape:
         from earthscope_sfg_workflows.data_mgmt.adapters import EarthScopeArchive
 
         arc = EarthScopeArchive()
-        assert isinstance(arc, ArchiveSource)
+        assert isinstance(arc, ArchiveSourcePort)
 
     def test_list_files_translates_404(self) -> None:
         from earthscope_sfg_workflows.data_mgmt.adapters import EarthScopeArchive
@@ -85,7 +85,7 @@ class TestS3FileStoreShape:
         from earthscope_sfg_workflows.data_mgmt.adapters import S3FileStore
 
         fs = S3FileStore()
-        assert isinstance(fs, FileStore)
+        assert isinstance(fs, FileStorePort)
 
     def test_local_paths_pass_through(self, tmp_path: Path) -> None:
         from earthscope_sfg_workflows.data_mgmt.adapters import S3FileStore

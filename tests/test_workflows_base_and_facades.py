@@ -24,7 +24,7 @@ from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import
     canonical_campaign_urls,
     list_campaign_archive_urls,
 )
-from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
+from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import (
     FakeArchive,
     InMemoryAssetStore,
     InMemoryFileStore,

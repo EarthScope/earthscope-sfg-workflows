@@ -18,28 +18,17 @@ from upath import UPath
 from ..model import FileInfo
 
 
-def _url(path: UPath) -> str:
-    """Return a URL string for *path*, restoring ``s3://`` if pathlib normalised it.
-
-    On POSIX systems ``Path("s3://bucket/k")`` collapses to ``"s3:/bucket/k"``.
-    This helper undoes that normalisation so fsspec receives a valid scheme URL.
-    """
-    s = str(path)
-    if s.startswith("s3:/") and not s.startswith("s3://"):
-        s = "s3://" + s[4:]
-    return s
 
 
 def _is_s3(url: str) -> bool:
     return url.startswith("s3://")
-
 
 def _open_fs(url: str, storage_options: dict):
     if _is_s3(url):
         fs, _ = fsspec.url_to_fs(url, **storage_options)
         return fs
     fs, _ = fsspec.url_to_fs(url)
-    return fs
+    return fsspec.AbstractFileSystem
 
 
 class FsspecFileStore:
@@ -62,31 +51,24 @@ class FsspecFileStore:
     def __init__(self, root: UPath | str | None = None, storage_options: dict | None = None) -> None:
         self._root = UPath(root) if root is not None else None
         self._storage_options: dict = storage_options or {}
-        self._fs = _open_fs(_url(self._root), self._storage_options) if self._root is not None else None
+        self._fs: fsspec.AbstractFileSystem | None = _open_fs(self._root, self._storage_options) if self._root is not None else None
 
-    def _fs_for(self, path: UPath | str):
-        """Return the right fsspec filesystem for *path*."""
-        if self._fs is not None:
-            return self._fs
-        url = _url(UPath(path)) if not isinstance(path, str) else path
-        return _open_fs(url, self._storage_options)
-
+ 
     def exists(self, path: UPath | str) -> bool:
-        return self._fs_for(path).exists(_url(UPath(path)) if not isinstance(path, str) else path)
+        return self._fs.exists(str(UPath(path)))
 
     def is_file(self, path: UPath | str) -> bool:
-        return self._fs_for(path).isfile(_url(UPath(path)) if not isinstance(path, str) else path)
+        return self._fs.isfile(str(UPath(path)))
 
     def is_dir(self, path: UPath | str) -> bool:
-        return self._fs_for(path).isdir(_url(UPath(path)) if not isinstance(path, str) else path)
+        return self._fs.isdir(str(UPath(path)))
 
     def list_files(self, directory: UPath | str, recursive: bool = False) -> list[FileInfo]:
         """List files under *directory*; recurse if *recursive*. Skips ``._*`` entries."""
-        url = _url(UPath(directory)) if not isinstance(directory, str) else directory
-        fs = self._fs_for(directory)
-        if not fs.isdir(url):
+        url = UPath(directory)
+        if not self._fs.isdir(url):
             return []
-        entries = {e["name"]: e for e in fs.ls(url, detail=True, recursive=recursive)}
+        entries = {e["name"]: e for e in self._fs.ls(url, detail=True, recursive=recursive)}
         out: list[FileInfo] = []
         for fpath, info in entries.items():
             fname = fpath.rstrip("/").rsplit("/", 1)[-1]
@@ -97,22 +79,6 @@ class FsspecFileStore:
             size: int | None = info.get("size")
             out.append(FileInfo(path=fpath, size_bytes=size, is_file=True))
         return out
-
-    def read_bytes(self, path: UPath | str) -> bytes:
-        """Return the raw bytes of *path*."""
-        url = _url(UPath(path)) if not isinstance(path, str) else path
-        with self._fs_for(path).open(url, "rb") as fh:
-            return fh.read()
-
-    def write_bytes(self, path: UPath | str, data: bytes) -> None:
-        """Write *data* to *path*, creating parent directories as needed."""
-        url = _url(UPath(path)) if not isinstance(path, str) else path
-        fs = self._fs_for(path)
-        if not _is_s3(url):
-            import os
-            os.makedirs(os.path.dirname(url) or ".", exist_ok=True)
-        with fs.open(url, "wb") as fh:
-            fh.write(data)
 
     def get_remote(self, source: str, target: UPath) -> None:
         """Download a remote file to a local path."""
