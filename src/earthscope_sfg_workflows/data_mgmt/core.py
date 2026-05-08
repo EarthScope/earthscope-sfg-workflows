@@ -7,12 +7,17 @@ module is fully testable with the in-memory adapters in
 
 from __future__ import annotations
 
+import concurrent.futures
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-from ._archive_urls import canonical_campaign_urls, list_campaign_archive_urls
+import boto3
+from tqdm.auto import tqdm
+from upath import UPath
+
 from .model import (
     ArchiveFile,
     AssetEntry,
@@ -33,11 +38,9 @@ from .ports import ArchiveError, ArchiveSource, AssetStore, FileStore
 # ---------------------------------------------------------------------------
 
 
-# Default filename → AssetKind regex map. Mirrors the legacy ``pattern_map``
-# in ``data_mgmt/ingestion/config.py`` so behavior is preserved during the
-# migration.
 DEFAULT_PATTERNS: tuple[tuple[re.Pattern[str], AssetKind], ...] = (
     (re.compile(r"\.\d{2}o$", re.IGNORECASE), AssetKind.RINEX2),
+    (re.compile(r"\.\d{2}n$", re.IGNORECASE), AssetKind.RINEX3),
     (re.compile(r"sonardyne", re.IGNORECASE), AssetKind.SONARDYNE),
     (re.compile(r"NOV000"), AssetKind.NOVATEL000),
     (re.compile(r"NOV770"), AssetKind.NOVATEL770),
@@ -57,13 +60,12 @@ DEFAULT_PATTERNS: tuple[tuple[re.Pattern[str], AssetKind], ...] = (
 
 
 class FileTypeDetector:
-    """Stateless filename → :class:`AssetKind` classifier."""
+    """Maps filenames to :class:`AssetKind` using regex patterns."""
 
     def __init__(
         self,
         patterns: Iterable[tuple[re.Pattern[str], AssetKind]] | None = None,
     ) -> None:
-        """Build a detector with `patterns`, falling back to `DEFAULT_PATTERNS`."""
         self._patterns: tuple[tuple[re.Pattern[str], AssetKind], ...] = tuple(
             patterns if patterns is not None else DEFAULT_PATTERNS
         )
@@ -77,23 +79,19 @@ class FileTypeDetector:
 
 
 # ---------------------------------------------------------------------------
-# Tree builder — materializes pure layouts onto a FileStore
+# FileManager — materializes a DirectoryTree on a FileStore
 # ---------------------------------------------------------------------------
 
 
-class TreeBuilder:
-    """Materializes :class:`DirectoryTree` paths against a :class:`FileStore`.
-    Separates *describing* the tree (pure) from *creating* it (I/O).
-    """
+class FileManager:
+    """Creates and validates workspace directories on a :class:`FileStore`."""
 
     def __init__(self, tree: DirectoryTree, files: FileStore) -> None:
-        """Bind a pure `DirectoryTree` to a concrete `FileStore` for materialization."""
         self._tree = tree
         self._files = files
 
     @property
-    def tree(self) -> DirectoryTree:
-        """Underlying pure `DirectoryTree`."""
+    def directory_tree(self) -> DirectoryTree:
         return self._tree
 
     def ensure_workspace(self) -> None:
@@ -105,22 +103,12 @@ class TreeBuilder:
         """Materialize the station and TileDB array directories; return the layout."""
         self._files.mkdir(self._tree.station_dir(scope))
         layout = self._tree.tiledb(scope)
-        for path in (
-            layout.root,
-            layout.acoustic,
-            layout.kin_position,
-            layout.imu_position,
-            layout.shotdata,
-            layout.shotdata_pre,
-            layout.gnss_obs,
-            layout.gnss_obs_secondary,
-        ):
+        for path in layout.all_paths:
             self._files.mkdir(path)
         return layout
 
     def ensure_campaign(self, scope: CampaignScope) -> CampaignLayout:
         """Materialize the campaign directory tree (top-down); return the layout."""
-        # Walk top-down so missing parents materialize before children.
         self._files.mkdir(self._tree.network_dir(scope.network))
         self._files.mkdir(self._tree.station_dir(scope))
         layout = self._tree.campaign(scope)
@@ -129,7 +117,7 @@ class TreeBuilder:
         return layout
 
     def ensure_garpos_survey(self, scope: CampaignScope) -> GARPOSLayout:
-        """Materialize the GARPOS survey directory tree; requires `scope.survey`."""
+        """Materialize the GARPOS survey directory tree; requires ``scope.survey``."""
         if scope.survey is None:
             raise ValueError("CampaignScope.survey is required for GARPOS materialization")
         self._files.mkdir(self._tree.survey_dir(scope))
@@ -149,43 +137,46 @@ def _now() -> datetime:
 
 
 class Ingestor:
-    """End-to-end ingestion: discover → detect → catalog → optionally download.
-    All I/O is delegated to :class:`AssetStore`, :class:`FileStore`, and
-    :class:`ArchiveSource`. The orchestration logic itself is pure and lives
-    here.
+    """End-to-end ingestion: discover → detect → catalog → download.
+    All I/O is delegated to injected ports. The orchestration logic itself
+    is pure and lives here.
     """
 
     def __init__(
         self,
         catalog: AssetStore,
-        files: FileStore,
+        file_manager: FileManager,
         archive: ArchiveSource,
-        detector: FileTypeDetector,
-        tree: DirectoryTree,
+        patterns: Iterable[tuple[re.Pattern[str], AssetKind]] | None = None,
     ) -> None:
-        """Wire the four ports + tree used by ingestion orchestration."""
         self._catalog = catalog
-        self._files = files
+        self._file_manager = file_manager
         self._archive = archive
-        self._detector = detector
-        self._tree = tree
+        self._patterns = tuple(patterns if patterns is not None else DEFAULT_PATTERNS)
+
+    def detect(self, filename: str) -> AssetKind | None:
+        """Return the first matching kind, or ``None`` if no pattern matches."""
+        for pattern, kind in self._patterns:
+            if pattern.search(filename):
+                return kind
+        return None
 
     # -- local ingest ------------------------------------------------------
 
     def ingest_local(self, scope: CampaignScope, source_dir: Path) -> IngestReport:
         """Catalog every recognized file under ``source_dir``."""
-        if not self._files.is_dir(source_dir):
+        if not self._file_manager._files.is_dir(source_dir):
             return IngestReport(errors=(f"Not a directory: {source_dir}",))
 
         cataloged = 0
         skipped = 0
         errors: list[str] = []
 
-        for info in self._files.list_files(source_dir, recursive=True):
+        for info in self._file_manager._files.list_files(source_dir, recursive=True):
             if not info.is_file or info.path.name.startswith("._"):
                 skipped += 1
                 continue
-            kind = self._detector.detect(info.path.name)
+            kind = self.detect(info.path.name)
             if kind is None:
                 skipped += 1
                 continue
@@ -199,7 +190,7 @@ class Ingestor:
             try:
                 self._catalog.add(asset)
                 cataloged += 1
-            except Exception as exc:  # adapter-specific errors
+            except Exception as exc:
                 errors.append(f"add failed for {info.path}: {exc}")
 
         return IngestReport(
@@ -213,23 +204,20 @@ class Ingestor:
     def discover_archive(
         self,
         scope: CampaignScope,
-        archive_url: str,
+        directory_url: str,
     ) -> IngestReport:
-        """List ``archive_url`` and catalog every recognized remote file.
-        Sets ``remote_path`` only; ``local_path`` remains ``None`` until
-        :meth:`download` is called.
-        """
+        """List ``directory_url`` on the archive and catalog every recognized file."""
         cataloged = 0
         skipped = 0
         errors: list[str] = []
 
         try:
-            files = self._archive.list_files(archive_url)
+            archive_files = self._archive.list_files(directory_url)
         except ArchiveError as exc:
-            return IngestReport(errors=(f"list_files({archive_url}) failed: {exc}",))
+            return IngestReport(errors=(f"listing failed for {directory_url}: {exc}",))
 
-        for af in files:
-            kind = self._detector.detect(af.filename)
+        for af in archive_files:
+            kind = self.detect(af.filename)
             if kind is None:
                 skipped += 1
                 continue
@@ -255,23 +243,15 @@ class Ingestor:
     # -- canonical campaign discovery -------------------------------------
 
     def discover_campaign(self, scope: CampaignScope) -> IngestReport:
-        """Discover the four canonical EarthScope campaign URLs in one call.
-        Composes raw, metadata, RINEX 1Hz, and RINEX 10Hz URLs for ``scope``
-        (see :mod:`data_mgmt._archive_urls`), lists each, and catalogs every
-        recognized remote file. Replaces the legacy
-        ``data_mgmt.ingestion.archive_pull.list_campaign_files`` flow with a
-        single domain-level operation.
+        """Discover the canonical EarthScope campaign URLs and catalog them."""
+        from .archives.earthscope._archive_urls import canonical_campaign_urls
 
-        Errors from individual URLs are collected into the returned
-        :class:`IngestReport` rather than raised; partial success is the
-        common case (e.g. RINEX 10Hz absent for a campaign).
-        """
         cataloged = 0
         skipped = 0
         errors: list[str] = []
 
-        for url in canonical_campaign_urls(scope):
-            sub = self.discover_archive(scope, url)
+        for dir_url in canonical_campaign_urls(scope):
+            sub = self.discover_archive(scope, dir_url)
             cataloged += sub.cataloged
             skipped += sub.skipped
             errors.extend(sub.errors)
@@ -283,9 +263,9 @@ class Ingestor:
         )
 
     def list_archive_urls(self, scope: CampaignScope) -> list[str]:
-        """Enumerate every archive file URL for ``scope`` without writing to the catalog.
-        Side-effect-free counterpart to :meth:`discover_campaign`.
-        """
+        """Enumerate every archive file URL for ``scope`` without writing to the catalog."""
+        from .archives.earthscope._archive_urls import list_campaign_archive_urls
+
         return list_campaign_archive_urls(self._archive, scope)
 
     # -- download cataloged remotes ---------------------------------------
@@ -295,34 +275,66 @@ class Ingestor:
         scope: CampaignScope,
         kinds: list[AssetKind] | None = None,
         dest_dir: Path | None = None,
+        *,
+        override: bool = False,
+        rinex_1hz: bool = False,
     ) -> IngestReport:
-        """Download every cataloged remote asset that lacks ``local_path``.
-        Optionally restrict to ``kinds``. Destination defaults to the
-        campaign's ``raw`` directory.
+        """Download every cataloged remote asset that lacks a local path.
+
+        Supports both S3 (parallel via boto3 ThreadPoolExecutor) and HTTP
+        (sequential with tqdm). RINEX2 files land in ``intermediate/``; all
+        other types land in ``raw/``.
+
+        Args:
+            scope: Active network/station/campaign scope.
+            kinds: Restrict to these asset kinds. ``None`` downloads all kinds.
+            dest_dir: Override the default destination directory.
+            override: Re-download even if a local path already exists.
+            rinex_1hz: When ``True``, keep only 1-Hz RINEX files; when
+                ``False`` (default), keep only higher-rate RINEX files.
         """
-        target = dest_dir or self._tree.campaign(scope).raw
-        self._files.mkdir(target)
+        layout = self._file_manager.directory_tree.campaign(scope)
+        candidates = self._collect_remote_candidates(scope, kinds)
+
+        if not override:
+            candidates = [
+                a for a in candidates
+                if a.local_path is None or not Path(str(a.local_path)).exists()
+            ]
+
+        # RINEX 1Hz / high-rate filtering
+        rinex = [a for a in candidates if a.kind is AssetKind.RINEX2]
+        if rinex:
+            if rinex_1hz:
+                rinex = [a for a in rinex if a.remote_path and "1hz" in a.remote_path.lower()]
+            else:
+                rinex = [a for a in rinex if a.remote_path and "1hz" not in a.remote_path.lower()]
+        non_rinex = [a for a in candidates if a.kind is not AssetKind.RINEX2]
+        to_download = rinex + non_rinex
+
+        if not to_download:
+            return IngestReport()
+
+        s3_assets = [a for a in to_download if a.remote_type == "s3"]
+        http_assets = [a for a in to_download if a.remote_type == "http"]
 
         downloaded = 0
         skipped = 0
         errors: list[str] = []
 
-        candidates = self._collect_remote_candidates(scope, kinds)
+        if s3_assets:
+            with threading.Lock():
+                boto3.client("s3")
+            report = self._download_s3_files(s3_assets, layout, dest_dir)
+            downloaded += report.downloaded
+            skipped += report.skipped
+            errors.extend(report.errors)
 
-        for asset in candidates:
-            if asset.local_path is not None:
-                skipped += 1
-                continue
-            if asset.remote_path is None:
-                skipped += 1
-                continue
-            dest = target / Path(asset.remote_path).name
-            try:
-                self._archive.download_file(asset.remote_path, dest)
-                self._catalog.update(asset.with_local_path(dest))
-                downloaded += 1
-            except ArchiveError as exc:
-                errors.append(f"download failed for {asset.remote_path}: {exc}")
+        if http_assets:
+            report = self._download_http_files(http_assets, layout, dest_dir)
+            downloaded += report.downloaded
+            skipped += report.skipped
+            errors.extend(report.errors)
 
         return IngestReport(
             downloaded=downloaded,
@@ -342,6 +354,95 @@ class Ingestor:
             out.extend(a for a in self._catalog.assets_for(scope, kind) if a.remote_path)
         return out
 
+    # -- S3 download ------------------------------------------------------
+
+    def _download_s3_files(
+        self,
+        s3_assets: list[AssetEntry],
+        layout: CampaignLayout,
+        dest_dir: Path | None,
+    ) -> IngestReport:
+        """Download S3 assets in parallel and update the catalog with local paths."""
+        plan: list[dict] = []
+        for asset in s3_assets:
+            assert asset.remote_path is not None
+            _path = Path(asset.remote_path)
+            local_dir = dest_dir or (
+                layout.intermediate if asset.kind is AssetKind.RINEX2 else layout.raw
+            )
+            bucket = _path.root
+            plan.append({
+                "bucket": bucket,
+                "prefix": str(_path.relative_to(bucket)),
+                "local_dir": local_dir,
+            })
+
+        downloaded = 0
+        errors: list[str] = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            local_results = list(executor.map(self._download_s3_file, plan))
+
+        for local_path, asset in zip(local_results, s3_assets, strict=False):
+            if local_path is not None and asset.id is not None:
+                self._catalog.update(asset.with_local_path(UPath(local_path)))
+                downloaded += 1
+            else:
+                errors.append(f"S3 download failed for {asset.remote_path}")
+
+        return IngestReport(downloaded=downloaded, errors=tuple(errors))
+
+    def _download_s3_file(self, plan: dict) -> Path | None:
+        """Download one S3 object using a fresh boto3 client."""
+        bucket = plan["bucket"]
+        prefix = plan["prefix"]
+        local_dir: Path = plan["local_dir"]
+        local_path = local_dir / Path(prefix).name
+        try:
+            client = boto3.client("s3")
+            client.download_file(Bucket=bucket, Key=str(prefix), Filename=str(local_path))
+            return local_path
+        except Exception:
+            return None
+
+    # -- HTTP download ----------------------------------------------------
+
+    def _download_http_files(
+        self,
+        http_assets: list[AssetEntry],
+        layout: CampaignLayout,
+        dest_dir: Path | None,
+    ) -> IngestReport:
+        """Download HTTP assets sequentially with a tqdm progress bar."""
+        downloaded = 0
+        errors: list[str] = []
+
+        for asset in tqdm(http_assets, desc="Downloading files"):
+            local_dir = dest_dir or (
+                layout.intermediate if asset.kind is AssetKind.RINEX2 else layout.raw
+            )
+            self._file_manager._files.mkdir(UPath(local_dir))
+            assert asset.remote_path is not None
+            local_path = self._download_http_file(asset.remote_path, Path(str(local_dir)))
+            if local_path is not None and asset.id is not None:
+                self._catalog.update(asset.with_local_path(UPath(local_path)))
+                downloaded += 1
+            else:
+                errors.append(f"HTTP download failed for {asset.remote_path}")
+
+        return IngestReport(downloaded=downloaded, errors=tuple(errors))
+
+    def _download_http_file(self, remote_url: str, local_dir: Path) -> Path | None:
+        """Download one HTTP file via the injected :class:`ArchiveSource`."""
+        local_path = local_dir / Path(remote_url).name
+        try:
+            self._archive.download_file(remote_url, local_path)
+            if not local_path.exists():
+                raise FileNotFoundError(f"{local_path} not created after download")
+            return local_path
+        except Exception:
+            return None
+
 
 # ---------------------------------------------------------------------------
 # LayoutInspector — FileStore-backed I/O queries over pure layouts
@@ -349,48 +450,24 @@ class Ingestor:
 
 
 class LayoutInspector:
-    """File-store-backed introspection of pure :mod:`data_mgmt.model` layouts.
-    Replaces the I/O methods that used to live on the legacy Pydantic
-    directory schemas (``GARPOSSurveyDir.is_garpos_directory``,
-    ``find_rectified_shotdata``, etc.). Decouples *describing* a layout
-    (pure paths) from *probing* it on a backing store (local FS, S3,
-    in-memory).
-
-    All methods are total: missing files return ``None`` / ``False`` / ``[]``
-    rather than raising. Exceptions propagate only when the underlying
-    :class:`FileStore` itself fails.
-    """
+    """File-store-backed introspection of pure :mod:`data_mgmt.model` layouts."""
 
     def __init__(self, files: FileStore) -> None:
         self._files = files
 
-    # -- GARPOS ------------------------------------------------------------
-
     def is_garpos_directory(self, layout: GARPOSLayout) -> bool:
-        """A directory is a GARPOS dir if it has both default GARPOS files."""
         return self._files.is_file(layout.obs_file) and self._files.is_file(layout.settings_file)
 
     def find_rectified_shotdata(self, layout: GARPOSLayout) -> Path | None:
-        """Locate the first ``*_rectified.csv`` directly under the GARPOS dir."""
         return self._first_match(layout.root, "_rectified.csv")
 
     def find_filtered_shotdata(self, survey_dir: Path) -> Path | None:
-        """Locate the first ``*_filtered.csv`` in the parent survey directory."""
         return self._first_match(survey_dir, "_filtered.csv")
 
-    # -- Campaign ----------------------------------------------------------
-
     def is_campaign_directory(self, layout: CampaignLayout) -> bool:
-        """Heuristic: a campaign dir exists and has the standard subdirs."""
         if not self._files.is_dir(layout.root):
             return False
         return all(self._files.is_dir(p) for p in (layout.raw, layout.processed))
-
-    def find_master_xml(self, layout: CampaignLayout) -> Path | None:
-        """Locate the first ``master*.xml`` under the campaign metadata layout."""
-        return self._first_match(layout.root, ".xml", contains="master")
-
-    # -- Generic -----------------------------------------------------------
 
     def list_kind(
         self,
@@ -398,10 +475,6 @@ class LayoutInspector:
         suffix: str | None = None,
         contains: str | None = None,
     ) -> list[Path]:
-        """List files in ``directory`` filtered by suffix and/or substring.
-        Non-recursive. Returns paths sorted by name for determinism. Returns
-        ``[]`` if ``directory`` does not exist.
-        """
         if not self._files.is_dir(directory):
             return []
         out: list[Path] = []
@@ -430,7 +503,7 @@ class LayoutInspector:
 __all__ = [
     "DEFAULT_PATTERNS",
     "FileTypeDetector",
-    "TreeBuilder",
+    "FileManager",
     "Ingestor",
     "LayoutInspector",
 ]

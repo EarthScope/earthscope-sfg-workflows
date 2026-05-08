@@ -11,7 +11,7 @@ import threading
 from collections import defaultdict
 from dataclasses import replace
 from itertools import count
-from pathlib import Path
+from upath import UPath
 
 from ..model import ArchiveFile, AssetEntry, AssetKind, CampaignScope, FileInfo
 from ..ports import ArchiveNotFoundError
@@ -156,27 +156,27 @@ class InMemoryFileStore:
     def __init__(self) -> None:
         """Initialize empty file and directory tables."""
         self._lock = threading.RLock()
-        self._files: dict[Path, bytes] = {}
-        self._dirs: set[Path] = set()
+        self._files: dict[UPath, bytes] = {}
+        self._dirs: set[UPath] = set()
 
     # -- query -------------------------------------------------------------
 
-    def exists(self, path: Path) -> bool:
+    def exists(self, path: UPath) -> bool:
         """Return True iff `path` names a known file or directory."""
         with self._lock:
             return path in self._files or path in self._dirs
 
-    def is_file(self, path: Path) -> bool:
+    def is_file(self, path: UPath) -> bool:
         """Return True iff `path` names a known file."""
         with self._lock:
             return path in self._files
 
-    def is_dir(self, path: Path) -> bool:
+    def is_dir(self, path: UPath) -> bool:
         """Return True iff `path` names a known directory."""
         with self._lock:
             return path in self._dirs
 
-    def list_files(self, directory: Path, recursive: bool = False) -> list[FileInfo]:
+    def list_files(self, directory: UPath, recursive: bool = False) -> list[FileInfo]:
         """List files under `directory`; recurse when `recursive` is True."""
         with self._lock:
             if directory not in self._dirs:
@@ -200,7 +200,7 @@ class InMemoryFileStore:
             out.sort(key=lambda fi: fi.path.as_posix())
             return out
 
-    def get_size(self, path: Path) -> int | None:
+    def get_size(self, path: UPath) -> int | None:
         """Return the size of the file at `path`, or None if not a file."""
         with self._lock:
             data = self._files.get(path)
@@ -208,7 +208,7 @@ class InMemoryFileStore:
 
     # -- mutation ----------------------------------------------------------
 
-    def mkdir(self, path: Path, parents: bool = True) -> None:
+    def mkdir(self, path: UPath, parents: bool = True) -> None:
         """Create directory `path`; create parent directories iff `parents`."""
         with self._lock:
             if parents:
@@ -219,7 +219,7 @@ class InMemoryFileStore:
             else:
                 self._dirs.add(path)
 
-    def read_bytes(self, path: Path) -> bytes:
+    def read_bytes(self, path: UPath) -> bytes:
         """Return the bytes stored at `path`. Raises FileNotFoundError if missing."""
         with self._lock:
             try:
@@ -227,7 +227,7 @@ class InMemoryFileStore:
             except KeyError as exc:
                 raise FileNotFoundError(path) from exc
 
-    def write_bytes(self, path: Path, data: bytes) -> None:
+    def write_bytes(self, path: UPath, data: bytes) -> None:
         """Write `data` to `path`, auto-creating parent directories."""
         with self._lock:
             # Auto-create parents to mirror typical "open(..., 'wb')" + mkdir
@@ -235,7 +235,7 @@ class InMemoryFileStore:
             self.mkdir(path.parent, parents=True)
             self._files[path] = data
 
-    def remove(self, path: Path) -> bool:
+    def remove(self, path: UPath) -> bool:
         """Remove the file at `path`; return True iff it existed."""
         with self._lock:
             return self._files.pop(path, None) is not None

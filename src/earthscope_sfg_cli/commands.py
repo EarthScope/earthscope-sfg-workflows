@@ -20,10 +20,10 @@ def run_manifest(manifest_object):
     """
     from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
     from earthscope_sfg_workflows.data_mgmt import CampaignScope
-    from earthscope_sfg_workflows.data_mgmt._archive_urls import (
+    from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import (
         list_campaign_archive_urls,
     )
-    from earthscope_sfg_workflows.data_mgmt.adapters.earthscope_archive import (
+    from earthscope_sfg_workflows.data_mgmt.archives.earthscope.earthscope_archive import (
         EarthScopeArchive,
     )
     from earthscope_sfg_workflows.modeling.garpos_tools.load_utils import get_lib_paths

@@ -16,8 +16,8 @@ See ``plans/rfc-a-data-mgmt-ports-and-adapters.md``.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Protocol, runtime_checkable
+from upath import UPath
 
 from .model import ArchiveFile, AssetEntry, AssetKind, CampaignScope, FileInfo
 
@@ -67,7 +67,7 @@ class AssetStore(Protocol):
         """Look up an asset by primary key. Return ``None`` if missing."""
         ...
 
-    def by_local_path(self, path: Path) -> list[AssetEntry]:
+    def by_local_path(self, path: UPath) -> list[AssetEntry]:
         """Return all assets with ``local_path == path``."""
         ...
 
@@ -129,32 +129,32 @@ class AssetStore(Protocol):
 class FileStore(Protocol):
     """Filesystem abstraction. Implementations: local, S3, in-memory."""
 
-    def exists(self, path: Path) -> bool: ...
-    def is_file(self, path: Path) -> bool: ...
-    def is_dir(self, path: Path) -> bool: ...
+    def exists(self, path: UPath) -> bool: ...
+    def is_file(self, path: UPath) -> bool: ...
+    def is_dir(self, path: UPath) -> bool: ...
 
     def list_files(
         self,
-        directory: Path,
+        directory: UPath,
         recursive: bool = False,
     ) -> list[FileInfo]:
         """List files under ``directory``. Hidden ``._*`` entries are excluded."""
         ...
 
-    def read_bytes(self, path: Path) -> bytes: ...
-    def write_bytes(self, path: Path, data: bytes) -> None:
+    def read_bytes(self, path: UPath) -> bytes: ...
+    def write_bytes(self, path: UPath, data: bytes) -> None:
         """Write ``data`` to ``path``, creating parent dirs as needed."""
         ...
 
-    def mkdir(self, path: Path, parents: bool = True) -> None:
+    def mkdir(self, path: UPath, parents: bool = True) -> None:
         """Create ``path`` (and parents). Idempotent."""
         ...
 
-    def remove(self, path: Path) -> bool:
+    def remove(self, path: UPath) -> bool:
         """Delete a file. Return True if a file was deleted."""
         ...
 
-    def get_size(self, path: Path) -> int | None:
+    def get_size(self, path: UPath) -> int | None:
         """Size in bytes, or ``None`` if not a file."""
         ...
 

@@ -20,7 +20,7 @@ dependencies = [
   "earthscope-sdk>=1.1",
   "earthscope-cli>=1.0",
   "gnatss>=0.3.1",
-  "cloudpathlib[s3]>=0.20",
+  "s3fs>=2024.5.0,<2025",
   "pyarrow>=21.0",
   "scikit-learn>=1.4",
   "typer>=0.9",
@@ -51,6 +51,8 @@ platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 python = ">=3.11,<3.14"
 pytest = ">=8"
 ruff = ">=0.4"
+fsspec = ">=2024.5.0,<2025"
+universal_pathlib = "<=0.3.10"
 
 [tool.pixi.pypi-dependencies]
 earthscope_sfg_workflows = { path = ".", editable = true }

@@ -1,40 +1,40 @@
 """Adapter implementations for the data_mgmt ports.
-In-memory adapters always import. Production adapters
-(:class:`EarthScopeArchive`, :class:`S3FileStore`) require optional
-dependencies and are imported lazily via attribute access so a missing
-``earthscope-sdk`` or ``cloudpathlib`` install doesn't break ``import
-earthscope_sfg_workflows.data_mgmt``.
+In-memory adapters always import. The production archive adapter
+(:class:`EarthScopeArchive`) requires the optional ``earthscope-sdk``
+dependency and is imported lazily via attribute access so a missing install
+doesn't break ``import earthscope_sfg_workflows.data_mgmt``.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .local_fs import LocalFileStore
+from .local_fs import FsspecFileStore, LocalFileStore, S3FileStore
 from .memory import (
     FakeArchive,
     InMemoryAssetStore,
     InMemoryFileStore,
 )
-from .sql import SqlAssetStore
+from ..assetcatalog.sql import AssetCatalog
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from .earthscope_archive import EarthScopeArchive
-    from .s3_fs import S3FileStore
+if TYPE_CHECKING:  # pragma: no cover
+    from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import EarthScopeArchive
 
 
 _LAZY = {
-    "EarthScopeArchive": ("earthscope_archive", "EarthScopeArchive"),
-    "S3FileStore": ("s3_fs", "S3FileStore"),
+    "EarthScopeArchive": (
+        "earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive",
+        "EarthScopeArchive",
+    ),
 }
 
 
 def __getattr__(name: str) -> Any:
     if name in _LAZY:
-        module_name, attr = _LAZY[name]
+        module_path, attr = _LAZY[name]
         import importlib
 
-        module = importlib.import_module(f"{__name__}.{module_name}")
+        module = importlib.import_module(module_path)
         value = getattr(module, attr)
         globals()[name] = value
         return value
@@ -43,10 +43,11 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "FakeArchive",
+    "FsspecFileStore",
     "InMemoryAssetStore",
     "InMemoryFileStore",
     "LocalFileStore",
-    "SqlAssetStore",
-    "EarthScopeArchive",
     "S3FileStore",
+    "AssetCatalog",
+    "EarthScopeArchive",
 ]

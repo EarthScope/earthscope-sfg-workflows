@@ -17,21 +17,26 @@ import requests
 from ..model import ArchiveFile
 from ..ports import ArchiveAuthError, ArchiveError, ArchiveNotFoundError
 
+def _campaign_year(campaign: str) -> str:
+    """Extract the YYYY year prefix from a campaign id like ``2026_A_FOO``."""
+    return campaign.split("_", 1)[0]
+
 
 class EarthScopeArchive:
     """Production :class:`ArchiveSource` backed by the EarthScope public archive.
     Tokens are acquired lazily on first use and refreshed via the EarthScope
     SDK. A ``profile`` (e.g. ``"dev"``) selects a non-prod settings profile.
     """
+    ARCHIVE_PREFIX = "https://data.earthscope.org/archive/seafloor"
 
-    def __init__(self, profile: str | None = None) -> None:
+    def __init__(self, profile: str = "prod") -> None:
         """Bind to an EarthScope SDK `profile` (defaults to the active profile)."""
         self._profile = profile
         self._token: str | None = None
 
     # -- auth --------------------------------------------------------------
 
-    def authenticate(self, profile: str | None = None) -> bool:
+    def authenticate(self, profile: str = 'prod') -> bool:
         """Acquire/refresh an access token from the EarthScope SDK; return True on success."""
         # Imported lazily so the data_mgmt package stays importable in
         # environments that don't have earthscope-sdk installed.
@@ -126,19 +131,77 @@ class EarthScopeArchive:
         self.download_file(file_url, dest_path)
         return dest_path
 
+
+    def canonical_campaign_urls(self,scope: CampaignScope) -> tuple[str, str, str, str]:
+        """The four canonical archive URLs for a campaign.
+        Order: raw, metadata, RINEX 1Hz, RINEX 10Hz. ``Ingestor.discover_campaign``
+        consumes them in that order.
+        """
+        return (
+            self.campaign_raw_url(scope),
+            self.campaign_metadata_url(scope),
+            self.campaign_rinex_url(scope, "1Hz"),
+            self.campaign_rinex_url(scope, "10Hz"),
+        )
+
+
+    def list_campaign_archive_urls(
+        self,
+        scope: CampaignScope,
+    ) -> list[str]:
+        """Enumerate every archive file URL for a campaign.
+        Lists each of :func:`canonical_campaign_urls`, plus the legacy
+        ``metadata/ctd`` subdirectory, and returns the concatenated list of
+        file URLs. Missing directories are silently skipped (partial campaigns
+        are common — e.g., RINEX 10Hz absent).
+
+        This is the no-side-effects equivalent of
+        :meth:`data_mgmt.core.Ingestor.discover_campaign`: it returns URLs
+        without writing anything to the catalog.
+        """
+        urls: list[str] = []
+        raw_url, metadata_url, rinex_1hz_url, rinex_10hz_url = self.canonical_campaign_urls(
+            scope
+        )
+        for dir_url in (
+            raw_url,
+            metadata_url,
+            f"{metadata_url}/ctd",
+            rinex_1hz_url,
+            rinex_10hz_url,
+        ):
+            try:
+                urls.extend(af.url for af in self.list_files(dir_url))
+            except ArchiveError:
+                continue
+        return urls
+
+    def campaign_raw_url(self,scope: CampaignScope) -> str:
+        """Return the archive URL for the raw data directory of a campaign."""
+        year = _campaign_year(scope.campaign)
+        return (
+            f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/raw"
+        )
+
+    def campaign_metadata_url(self,scope: CampaignScope) -> str:
+        """Return the archive URL for the metadata directory of a campaign."""
+        year = _campaign_year(scope.campaign)
+        return f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/metadata"
+
+    def campaign_rinex_url(self,scope: CampaignScope, hz: str) -> str:
+        """Compose a RINEX directory URL. ``hz`` is ``"1Hz"`` or ``"10Hz"``."""
+        year = _campaign_year(scope.campaign)
+        return f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/rinex_{hz}"
+
+    def site_metadata_url(self, scope: CampaignScope) -> str:
+        """Return the archive URL for a station's site metadata JSON."""
+        return f"{self.ARCHIVE_PREFIX}/metadata/{scope.network}/{scope.station}.json"
+
     # -- metadata ----------------------------------------------------------
 
-    @staticmethod
-    def _site_json_url(network: str, station: str) -> str:
-        from .._archive_urls import ARCHIVE_PREFIX
+    def vessel_json_url(self,vessel_code: str) -> str:
 
-        return f"{ARCHIVE_PREFIX}/metadata/{network}/{station}.json"
-
-    @staticmethod
-    def _vessel_json_url(vessel_code: str) -> str:
-        from .._archive_urls import ARCHIVE_PREFIX
-
-        return f"{ARCHIVE_PREFIX}/metadata/vessels/{vessel_code}.json"
+        return f"{self.ARCHIVE_PREFIX}/metadata/vessels/{vessel_code}.json"
 
     def load_vessel_metadata(self, vessel_code: str, local_path: Path | str | None = None):
         """Load a :class:`Vessel` from the archive (or a local JSON file)."""
@@ -152,7 +215,7 @@ class EarthScopeArchive:
                 )
             return import_vessel(json_file_path)
 
-        url = self._vessel_json_url(vessel_code)
+        url = self.vessel_json_url(vessel_code)
         local = self.download_to_dir(url, Path("./"))
         try:
             return import_vessel(local)
@@ -162,7 +225,7 @@ class EarthScopeArchive:
             except Exception:
                 pass
 
-    def load_site_metadata(self, network: str, station: str, local_path: Path | str | None = None):
+    def load_site_metadata(self, scope: CampaignScope, local_path: Path | str | None = None):
         """Load a :class:`Site` from the archive, populating per-campaign vessels."""
         from earthscope_sfg_tools.datamodels.metadata import import_site
 
@@ -174,7 +237,7 @@ class EarthScopeArchive:
                 )
             site = import_site(json_file_path)
         else:
-            url = self._site_json_url(network, station)
+            url = self.site_metadata_url(scope)
             local = self.download_to_dir(url, Path("./"))
             try:
                 site = import_site(local)

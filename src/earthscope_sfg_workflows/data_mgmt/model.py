@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
+from upath import UPath
 
 # ---------------------------------------------------------------------------
 # Asset taxonomy
@@ -30,6 +30,8 @@ class AssetKind(str, Enum):
     DFOP00 = "dfop00"
     SONARDYNE = "sonardyne"
     RINEX2 = "rinex2"
+    RINEX3 = "rinex3"
+    RINEX4 = "rinex4"
     KIN = "kin"
     SEABIRD = "seabird"
     CTD = "ctd"
@@ -83,7 +85,7 @@ class AssetEntry:
     kind: AssetKind
     scope: CampaignScope
     id: int | None = None
-    local_path: Path | None = None
+    local_path: UPath | None = None
     remote_path: str | None = None
     remote_type: str | None = None
     is_processed: bool = False
@@ -99,7 +101,7 @@ class AssetEntry:
     def with_id(self, asset_id: int) -> "AssetEntry":
         return replace(self, id=asset_id)
 
-    def with_local_path(self, path: Path) -> "AssetEntry":
+    def with_local_path(self, path: UPath) -> "AssetEntry":
         return replace(self, local_path=path)
 
 
@@ -147,21 +149,21 @@ _TDB_QC_GNSS = "qc_gnss_obs.tdb"
 class TileDBLayout:
     """All TileDB array paths for a station. Pure path math."""
 
-    root: Path
-    acoustic: Path
-    kin_position: Path
-    imu_position: Path
-    shotdata: Path
-    shotdata_pre: Path
-    gnss_obs: Path
-    gnss_obs_secondary: Path
-    qc_shotdata: Path
-    qc_shotdata_pre: Path
-    qc_kin_position: Path
-    qc_gnss_obs: Path
+    root: UPath
+    acoustic: UPath
+    kin_position: UPath
+    imu_position: UPath
+    shotdata: UPath
+    shotdata_pre: UPath
+    gnss_obs: UPath
+    gnss_obs_secondary: UPath
+    qc_shotdata: UPath
+    qc_shotdata_pre: UPath
+    qc_kin_position: UPath
+    qc_gnss_obs: UPath
 
     @staticmethod
-    def for_station(station_dir: Path) -> "TileDBLayout":
+    def for_station(station_dir: UPath) -> "TileDBLayout":
         root = station_dir / _TILEDB_DIR
         return TileDBLayout(
             root=root,
@@ -179,7 +181,7 @@ class TileDBLayout:
         )
 
     @property
-    def all_paths(self) -> tuple[Path, ...]:
+    def all_paths(self) -> tuple[UPath, ...]:
         return (
             self.root,
             self.acoustic,
@@ -200,17 +202,17 @@ class TileDBLayout:
 class CampaignLayout:
     """All paths for a campaign directory. Pure."""
 
-    root: Path
-    raw: Path
-    processed: Path
-    intermediate: Path
-    logs: Path
-    qc: Path
-    metadata_file: Path
-    svp_file: Path
+    root: UPath
+    raw: UPath
+    processed: UPath
+    intermediate: UPath
+    logs: UPath
+    qc: UPath
+    metadata_file: UPath
+    svp_file: UPath
 
     @staticmethod
-    def for_campaign(campaign_dir: Path) -> "CampaignLayout":
+    def for_campaign(campaign_dir: UPath) -> "CampaignLayout":
         processed = campaign_dir / _PROCESSED_DIR
         return CampaignLayout(
             root=campaign_dir,
@@ -224,7 +226,7 @@ class CampaignLayout:
         )
 
     @property
-    def standard_dirs(self) -> tuple[Path, ...]:
+    def standard_dirs(self) -> tuple[UPath, ...]:
         return (self.root, self.raw, self.processed, self.intermediate, self.logs, self.qc)
 
 
@@ -232,15 +234,15 @@ class CampaignLayout:
 class GARPOSLayout:
     """All paths for a GARPOS survey directory. Pure."""
 
-    root: Path
-    logs: Path
-    obs_file: Path
-    settings_file: Path
-    svp_file: Path
-    results: Path
+    root: UPath
+    logs: UPath
+    obs_file: UPath
+    settings_file: UPath
+    svp_file: UPath
+    results: UPath
 
     @staticmethod
-    def for_survey(survey_dir: Path) -> "GARPOSLayout":
+    def for_survey(survey_dir: UPath) -> "GARPOSLayout":
         root = survey_dir / _GARPOS_DIR
         return GARPOSLayout(
             root=root,
@@ -252,7 +254,7 @@ class GARPOSLayout:
         )
 
     @property
-    def standard_dirs(self) -> tuple[Path, ...]:
+    def standard_dirs(self) -> tuple[UPath, ...]:
         return (self.root, self.logs, self.results)
 
 
@@ -260,26 +262,26 @@ class GARPOSLayout:
 class DirectoryTree:
     """Workspace-rooted view of the hierarchy. Pure path math, no I/O."""
 
-    root: Path
+    root: UPath
 
     @property
-    def catalog_db(self) -> Path:
+    def catalog_db(self) -> UPath:
         return self.root / _CATALOG_DB_FILE
 
     @property
-    def pride_dir(self) -> Path:
+    def pride_dir(self) -> UPath:
         return self.root / _PRIDE_DIR
 
-    def network_dir(self, network: str) -> Path:
+    def network_dir(self, network: str) -> UPath:
         return self.root / network
 
-    def station_dir(self, scope: CampaignScope) -> Path:
+    def station_dir(self, scope: CampaignScope) -> UPath:
         return self.network_dir(scope.network) / scope.station
 
-    def campaign_dir(self, scope: CampaignScope) -> Path:
+    def campaign_dir(self, scope: CampaignScope) -> UPath:
         return self.station_dir(scope) / scope.campaign
 
-    def survey_dir(self, scope: CampaignScope) -> Path:
+    def survey_dir(self, scope: CampaignScope) -> UPath:
         if scope.survey is None:
             raise ValueError("CampaignScope.survey must be set to compute survey_dir")
         return self.campaign_dir(scope) / scope.survey
@@ -317,7 +319,7 @@ class IngestReport:
 class FileInfo:
     """Lightweight FS entry returned by FileStore.list_files."""
 
-    path: Path
+    path: UPath
     size_bytes: int | None = None
     is_file: bool = True
 
@@ -331,7 +333,7 @@ class ArchiveFile:
 
     @property
     def filename(self) -> str:
-        return Path(self.url).name
+        return UPath(self.url).name
 
 
 __all__ = [

@@ -19,7 +19,7 @@ from earthscope_sfg_workflows.data_mgmt import (
     DirectoryTree,
     LayoutInspector,
 )
-from earthscope_sfg_workflows.data_mgmt._archive_urls import (
+from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import (
     ARCHIVE_PREFIX,
     canonical_campaign_urls,
     list_campaign_archive_urls,
@@ -30,6 +30,7 @@ from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
     InMemoryFileStore,
 )
 from earthscope_sfg_workflows.data_mgmt.core import (
+    FileManager,
     FileTypeDetector,
     Ingestor,
 )
@@ -230,10 +231,9 @@ class TestDiscoverCampaign:
 
         ingestor = Ingestor(
             catalog=catalog,
-            files=files,
+            file_manager=FileManager(DirectoryTree(root=Path("/")), files),
             archive=archive,
             detector=FileTypeDetector(),
-            tree=DirectoryTree(root=Path("/")),
         )
 
         report = ingestor.discover_campaign(scope)

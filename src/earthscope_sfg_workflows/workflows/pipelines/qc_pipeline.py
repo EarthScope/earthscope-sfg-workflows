@@ -10,6 +10,7 @@ from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
+import os as _os
 
 from pride_ppp import PrideProcessor, ProcessingMode, kin_to_kin_position_df, rinex_get_time_range
 from tqdm.auto import tqdm
@@ -163,8 +164,7 @@ class QCPipeline(WorkflowBase):
             workspace: Pre-constructed workspace. Preferred over ``directory``.
         """
         if workspace is None:
-            import os as _os
-
+   
             workspace = _build_default_workspace(
                 directory if directory is not None else _os.environ.get("MAIN_DIRECTORY", ".")
             )

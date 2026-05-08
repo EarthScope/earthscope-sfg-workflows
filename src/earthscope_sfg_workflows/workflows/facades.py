@@ -17,9 +17,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from earthscope_sfg_workflows.data_mgmt.core import (
+    FileManager,
     Ingestor,
     LayoutInspector,
-    TreeBuilder,
 )
 from earthscope_sfg_workflows.data_mgmt.model import (
     AssetEntry,
@@ -42,12 +42,12 @@ from earthscope_sfg_workflows.data_mgmt.ports import AssetStore
 @dataclass(frozen=True, slots=True)
 class LayoutFacade:
     """Path resolution and directory materialization for the active scope.
-    Wraps :class:`DirectoryTree` (pure paths), :class:`TreeBuilder`
+    Wraps :class:`DirectoryTree` (pure paths), :class:`FileManager`
     (materialization), and :class:`LayoutInspector` (I/O probes).
     """
 
     _tree: DirectoryTree
-    _builder: TreeBuilder
+    _builder: FileManager
     _inspector: LayoutInspector
     _scope: CampaignScope
 
@@ -120,10 +120,6 @@ class LayoutFacade:
     def find_filtered_shotdata(self) -> Path | None:
         """Locate filtered shotdata under the active survey, if any."""
         return self._inspector.find_filtered_shotdata(self.survey)
-
-    def find_master_xml(self) -> Path | None:
-        """Locate the master XML file under the active campaign, if any."""
-        return self._inspector.find_master_xml(self.campaign())
 
     # -- discovery: list children of station / campaign --------------------
 

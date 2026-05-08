@@ -43,10 +43,10 @@ from ...config.file_config import (
     REMOTE_TYPE,
     AssetType,
 )
-from ...data_mgmt.adapters.earthscope_archive import EarthScopeArchive
+from ...data_mgmt.archives.earthscope_archive import EarthScopeArchive
 from ...data_mgmt.adapters.local_fs import LocalFileStore
-from ...data_mgmt.adapters.s3_fs import S3FileStore
-from ...data_mgmt.adapters.sql import SqlAssetStore
+from ...data_mgmt.adapters.local_fs import S3FileStore
+from ...data_mgmt.assetcatalog.sql import AssetCatalog
 from ...data_mgmt.core import FileTypeDetector
 from ...data_mgmt.model import AssetEntry, AssetKind
 
@@ -82,7 +82,7 @@ def _build_default_workspace(directory: Path | str) -> Workspace:
         root.mkdir(parents=True, exist_ok=True)
         catalog_db = root / "catalog.sqlite"
 
-    catalog = SqlAssetStore.sqlite(catalog_db)
+    catalog = AssetCatalog.sqlite(catalog_db)
     archive = EarthScopeArchive()
     return Workspace(root_dir=root, catalog=catalog, files=files, archive=archive)
 

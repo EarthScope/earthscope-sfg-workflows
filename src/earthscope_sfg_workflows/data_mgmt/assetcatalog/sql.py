@@ -101,7 +101,7 @@ def _entry_to_kwargs(asset: AssetEntry) -> dict:
     }
 
 
-class SqlAssetStore:
+class AssetCatalog:
     """SQLAlchemy-backed :class:`AssetStore`. Works with any URL — SQLite locally,
     Postgres/RDS in cloud. Pass an engine directly or use the factory classmethods.
     """
@@ -118,15 +118,15 @@ class SqlAssetStore:
     # -- factories ---------------------------------------------------------
 
     @classmethod
-    def sqlite(cls, db_path: Path, *, create_schema: bool = True) -> "SqlAssetStore":
-        """Build a `SqlAssetStore` backed by a local SQLite file at `db_path`."""
+    def sqlite(cls, db_path: Path, *, create_schema: bool = True) -> "AssetCatalog":
+        """Build a `AssetCatalog` backed by a local SQLite file at `db_path`."""
         db_path.parent.mkdir(parents=True, exist_ok=True)
         engine = create_engine(f"sqlite:///{db_path}", future=True)
         return cls(engine, create_schema=create_schema)
 
     @classmethod
-    def from_url(cls, url: str, *, create_schema: bool = True) -> "SqlAssetStore":
-        """Build a `SqlAssetStore` from a SQLAlchemy database URL."""
+    def from_url(cls, url: str, *, create_schema: bool = True) -> "AssetCatalog":
+        """Build a `AssetCatalog` from a SQLAlchemy database URL."""
         return cls(create_engine(url, future=True), create_schema=create_schema)
 
     # -- AssetStore protocol ----------------------------------------------
@@ -273,4 +273,4 @@ class SqlAssetStore:
             return row is not None
 
 
-__all__ = ["SqlAssetStore"]
+__all__ = ["AssetCatalog"]

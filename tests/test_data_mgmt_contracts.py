@@ -16,9 +16,9 @@ from earthscope_sfg_workflows.data_mgmt import (
     AssetKind,
     CampaignScope,
     DirectoryTree,
+    FileManager,
     FileTypeDetector,
     Ingestor,
-    TreeBuilder,
 )
 from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
     FakeArchive,
@@ -154,13 +154,13 @@ class TestInMemoryAssetStore:
         assert store.by_id(a.id) is None  # type: ignore[arg-type]
 
 
-class TestSqlAssetStore:
+class TestAssetCatalog:
     """Smoke contract tests for the SQLAlchemy adapter against on-disk SQLite."""
 
     def test_roundtrip(self, tmp_path: Path, scope: CampaignScope) -> None:
-        from earthscope_sfg_workflows.data_mgmt.adapters import SqlAssetStore
+        from earthscope_sfg_workflows.data_mgmt.adapters import AssetCatalog
 
-        store = SqlAssetStore.sqlite(tmp_path / "catalog.sqlite")
+        store = AssetCatalog.sqlite(tmp_path / "catalog.sqlite")
         try:
             a = store.add(
                 AssetEntry(
@@ -245,16 +245,16 @@ class TestFakeArchive:
 
 
 # ---------------------------------------------------------------------------
-# TreeBuilder
+# FileManager
 # ---------------------------------------------------------------------------
 
 
-class TestTreeBuilder:
+class TestFileManager:
     def test_ensure_campaign_creates_standard_dirs(
         self, workspace_tree: DirectoryTree, scope: CampaignScope
     ) -> None:
         fs = InMemoryFileStore()
-        tb = TreeBuilder(workspace_tree, fs)
+        tb = FileManager(workspace_tree, fs)
         layout = tb.ensure_campaign(scope)
         for d in layout.standard_dirs:
             assert fs.is_dir(d)
@@ -262,7 +262,7 @@ class TestTreeBuilder:
     def test_ensure_garpos_requires_survey(
         self, workspace_tree: DirectoryTree, scope: CampaignScope
     ) -> None:
-        tb = TreeBuilder(workspace_tree, InMemoryFileStore())
+        tb = FileManager(workspace_tree, InMemoryFileStore())
         with pytest.raises(ValueError):
             tb.ensure_garpos_survey(scope)
 
@@ -270,7 +270,7 @@ class TestTreeBuilder:
         self, workspace_tree: DirectoryTree, scope: CampaignScope
     ) -> None:
         fs = InMemoryFileStore()
-        tb = TreeBuilder(workspace_tree, fs)
+        tb = FileManager(workspace_tree, fs)
         layout = tb.ensure_garpos_survey(scope.with_survey("S1"))
         for d in layout.standard_dirs:
             assert fs.is_dir(d)
@@ -290,10 +290,9 @@ class TestIngestor:
         archive = FakeArchive()
         ing = Ingestor(
             catalog=catalog,
-            files=files,
+            file_manager=FileManager(tree, files),
             archive=archive,
             detector=FileTypeDetector(),
-            tree=tree,
         )
         return ing, catalog, files, archive
 
@@ -334,17 +333,16 @@ class TestIngestor:
         from earthscope_sfg_workflows.data_mgmt.adapters.local_fs import LocalFileStore
 
         catalog = InMemoryAssetStore()
-        files = LocalFileStore()
+        files = LocalFileStore(root=tmp_path)
         archive = FakeArchive()
         archive.seed("https://arc/a/foo.24o", b"R")
         tree = DirectoryTree(root=tmp_path)
 
         ing = Ingestor(
             catalog=catalog,
-            files=files,
+            file_manager=FileManager(tree, files),
             archive=archive,
             detector=FileTypeDetector(),
-            tree=tree,
         )
         ing.discover_archive(scope, "https://arc/a")
         report = ing.download(scope)

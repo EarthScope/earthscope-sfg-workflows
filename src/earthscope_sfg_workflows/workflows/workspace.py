@@ -17,10 +17,10 @@ from typing import TYPE_CHECKING
 
 from earthscope_sfg_workflows.data_mgmt.adapters.memory import InMemoryAssetStore
 from earthscope_sfg_workflows.data_mgmt.core import (
+    FileManager,
     FileTypeDetector,
     Ingestor,
     LayoutInspector,
-    TreeBuilder,
 )
 from earthscope_sfg_workflows.data_mgmt.model import CampaignScope, DirectoryTree
 from earthscope_sfg_workflows.data_mgmt.ports import (
@@ -77,14 +77,13 @@ class Workspace(AbstractContextManager["Workspace"]):
 
         # Pure & port-backed services.
         self._tree = DirectoryTree(root=self._root_dir)
-        self._builder = TreeBuilder(self._tree, self._files)
+        self._builder = FileManager(self._tree, self._files)
         self._inspector = LayoutInspector(self._files)
         self._ingestor = Ingestor(
             catalog=self._catalog,
-            files=self._files,
+            file_manager=self._builder,
             archive=self._archive,
             detector=self._detector,
-            tree=self._tree,
         )
 
         # Mutable scope state.
