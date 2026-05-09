@@ -1,18 +1,13 @@
 # External Imports
 import datetime
-import json
 import sys
 from functools import partial
 from multiprocessing import Pool
 from pathlib import Path
 
-from pride_ppp import PrideProcessor, ProcessingMode, kin_to_kin_position_df, rinex_get_time_range
-from tqdm.auto import tqdm
-
-from earthscope_sfg_workflows.logging import ProcessLogger, change_all_logger_dirs
+from earthscope_sfg_workflows.logging import ProcessLogger
 from earthscope_sfg_tools import tiledb_integration as novb_ops
-from earthscope_sfg_tools.tiledb_integration import rinex_qc, tile2rinex
-from earthscope_sfg_tools.novatel_tools.utils import get_metadata, get_metadatav2
+from earthscope_sfg_tools.tiledb_integration import rinex_qc
 from earthscope_sfg_tools.seafloor_site_tools.soundspeed_operations import (
     CTD_to_svp_v1,
     CTD_to_svp_v2,
@@ -24,17 +19,15 @@ from earthscope_sfg_tools.tiledb_integration import (
     TDBKinPositionArray,
     TDBShotDataArray,
 )
-
+from tqdm.auto import tqdm
 
 # Local imports
 from ...data_mgmt.model import AssetEntry, AssetKind
-from ...data_mgmt.utils import (
-    get_merge_signature_shotdata,
-)
-from ..base import WorkflowBase, validate_network_station_campaign
+from ...data_mgmt.utils import get_merge_signature_shotdata
+from ..base import validate_network_station_campaign
 from ..preprocess_ingest.data_handler import _build_default_workspace
 from ..workspace import Workspace
-from .config import SV3PipelineConfig
+from .config import PrideConfig, RinexConfig, SV3PipelineConfig
 from .exceptions import (
     NoDFOP00Found,
     NoKinFound,
@@ -44,10 +37,11 @@ from .exceptions import (
     NoRinexFound,
     NoSVPFound,
 )
+from .gnss_rinex_base import GnssRinexPipelineBase
 from .shotdata_gnss_refinement import merge_shotdata_kinposition
 
 
-class SV3Pipeline(WorkflowBase):
+class SV3Pipeline(GnssRinexPipelineBase):
     """Orchestrates the end-to-end processing of Sonardyne SV3 and Novatel GNSS data for seafloor geodesy.
     This class manages a comprehensive workflow for processing seafloor geodesy
     data, including:
@@ -143,65 +137,37 @@ class SV3Pipeline(WorkflowBase):
         self.kinPositionTDB: TDBKinPositionArray = None  # High-precision kinematic positions
         self.imuPositionTDB: TDBIMUPositionArray = None  # IMU positions from Novatel 000
         self.shotDataFinalTDB: TDBShotDataArray = None  # Final shotdata (after refinement)
+        self.gnssObsTDBURI = None
+        self.gnssObsTDB_secondaryURI = None
 
-    def set_network_station_campaign(
-        self,
-        network_id: str,
-        station_id: str,
-        campaign_id: str,
-    ) -> None:
-        """Set the current network, station, and campaign context for pipeline processing.
-        This method establishes the processing context and performs several
-        initialization tasks:
-        1. Resets previous context and clears TileDB arrays if context changes
-        2. Calls parent method to handle context switching
-        3. Validates data availability
-        4. Initializes TileDB arrays
-        5. Configures logging
-        6. Prepares RINEX metadata
+    # ── GnssRinexPipelineBase abstract interface ──────────────────────────────
 
-        Args:
-            network_id: Network identifier (e.g., "cascadia-gorda").
-            station_id: Station identifier (e.g., "NCC1").
-            campaign_id: Campaign identifier (e.g., "2023_A_1126").
-        """
-        # Clear TileDB arrays if switching context to avoid stale references
-        if (
-            network_id != self.current_network_name
-            or station_id != self.current_station_name
-            or campaign_id != self.current_campaign_name
-        ):
-            self.shotDataPreTDB = None
-            self.kinPositionTDB = None
-            self.imuPositionTDB = None
-            self.shotDataFinalTDB = None
+    @property
+    def _gnss_obs_uri(self):
+        """Return primary or secondary GNSS TileDB URI based on ``use_secondary`` config."""
+        if self.config.rinex_config.use_secondary:
+            return self.gnssObsTDB_secondaryURI
+        return self.gnssObsTDBURI
 
-        # Forward scope to the workspace and materialize campaign dirs.
-        if network_id != self.workspace.network_name:
-            self.workspace.set_network(network_id)
-        if station_id != self.workspace.station_name:
-            self.workspace.set_station(station_id)
-        if campaign_id != self.workspace.campaign_name:
-            self.workspace.set_campaign(campaign_id)
-        self.workspace.layout.ensure_campaign()
+    @property
+    def _kin_position_tdb(self) -> TDBKinPositionArray:
+        return self.kinPositionTDB
 
-        # Make sure there are files to process
-        dtype_counts = self.workspace.assets.dtype_counts()
-        if dtype_counts == {}:
-            message = f"No local files found for {network_id}/{station_id}/{campaign_id}. Ensure data is ingested before processing."
-            ProcessLogger.error(message)
-            raise NoLocalData(message)
+    @property
+    def _rinex_config(self) -> RinexConfig:
+        return self.config.rinex_config
 
-        # Update all log directories
-        change_all_logger_dirs(self.workspace.layout.campaign().logs)
+    @property
+    def _pride_config(self) -> PrideConfig:
+        return self.config.pride_config
 
-        for dtype, count in dtype_counts.items():
-            ProcessLogger.info(
-                f"Found {count} local files of type {dtype} for {network_id}/{station_id}/{campaign_id}"
-            )
-
-        # Initialize TileDB arrays if not already created
-        self._build_tiledb_arrays()
+    def _reset_tiledb_arrays(self) -> None:
+        self.shotDataPreTDB = None
+        self.kinPositionTDB = None
+        self.imuPositionTDB = None
+        self.shotDataFinalTDB = None
+        self.gnssObsTDBURI = None
+        self.gnssObsTDB_secondaryURI = None
 
     def _build_tiledb_arrays(self) -> None:
         """Initialize TileDB arrays for the current station context."""
@@ -220,32 +186,9 @@ class SV3Pipeline(WorkflowBase):
         self.gnssObsTDBURI = tiledb.gnss_obs
         self.gnssObsTDB_secondaryURI = tiledb.gnss_obs_secondary
 
-        self._build_rinex_meta()
-
-    def _build_rinex_meta(self) -> None:
-        """Build RINEX metadata files for the current campaign if they don't exist.
-        Creates two metadata files:
-        - rinex_metav2.json: Updated format with metadata
-        - rinex_metav1.json: Legacy format for backward compatibility
-
-        These files contain station-specific information needed for RINEX
-        generation.
-        """
-
-        # Get the RINEX metadata
-        meta_dir = self.workspace.layout.campaign().root / "metadata"
-        meta_dir.mkdir(parents=True, exist_ok=True)
-        rinex_metav2 = meta_dir / "rinex_metav2.json"
-        rinex_metav1 = meta_dir / "rinex_metav1.json"
-        if not rinex_metav2.exists():
-            with open(rinex_metav2, "w") as f:
-                json.dump(get_metadatav2(site=self.current_station_name), f)
-
-        if not rinex_metav1.exists():
-            with open(rinex_metav1, "w") as f:
-                json.dump(get_metadata(site=self.current_station_name), f)
-
-        self.config.rinex_config.settings_path = rinex_metav2
+    def _on_rinex_path(self, path: Path) -> None:
+        """Call :func:`rinex_qc` on each generated RINEX file."""
+        rinex_qc(path)
 
     @validate_network_station_campaign
     def pre_process_novatel(self) -> None:
@@ -364,279 +307,6 @@ class SV3Pipeline(WorkflowBase):
             raise NoNovatelFound(
                 f"No Novatel 770 or 000 files found for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}. Cannot proceed with GNSS processing."
             )
-
-    @validate_network_station_campaign
-    def get_rinex_files(self) -> None:
-        """Generate and catalog daily RINEX files for the current campaign.
-        Steps:
-        1. Consolidates GNSS observation data
-        2. Determines processing year from config or campaign name
-        3. Invokes tile2rinex to generate daily RINEX files
-        4. Creates AssetEntry for each RINEX file
-        5. Updates asset catalog with merge job
-
-        Raises:
-            ValueError: If a processing year cannot be determined from the campaign name.
-            Exception: If an error occurs during RINEX file generation.
-        """
-
-        rinexDestination = self.workspace.layout.campaign().intermediate
-
-        if self.config.rinex_config.use_secondary:
-            ProcessLogger.info(
-                f"Using secondary GNSS data for RINEX generation for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
-            )
-            gnss_obs_data_dest = self.gnssObsTDB_secondaryURI
-        else:
-            gnss_obs_data_dest = self.gnssObsTDBURI
-
-        if self.config.rinex_config.processing_year != -1:
-            year = self.config.rinex_config.processing_year
-        else:
-            year = int(
-                self.current_campaign_name.split("_")[0]
-            )  # default to the year from the campaign name
-
-        ProcessLogger.info(
-            f"Generating Rinex Files for {self.current_network_name} {self.current_station_name} {year}. This may take a few minutes..."
-        )
-        parent_ids = f"N-{self.current_network_name}|ST-{self.current_station_name}|SV-{self.current_campaign_name}|TDB-{gnss_obs_data_dest}|YEAR-{year}"
-        merge_signature = {
-            "parent_type": AssetKind.GNSSOBSTDB.value,
-            "child_type": AssetKind.RINEX2.value,
-            "parent_ids": [parent_ids],
-        }
-
-        if self.config.rinex_config.override or not self.workspace.assets.is_merge_complete(
-            **merge_signature
-        ):
-            """
-            Process GNSS observation data into RINEX format.
-            1. Calls tile2rinex to generate daily RINEX files
-            2. Creates AssetEntry for each RINEX file
-            3. Adds RINEX files to asset catalog
-            4. Updates asset catalog with merge job
-            5. Logs summary information
-            """
-            try:
-                rinex_paths: list[Path] = tile2rinex(
-                    gnss_obs_tdb=self.gnssObsTDBURI,
-                    settings=self.config.rinex_config.settings_path,
-                    writedir=rinexDestination,  # where to write the RINEX files
-                    time_interval=self.config.rinex_config.time_interval,  # seconds
-                    processing_year=year,
-                    modulo_millis=self.config.rinex_config.modulo_millis,
-                )
-
-                if len(rinex_paths) == 0:
-                    ProcessLogger.warning(
-                        f"No Rinex Files generated for {self.current_network_name} {self.current_station_name} {self.current_campaign_name} {year}."
-                    )
-                    raise NoRinexBuilt(
-                        "No RINEX files were built. Try running self.pre_process_novatel() to ensure GNSS data is available."
-                    )
-
-                rinex_entries: list[AssetEntry] = []
-                uploadCount = 0
-                scope = self.workspace.scope
-                for rinex_path in rinex_paths:
-                    # Get the start and end time from the RINEX file for metadata
-                    rinex_time_start, rinex_time_end = rinex_get_time_range(rinex_path)
-                    rinex_qc(rinex_path)
-                    rinex_entry = AssetEntry(
-                        kind=AssetKind.RINEX2,
-                        scope=scope,
-                        local_path=rinex_path,
-                        timestamp_data_start=rinex_time_start,
-                        timestamp_data_end=rinex_time_end,
-                        timestamp_created=datetime.datetime.now(tz=datetime.UTC),
-                    )
-                    persisted = self.workspace.assets.add_or_update(rinex_entry)
-                    if persisted is not None:
-                        rinex_entries.append(persisted)
-                        uploadCount += 1
-                    else:
-                        rinex_entries.append(rinex_entry)
-
-                self.workspace.assets.add_merge_job(**merge_signature)
-
-                ProcessLogger.info(
-                    f"Generated {len(rinex_entries)} Rinex files spanning {rinex_entries[0].timestamp_data_start} to {rinex_entries[-1].timestamp_data_end}"
-                )
-                ProcessLogger.debug(
-                    f"Added {uploadCount} out of {len(rinex_entries)} Rinex files to the catalog"
-                )
-
-            except NoRinexBuilt as e:
-                raise e
-
-            except Exception as e:
-                if (
-                    message := ProcessLogger.error(f"Error generating RINEX files: {e}")
-                ) is not None:
-                    print(message)
-
-        else:
-            rinex_entries = self.workspace.assets.local(AssetKind.RINEX2)
-            num_rinex_entries = len(rinex_entries)
-            ProcessLogger.debug(
-                f"RINEX files have already been generated for {self.current_network_name}, {self.current_station_name}, and {year} Found {num_rinex_entries} entries."
-            )
-
-    @validate_network_station_campaign
-    def process_rinex(self) -> None:
-        """Run PRIDE-PPP on RINEX files to generate KIN and residual files.
-        Processing steps:
-        1. Retrieves RINEX files needing processing
-        2. Downloads GNSS product files (SP3, OBX, ATT) for each unique DOY
-        3. Runs PRIDE-PPPAR in parallel to convert RINEX to KIN format
-        4. Adds KIN and residual files to asset catalog
-
-        Uses multiprocessing for efficient parallel processing of multiple RINEX
-        files.
-        """
-
-        response = f"Running PRIDE-PPPAR on Rinex Data for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}. This may take a few minutes..."
-        ProcessLogger.info(response)
-
-        # Get the PRIDE directory and intermediate directory
-        prideDir = self.workspace.layout.pride_directory
-        intermediateDir = self.workspace.layout.campaign().intermediate
-
-        # Get the Rinex files to process
-        rinex_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
-            parent_kind=AssetKind.RINEX2,
-            child_kind=AssetKind.KIN,
-            override=self.config.pride_config.override,
-        )
-        if not rinex_entries:
-            response = f"No Rinex Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
-            ProcessLogger.error(response)
-            raise NoRinexFound(response)
-
-        # Only keep entries with a local path (should be all, in case only using a version of rinex (1hz vs 10hz)
-        rinex_entries = [
-            rinex_entry for rinex_entry in rinex_entries if rinex_entry.local_path is not None
-        ]
-        if not rinex_entries:
-            response = (
-                f"No Rinex Files with local paths found to Process for "
-                f"{self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
-            )
-            ProcessLogger.error(response)
-            raise NoRinexFound(response)
-
-        response = f"Found {len(rinex_entries)} Rinex Files to Process"
-        ProcessLogger.info(response)
-
-        # Process the Rinex files using PrideProcessor
-        # 1. Convert each Rinex to KIN using PRIDE
-        # 2. Create AssetEntry for each KIN and residual file
-        # 3. Add to the catalog
-        # 4. Mark Rinex as processed
-        processor = PrideProcessor(
-            pride_dir=prideDir,
-            output_dir=intermediateDir,
-            mode=ProcessingMode.DEFAULT,
-        )
-
-        # Build the partial function for multi processing Rinex to KIN
-        rinex_path_entry_map = {entry.local_path: entry for entry in rinex_entries}
-
-        kin_count = 0
-        res_count = 0
-        uploadCount = 0
-
-        for result in tqdm(
-            processor.process_batch(
-                [x.local_path for x in rinex_entries],
-                max_workers=self.config.pride_config.n_processes,
-                override=self.config.pride_config.override,
-            ),
-            desc=f"Processing Rinex Files with PRIDE-PPPAR for {self.current_network_name} {self.current_station_name} {self.current_campaign_name} using {self.config.pride_config.n_processes} workers",
-            total=len(rinex_entries),
-        ):
-            ProcessLogger.info(f"Completed PRIDE-PPPAR processing for {result.rinex_path.name}")
-            rinex_entry = rinex_path_entry_map.get(result.rinex_path)
-            if result.kin_path is not None:
-                ProcessLogger.info(
-                    f"Generated KIN file for {result.rinex_path.name} at {result.kin_path}"
-                )
-                rinex_entry = self.workspace.assets.update(rinex_entry, is_processed=True)
-                kin_entry = AssetEntry(
-                    kind=AssetKind.KIN,
-                    scope=self.workspace.scope,
-                    local_path=result.kin_path,
-                    timestamp_data_start=rinex_entry.timestamp_data_start,
-                    timestamp_data_end=rinex_entry.timestamp_data_end,
-                    timestamp_created=datetime.datetime.now(tz=datetime.UTC),
-                    parent_id=rinex_entry.id,
-                )
-                kin_count += 1
-                if self.workspace.assets.add_or_update(kin_entry):
-                    uploadCount += 1
-            if result.res_path is not None:
-                resfile = AssetEntry(
-                    kind=AssetKind.KINRESIDUALS,
-                    scope=self.workspace.scope,
-                    local_path=result.res_path,
-                    timestamp_data_start=rinex_entry.timestamp_data_start,
-                    timestamp_data_end=rinex_entry.timestamp_data_end,
-                    timestamp_created=datetime.datetime.now(tz=datetime.UTC),
-                    parent_id=rinex_entry.id,
-                )
-
-                res_count += 1
-                if self.workspace.assets.add_or_update(resfile):
-                    uploadCount += 1
-
-        response = f"Generated {kin_count} Kin Files and {res_count} Residual Files From {len(rinex_entries)} Rinex Files, Added {uploadCount} to the Catalog"
-        ProcessLogger.info(response)
-
-    @validate_network_station_campaign
-    def process_kin(self) -> None:
-        """Process KIN files to generate kinematic position dataframes.
-        Steps:
-        1. Retrieves KIN files needing processing
-        2. Converts each KIN file to a structured dataframe
-        3. Writes dataframes to kinematic position TileDB array
-        4. Marks files as processed in asset catalog
-        """
-
-        ProcessLogger.info(
-            f"Looking for Kin Files to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
-        )
-
-        kin_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
-            parent_kind=AssetKind.KIN,
-            override=self.config.rinex_config.override,
-        )
-        self.workspace.assets.single_to_process(
-            parent_kind=AssetKind.KINRESIDUALS,
-            override=self.config.rinex_config.override,
-        )
-        if not kin_entries:
-            message = f"No Kin Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
-            ProcessLogger.info(message)
-            raise NoKinFound(message)
-
-        ProcessLogger.info(f"Found {len(kin_entries)} Kin Files to Process: processing")
-
-        # Process KIN files to generate kinematic position dataframes
-        processed_count = 0
-        for kin_entry in tqdm(kin_entries, desc="Processing Kin Files"):
-            try:
-                kin_position_df = kin_to_kin_position_df(kin_entry.local_path)
-                if kin_position_df is not None:
-                    processed_count += 1
-                    self.workspace.assets.update(kin_entry, is_processed=True)
-                    self.kinPositionTDB.write_df(kin_position_df)
-            except Exception as e:
-                ProcessLogger.error(f"Error processing {kin_entry.local_path}: {e}")
-
-        ProcessLogger.info(
-            f"Generated {processed_count} KinPosition Dataframes From {len(kin_entries)} Kin Files"
-        )
 
     @validate_network_station_campaign
     def process_dfop00(self) -> None:

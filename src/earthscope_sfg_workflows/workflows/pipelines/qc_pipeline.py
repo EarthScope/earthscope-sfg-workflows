@@ -1,27 +1,23 @@
 # External Imports
 import concurrent.futures
 import datetime
-import json
 import sys
 import threading
 import time
 from collections import deque
 from dataclasses import replace
 from functools import partial
-from pathlib import Path
 from typing import TYPE_CHECKING
 import os as _os
 
-from pride_ppp import PrideProcessor, ProcessingMode, kin_to_kin_position_df, rinex_get_time_range
 from tqdm.auto import tqdm
 
 # Local Imports
-from earthscope_sfg_workflows.logging import ProcessLogger, change_all_logger_dirs
-from earthscope_sfg_tools.tiledb_integration import tile2rinex
+from earthscope_sfg_workflows.logging import ProcessLogger
+from pathlib import Path
 from earthscope_sfg_tools.novatel_tools.rangea_parser import (
     extract_rangea_strings_from_qcpin,
 )
-from earthscope_sfg_tools.novatel_tools.utils import get_metadata, get_metadatav2
 from earthscope_sfg_tools.sonardyne_tools.sv3_qc_operations import qcjson_to_shotdata
 from earthscope_sfg_tools.tiledb_integration import (
     TDBGNSSObsArray,
@@ -31,10 +27,10 @@ from earthscope_sfg_tools.tiledb_integration import (
 
 from ...data_mgmt.model import AssetEntry, AssetKind
 from ...data_mgmt.utils import get_merge_signature_shotdata
-from ..base import WorkflowBase, validate_network_station_campaign
+from ..base import validate_network_station_campaign
 from ..preprocess_ingest.data_handler import _build_default_workspace
 from ..workspace import Workspace
-from .config import QCPipelineConfig
+from .config import PrideConfig, QCPipelineConfig, RinexConfig
 
 if TYPE_CHECKING:
     from ..facades import AssetQueryFacade
@@ -45,6 +41,7 @@ from .exceptions import (
     NoRinexBuilt,
     NoRinexFound,
 )
+from .gnss_rinex_base import GnssRinexPipelineBase
 from .shotdata_gnss_refinement import merge_shotdata_qc
 
 
@@ -108,7 +105,7 @@ def rangea_string_epoch(
             sleep_time = remainder
 
 
-class QCPipeline(WorkflowBase):
+class QCPipeline(GnssRinexPipelineBase):
     """Orchestrates the QC data processing pipeline for seafloor geodesy.
     This class manages a workflow for processing QC (Quality Control) data
     from Sonardyne equipment, including:
@@ -178,67 +175,35 @@ class QCPipeline(WorkflowBase):
         self.qcShotDataPreTDB: TDBShotDataArray = None
         self.qcKinPositionTDB: TDBKinPositionArray = None
         self.qcShotDataFinalTDB: TDBShotDataArray = None
-        self.qcGnssObsTDBURI: Path = None
+        self.qcGnssObsTDB: TDBGNSSObsArray = None
 
-    def set_network_station_campaign(
-        self,
-        network_id: str,
-        station_id: str,
-        campaign_id: str,
-    ) -> None:
-        """Set the current network, station, and campaign context for pipeline processing.
-        This method establishes the processing context and performs several
-        initialization tasks:
-        1. Resets previous context and clears TileDB arrays if context changes
-        2. Calls parent method to handle context switching
-        3. Validates data availability
-        4. Initializes TileDB arrays
-        5. Configures logging
-        6. Prepares RINEX metadata
+    # ── GnssRinexPipelineBase abstract interface ──────────────────────────────
 
-        Args:
-            network_id: Network identifier (e.g., "cascadia-gorda").
-            station_id: Station identifier (e.g., "NCC1").
-            campaign_id: Campaign identifier (e.g., "2023_A_1126").
-        """
-        # Clear TileDB arrays if switching context to avoid stale references
-        if (
-            network_id != self.current_network_name
-            or station_id != self.current_station_name
-            or campaign_id != self.current_campaign_name
-        ):
-            self.qcShotDataPreTDB = None
-            self.qcKinPositionTDB = None
-            self.qcShotDataFinalTDB = None
-            self.qcGnssObsTDB = None
+    @property
+    def _gnss_obs_uri(self):
+        return self.qcGnssObsTDB.uri
 
-        # Forward scope to the workspace and materialize campaign dirs.
-        if network_id != self.workspace.network_name:
-            self.workspace.set_network(network_id)
-        if station_id != self.workspace.station_name:
-            self.workspace.set_station(station_id)
-        if campaign_id != self.workspace.campaign_name:
-            self.workspace.set_campaign(campaign_id)
-        self.workspace.layout.ensure_campaign()
+    @property
+    def _kin_position_tdb(self) -> TDBKinPositionArray:
+        return self.qcKinPositionTDB
 
-        # Make sure there are files to process
-        dtype_counts = self.workspace.assets.dtype_counts()
-        if dtype_counts == {}:
-            message = f"No local files found for {network_id}/{station_id}/{campaign_id}. Ensure data is ingested before processing."
-            ProcessLogger.error(message)
-            raise NoLocalData(message)
+    @property
+    def _rinex_config(self) -> RinexConfig:
+        return self.config.rinex_config
 
-        # Update all log directories
-        change_all_logger_dirs(self.workspace.layout.campaign().logs)
+    @property
+    def _pride_config(self) -> PrideConfig:
+        return self.config.pride_config
 
-        for dtype, count in dtype_counts.items():
-            ProcessLogger.info(
-                f"Found {count} local files of type {dtype} for {network_id}/{station_id}/{campaign_id}"
-            )
+    @property
+    def _rinex_merge_label(self) -> str:
+        return "|QC"
 
-        # Initialize TileDB arrays if not already created
-        self._build_tiledb_arrays()
-        self._build_rinex_meta()
+    def _reset_tiledb_arrays(self) -> None:
+        self.qcShotDataPreTDB = None
+        self.qcKinPositionTDB = None
+        self.qcShotDataFinalTDB = None
+        self.qcGnssObsTDB = None
 
     def _build_tiledb_arrays(self) -> None:
         """Initialize QC-specific TileDB arrays for the current station context."""
@@ -256,22 +221,6 @@ class QCPipeline(WorkflowBase):
         if self.qcGnssObsTDB is None:
             self.qcGnssObsTDB = TDBGNSSObsArray(tiledb.qc_gnss_obs)
             self.qcGnssObsTDB.consolidate()
-
-    def _build_rinex_meta(self) -> None:
-        """Build RINEX metadata files for the current campaign if they don't exist."""
-        meta_dir = self.workspace.layout.campaign().root / "metadata"
-        meta_dir.mkdir(parents=True, exist_ok=True)
-        rinex_metav2 = meta_dir / "rinex_metav2.json"
-        rinex_metav1 = meta_dir / "rinex_metav1.json"
-        if not rinex_metav2.exists():
-            with open(rinex_metav2, "w") as f:
-                json.dump(get_metadatav2(site=self.current_station_name), f)
-
-        if not rinex_metav1.exists():
-            with open(rinex_metav1, "w") as f:
-                json.dump(get_metadata(site=self.current_station_name), f)
-
-        self.config.rinex_config.settings_path = rinex_metav2
 
     @validate_network_station_campaign
     def process_qcpin(self) -> None:
@@ -334,224 +283,6 @@ class QCPipeline(WorkflowBase):
         second_step.join(timeout=10)
         response = f"Processed {count} out of {len(qcpin_entries)} QCPIN Files"
         ProcessLogger.info(response)
-
-    @validate_network_station_campaign
-    def get_rinex_files(self) -> None:
-        """Generate and catalog daily RINEX files from QC GNSS data.
-        This method generates RINEX files from the QC GNSS observation TileDB
-        array for use in PRIDE-PPP processing.
-
-        Raises:
-            NoRinexBuilt: If no RINEX files could be generated.
-        """
-        rinexDestination = self.workspace.layout.campaign().intermediate
-
-        if self.config.rinex_config.processing_year != -1:
-            year = self.config.rinex_config.processing_year
-        else:
-            year = int(self.current_campaign_name.split("_")[0])
-
-        ProcessLogger.info(
-            f"Generating QC Rinex Files for {self.current_network_name} {self.current_station_name} {year}. This may take a few minutes..."
-        )
-
-        parent_ids = f"N-{self.current_network_name}|ST-{self.current_station_name}|SV-{self.current_campaign_name}|TDB-{str(self.qcGnssObsTDB.uri)}|YEAR-{year}|QC"
-        merge_signature = {
-            "parent_type": AssetKind.GNSSOBSTDB.value,
-            "child_type": AssetKind.RINEX2.value,
-            "parent_ids": [parent_ids],
-        }
-
-        if self.config.rinex_config.override or not self.workspace.assets.is_merge_complete(
-            **merge_signature
-        ):
-            try:
-                rinex_paths: list[Path] = tile2rinex(
-                    gnss_obs_tdb=self.qcGnssObsTDB.uri,
-                    settings=self.config.rinex_config.settings_path,
-                    writedir=rinexDestination,
-                    time_interval=self.config.rinex_config.time_interval,
-                    processing_year=year,
-                )
-
-                if len(rinex_paths) == 0:
-                    ProcessLogger.warning(
-                        f"No QC Rinex Files generated for {self.current_network_name} {self.current_station_name} {self.current_campaign_name} {year}."
-                    )
-                    raise NoRinexBuilt(
-                        "No QC RINEX files were built. Ensure GNSS data is available."
-                    )
-
-                rinex_entries: list[AssetEntry] = []
-                uploadCount = 0
-                scope = self.workspace.scope
-                for rinex_path in rinex_paths:
-                    rinex_time_start, rinex_time_end = rinex_get_time_range(rinex_path)
-                    rinex_entry = AssetEntry(
-                        kind=AssetKind.RINEX2,
-                        scope=scope,
-                        local_path=rinex_path,
-                        timestamp_data_start=rinex_time_start,
-                        timestamp_data_end=rinex_time_end,
-                        timestamp_created=datetime.datetime.now(tz=datetime.UTC),
-                    )
-                    persisted = self.workspace.assets.add_or_update(rinex_entry)
-                    if persisted is not None:
-                        rinex_entries.append(persisted)
-                        uploadCount += 1
-                    else:
-                        rinex_entries.append(rinex_entry)
-
-                self.workspace.assets.add_merge_job(**merge_signature)
-
-                ProcessLogger.info(
-                    f"Generated {len(rinex_entries)} QC Rinex files spanning {rinex_entries[0].timestamp_data_start} to {rinex_entries[-1].timestamp_data_end}"
-                )
-                ProcessLogger.debug(
-                    f"Added {uploadCount} out of {len(rinex_entries)} Rinex files to the catalog"
-                )
-
-            except NoRinexBuilt:
-                raise
-
-            except Exception as e:
-                if (
-                    message := ProcessLogger.error(f"Error generating QC RINEX files: {e}")
-                ) is not None:
-                    print(message)
-                sys.exit(1)
-        else:
-            rinex_entries = self.workspace.assets.local(AssetKind.RINEX2)
-            num_rinex_entries = len(rinex_entries)
-            ProcessLogger.debug(
-                f"QC RINEX files have already been generated for {self.current_network_name}, {self.current_station_name}, and {year}. Found {num_rinex_entries} entries."
-            )
-
-    @validate_network_station_campaign
-    def process_rinex(self) -> None:
-        """Run PRIDE-PPP on RINEX files to generate KIN and residual files.
-        Processing steps:
-        1. Retrieves RINEX files needing processing
-        2. Downloads GNSS product files (SP3, OBX, ATT)
-        3. Runs PRIDE-PPPAR to convert RINEX to KIN format
-        4. Adds KIN and residual files to asset catalog
-
-        Raises:
-            NoRinexFound: If no RINEX files are found for processing.
-        """
-        response = f"Running PRIDE-PPPAR on QC Rinex Data for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}. This may take a few minutes..."
-        ProcessLogger.info(response)
-
-        prideDir = self.workspace.layout.pride_directory
-        intermediateDir = self.workspace.layout.campaign().intermediate
-
-        rinex_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
-            parent_kind=AssetKind.RINEX2,
-            child_kind=AssetKind.KIN,
-            override=self.config.pride_config.override,
-        )
-        if not rinex_entries:
-            response = f"No Rinex Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
-            ProcessLogger.error(response)
-            raise NoRinexFound(response)
-
-        response = f"Found {len(rinex_entries)} Rinex Files to Process"
-        ProcessLogger.info(response)
-
-        # Process Rinex files using PrideProcessor
-        processor = PrideProcessor(
-            pride_dir=prideDir,
-            output_dir=intermediateDir,
-            mode=ProcessingMode.DEFAULT,
-        )
-
-        rinex_path_entry_map = {entry.local_path: entry for entry in rinex_entries}
-
-        kin_count = 0
-        res_count = 0
-        uploadCount = 0
-
-        for result in processor.process_batch(
-            [x.local_path for x in rinex_entries],
-            max_workers=self.config.pride_config.n_processes,
-            override=self.config.pride_config.override,
-        ):
-            rinex_entry = rinex_path_entry_map.get(result.rinex_path)
-            if result.kin_path is not None:
-                kin_count += 1
-                rinex_entry = self.workspace.assets.update(rinex_entry, is_processed=True)
-
-                kin_entry = AssetEntry(
-                    kind=AssetKind.KIN,
-                    scope=self.workspace.scope,
-                    local_path=result.kin_path,
-                    parent_id=rinex_entry.id,
-                    timestamp_data_start=rinex_entry.timestamp_data_start,
-                    timestamp_data_end=rinex_entry.timestamp_data_end,
-                    timestamp_created=datetime.datetime.now(tz=datetime.UTC),
-                )
-                if self.workspace.assets.add_or_update(kin_entry):
-                    uploadCount += 1
-
-                if result.residual_path is not None:
-                    res_count += 1
-                    res_entry = AssetEntry(
-                        kind=AssetKind.KINRESIDUALS,
-                        scope=self.workspace.scope,
-                        local_path=result.residual_path,
-                        parent_id=rinex_entry.id,
-                        timestamp_data_start=rinex_entry.timestamp_data_start,
-                        timestamp_data_end=rinex_entry.timestamp_data_end,
-                        timestamp_created=datetime.datetime.now(tz=datetime.UTC),
-                    )
-                    if self.workspace.assets.add_or_update(res_entry):
-                        uploadCount += 1
-
-        response = f"Generated {kin_count} Kin Files and {res_count} Residual Files From {len(rinex_entries)} QC Rinex Files, Added {uploadCount} to the Catalog"
-        ProcessLogger.info(response)
-
-    @validate_network_station_campaign
-    def process_kin(self) -> None:
-        """Process KIN files to generate QC kinematic position dataframes.
-        Steps:
-        1. Retrieves KIN files needing processing
-        2. Converts each KIN file to a structured dataframe
-        3. Writes dataframes to QC kinematic position TileDB array
-        4. Marks files as processed in asset catalog
-
-        Raises:
-            NoKinFound: If no KIN files are found for processing.
-        """
-        ProcessLogger.info(
-            f"Looking for QC Kin Files to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
-        )
-
-        kin_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
-            parent_kind=AssetKind.KIN,
-            override=self.config.rinex_config.override,
-        )
-
-        if not kin_entries:
-            message = f"No QC Kin Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
-            ProcessLogger.info(message)
-            raise NoKinFound(message)
-
-        ProcessLogger.info(f"Found {len(kin_entries)} QC Kin Files to Process: processing")
-
-        processed_count = 0
-        for kin_entry in tqdm(kin_entries, desc="Processing QC Kin Files"):
-            try:
-                kin_position_df = kin_to_kin_position_df(kin_entry.local_path)
-                if kin_position_df is not None:
-                    processed_count += 1
-                    self.workspace.assets.update(kin_entry, is_processed=True)
-                    self.qcKinPositionTDB.write_df(kin_position_df)
-            except Exception as e:
-                ProcessLogger.error(f"Error processing {kin_entry.local_path}: {e}")
-
-        ProcessLogger.info(
-            f"Generated {processed_count} QC KinPosition Dataframes From {len(kin_entries)} Kin Files"
-        )
 
     @validate_network_station_campaign
     def update_shotdata(self) -> None:
