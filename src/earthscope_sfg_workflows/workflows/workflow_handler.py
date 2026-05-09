@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 from typing import (
+    Callable,
     List,
     Literal,
 )
@@ -24,7 +25,6 @@ from .base import (
 )
 from .midprocess.mid_processing import IntermediateDataProcessor
 from .modeling.garpos_handler import GarposHandler
-from .pipelines import exceptions as pipeline_exceptions
 from .pipelines.config import (
     DFOP00Config,
     NovatelConfig,
@@ -38,26 +38,30 @@ from .pipelines.qc_pipeline import QCPipeline
 from .pipelines.sv3_pipeline import SV3Pipeline
 from .preprocess_ingest.data_handler import DataHandler, _build_default_workspace
 
-pipeline_jobs = [
-    "all",
-    "intermediate",
-    "process_novatel",
-    "build_rinex",
-    "run_pride",
-    "process_kinematic",
-    "process_dfop00",
-    "refine_shotdata",
-    "process_svp",
-]
+_SV3_JOBS: dict[str, Callable[["SV3Pipeline"], None]] = {
+    "all":                lambda p: p.run_pipeline(),
+    "intermediate":       lambda p: p.run_intermediate_pipeline(),
+    "process_novatel":    lambda p: p.pre_process_novatel(),
+    "build_rinex":        lambda p: p.get_rinex_files(),
+    "run_pride":          lambda p: p.process_rinex(),
+    "process_kinematic":  lambda p: p.process_kin(),
+    "process_dfop00":     lambda p: p.process_dfop00(),
+    "refine_shotdata":    lambda p: p.update_shotdata(),
+    "process_svp":        lambda p: p.process_svp(),
+}
 
-qc_pipeline_jobs = [
-    "all",
-    "process_qcpin",
-    "build_rinex",
-    "run_pride",
-    "process_kinematic",
-    "refine_shotdata",
-]
+_QC_JOBS: dict[str, Callable[["QCPipeline"], None]] = {
+    "all":                lambda p: p.run_pipeline(),
+    "process_qcpin":      lambda p: p.process_qcpin(),
+    "build_rinex":        lambda p: p.get_rinex_files(),
+    "run_pride":          lambda p: p.process_rinex(),
+    "process_kinematic":  lambda p: p.process_kin(),
+    "refine_shotdata":    lambda p: p.update_shotdata(),
+}
+
+# Keep legacy list names for any external callers that inspect them.
+pipeline_jobs = list(_SV3_JOBS)
+qc_pipeline_jobs = list(_QC_JOBS)
 
 
 class WorkflowHandler(WorkflowBase):
@@ -371,127 +375,16 @@ class WorkflowHandler(WorkflowBase):
             ...     primary_config={"novatel_config":
             ... ):
         """
-        assert job in pipeline_jobs, f"Job must be one of {pipeline_jobs}"
+        assert job in _SV3_JOBS, f"Job must be one of {pipeline_jobs}"
 
         pipeline: SV3Pipeline = self.preprocess_get_pipeline_sv3(
             primary_config=primary_config, secondary_config=secondary_config
         )
-        match job:
-            case "all":
-                pipeline.run_pipeline()
-
-            case "intermediate":
-                pipeline.run_intermediate_pipeline()
-
-            case "process_novatel":
-                assert isinstance(
-                    primary_config,
-                    (type(None), dict, SV3PipelineConfig, NovatelConfig),
-                ), (
-                    "Primary config must be provided and be of type None, dict, SV3PipelineConfig, or NovatelConfig when running process_novatel"
-                )
-                assert isinstance(
-                    secondary_config,
-                    (type(None), dict, SV3PipelineConfig, NovatelConfig),
-                ), (
-                    "Secondary config must be of type None, dict, SV3PipelineConfig, or NovatelConfig when running process_novatel"
-                )
-                try:
-                    pipeline.pre_process_novatel()
-                except Exception as e:
-                    logger.error(f"Novatel processing failed: {e}")
-                    raise e
-
-            case "build_rinex":
-                assert isinstance(
-                    primary_config, (type(None), dict, SV3PipelineConfig, RinexConfig)
-                ), (
-                    "Primary config must be provided and be of type None, dict, SV3PipelineConfig, or RinexConfig when running build_rinex"
-                )
-                assert isinstance(
-                    secondary_config, (type(None), dict, SV3PipelineConfig, RinexConfig)
-                ), (
-                    "Secondary config must be of type None, dict, SV3PipelineConfig, or RinexConfig when running build_rinex"
-                )
-                try:
-                    pipeline.get_rinex_files()
-                except Exception as e:
-                    logger.error(f"RINEX file generation failed: {e}")
-                    raise e
-
-            case "run_pride":
-                assert isinstance(
-                    primary_config,
-                    (type(None), dict, SV3PipelineConfig, PrideCLIConfig),
-                ), (
-                    "Primary config must be provided and be of type None, dict, SV3PipelineConfig, or PrideCLIConfig when running run_pride"
-                )
-                assert isinstance(
-                    secondary_config,
-                    (type(None), dict, SV3PipelineConfig, PrideCLIConfig),
-                ), (
-                    "Secondary config must be of type None, dict, SV3PipelineConfig, or PrideCLIConfig when running run_pride"
-                )
-                try:
-                    pipeline.process_rinex()
-                except Exception as e:
-                    logger.error(f"PRIDE-PPP processing failed: {e}")
-                    raise e
-
-            case "process_kinematic":
-                assert isinstance(primary_config, (type(None), dict, RinexConfig)), (
-                    "Primary config must be provided and be of type None, dict, or RinexConfig when running process_kinematic"
-                )
-                assert isinstance(secondary_config, (type(None), dict, RinexConfig)), (
-                    "Secondary config must be of type None, dict, or RinexConfig when running process_kinematic"
-                )
-                try:
-                    pipeline.process_kin()
-                except Exception as e:
-                    logger.error(f"Kinematic processing failed: {e}")
-                    raise e
-
-            case "process_dfop00":
-                assert isinstance(primary_config, (type(None), dict, DFOP00Config)), (
-                    "Primary config must be provided and be of type None, dict, or DFOP00Config when running process_dfop00"
-                )
-                assert isinstance(secondary_config, (type(None), dict, DFOP00Config)), (
-                    "Secondary config must be of type None, dict, or DFOP00Config when running process_dfop00"
-                )
-                try:
-                    pipeline.process_dfop00()
-                except Exception as e:
-                    logger.error(f"DFOP00 processing failed: {e}")
-                    raise e
-
-            case "refine_shotdata":
-                assert isinstance(primary_config, (type(None), dict, PositionUpdateConfig)), (
-                    "Primary config must be provided and be of type None, dict, or PositionUpdateConfig when running refine_shotdata"
-                )
-                assert isinstance(secondary_config, (type(None), dict, PositionUpdateConfig)), (
-                    "Secondary config must be of type None, dict, or PositionUpdateConfig when running refine_shotdata"
-                )
-                try:
-                    pipeline.update_shotdata()
-                except Exception as e:
-                    logger.error(f"Shotdata refinement failed: {e}")
-                    raise e
-
-            case "process_svp":
-                assert isinstance(primary_config, (type(None), dict, SV3PipelineConfig)), (
-                    "Primary config must be provided and be of type None, dict, or SV3PipelineConfig when running process_svp"
-                )
-                assert isinstance(secondary_config, (type(None), dict, SV3PipelineConfig)), (
-                    "Secondary config must be of type None, dict, or SV3PipelineConfig when running process_svp"
-                )
-                try:
-                    pipeline.process_svp()
-                except Exception as e:
-                    logger.error(f"SVP processing failed: {e}")
-                    raise e
-
-            case _:
-                pipeline.run_pipeline()
+        try:
+            _SV3_JOBS[job](pipeline)
+        except Exception as e:
+            logger.error(f"SV3 job '{job}' failed: {e}")
+            raise
 
     @validate_network_station_campaign
     def preprocess_get_pipeline_qc(
@@ -636,53 +529,16 @@ class WorkflowHandler(WorkflowBase):
             ...     primary_config={"qcpin_config":
             ... ):
         """
-        assert job in qc_pipeline_jobs, f"Job must be one of {qc_pipeline_jobs}"
+        assert job in _QC_JOBS, f"Job must be one of {qc_pipeline_jobs}"
 
         pipeline: QCPipeline = self.preprocess_get_pipeline_qc(
             primary_config=primary_config, secondary_config=secondary_config
         )
-
-        match job:
-            case "all":
-                pipeline.run_pipeline()
-
-            case "process_qcpin":
-                try:
-                    pipeline.process_qcpin()
-                except pipeline_exceptions.NoQCPinFound as e:
-                    logger.error(f"QC PIN processing failed: {e}")
-                    raise e
-
-            case "build_rinex":
-                try:
-                    pipeline.get_rinex_files()
-                except pipeline_exceptions.NoRinexBuilt as e:
-                    logger.error(f"QC RINEX file generation failed: {e}")
-                    raise e
-
-            case "run_pride":
-                try:
-                    pipeline.process_rinex()
-                except pipeline_exceptions.NoRinexFound as e:
-                    logger.error(f"QC PRIDE-PPP processing failed: {e}")
-                    raise e
-
-            case "process_kinematic":
-                try:
-                    pipeline.process_kin()
-                except pipeline_exceptions.NoKinFound as e:
-                    logger.error(f"QC Kinematic processing failed: {e}")
-                    raise e
-
-            case "refine_shotdata":
-                try:
-                    pipeline.update_shotdata()
-                except Exception as e:
-                    logger.error(f"QC Shotdata refinement failed: {e}")
-                    raise e
-
-            case _:
-                pipeline.run_pipeline()
+        try:
+            _QC_JOBS[job](pipeline)
+        except Exception as e:
+            logger.error(f"QC job '{job}' failed: {e}")
+            raise
 
     @validate_network_station
     def midprocess_get_sitemeta(self, site_metadata: Site | str | None = None) -> Site:
