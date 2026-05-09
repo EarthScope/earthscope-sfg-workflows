@@ -47,8 +47,7 @@ from ..base import (
     validate_network_station,
     validate_network_station_campaign,
 )
-from ..preprocess_ingest.data_handler import _build_default_workspace
-from ..workspace import Workspace
+from ..workspace import Workspace, _build_default_workspace
 
 
 class IntermediateDataProcessor(WorkflowBase):
@@ -81,8 +80,8 @@ class IntermediateDataProcessor(WorkflowBase):
         if station_metadata is not None:
             self.workspace.load_site_metadata(station_metadata)
 
-        if self.workspace.metadata.site is not None:
-            site = self.workspace.metadata.site
+        if self.workspace.site is not None:
+            site = self.workspace.site
             self.coordTransformer = CoordTransformer(
                 latitude=site.arrayCenter.latitude,
                 longitude=site.arrayCenter.longitude,
@@ -111,7 +110,7 @@ class IntermediateDataProcessor(WorkflowBase):
 
     @property
     def current_station_metadata(self) -> Site | None:
-        return self.workspace.metadata.site  # type: ignore[return-value]
+        return self.workspace.site  # type: ignore[return-value]
 
     @current_station_metadata.setter
     def current_station_metadata(self, value: Site | None) -> None:
@@ -127,7 +126,7 @@ class IntermediateDataProcessor(WorkflowBase):
 
     @property
     def current_campaign_metadata(self) -> Campaign | None:
-        return self.workspace.metadata.campaign  # type: ignore[return-value]
+        return self.workspace.campaign_meta  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
     # Scope mutators
@@ -146,11 +145,11 @@ class IntermediateDataProcessor(WorkflowBase):
         )
         self.workspace.try_load_site_metadata_from_disk()
         if self.mid_process_workflow:
-            assert self.workspace.metadata.site is not None, (
+            assert self.workspace.site is not None, (
                 f"Site metadata file not found for station {station_id}; "
                 "cannot proceed with mid-process workflow."
             )
-            site = self.workspace.metadata.site
+            site = self.workspace.site
             self.coordTransformer = CoordTransformer(
                 latitude=site.arrayCenter.latitude,
                 longitude=site.arrayCenter.longitude,
@@ -158,19 +157,19 @@ class IntermediateDataProcessor(WorkflowBase):
             )
 
     def set_campaign(self, campaign_id: str) -> None:
-        if self.mid_process_workflow and self.workspace.metadata.site is not None:
+        if self.mid_process_workflow and self.workspace.site is not None:
             self.workspace.select_campaign_from_metadata(campaign_id)
         else:
             self.workspace.set_campaign(campaign_id)
-        self.workspace.layout.ensure_campaign()
+        self.workspace.ensure_campaign()
 
     def set_survey(self, survey_id: str) -> None:
-        if self.mid_process_workflow and self.workspace.metadata.campaign is not None:
+        if self.mid_process_workflow and self.workspace.campaign_meta is not None:
             self.workspace.select_survey_from_metadata(survey_id)
         else:
             self.workspace.set_survey(survey_id)
         # Materialize survey directory.
-        survey_dir = self.workspace.layout.survey
+        survey_dir = self.workspace.survey_dir
         self.workspace._files.mkdir(survey_dir)
 
     # ------------------------------------------------------------------
@@ -185,12 +184,12 @@ class IntermediateDataProcessor(WorkflowBase):
         write_intermediate: bool = False,
     ) -> None:
         """Parse surveys for the active campaign and write CSVs into survey dirs."""
-        campaign_meta = self.workspace.metadata.campaign
+        campaign_meta = self.workspace.campaign_meta
         if campaign_meta is None:
             raise ValueError("Campaign metadata must be loaded before parse_surveys")
 
-        tiledb = self.workspace.layout.tiledb()
-        campaign = self.workspace.layout.ensure_campaign()
+        tiledb = self.workspace.tiledb_layout()
+        campaign = self.workspace.ensure_campaign()
 
         shotDataTDB = TDBShotDataArray(tiledb.shotdata)
 
@@ -205,7 +204,7 @@ class IntermediateDataProcessor(WorkflowBase):
 
         for survey in surveys_to_process:
             self.set_survey(survey_id=survey.id)
-            survey_root = self.workspace.layout.survey
+            survey_root = self.workspace.survey_dir
 
             shotdata_file_name = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
             shotdata_dest = survey_root / shotdata_file_name
@@ -241,7 +240,7 @@ class IntermediateDataProcessor(WorkflowBase):
                     else:
                         imu_df.to_csv(imu_dest)
 
-            with open(self.workspace.layout.survey_metadata_file, "w") as f:
+            with open(self.workspace.survey_metadata_file, "w") as f:
                 json.dump(survey.model_dump(mode="json"), f, indent=4)
 
     # ------------------------------------------------------------------
@@ -260,7 +259,7 @@ class IntermediateDataProcessor(WorkflowBase):
         if campaign_id is not None:
             self.set_campaign(campaign_id=campaign_id)
 
-        campaign_meta = self.workspace.metadata.campaign
+        campaign_meta = self.workspace.campaign_meta
         if campaign_meta is None:
             raise ValueError("Campaign must be set before preparing GARPOS shotdata.")
 
@@ -287,13 +286,13 @@ class IntermediateDataProcessor(WorkflowBase):
         overwrite: bool = False,
     ) -> None:
         """Prepare a single survey for GARPOS processing."""
-        site = self.workspace.metadata.site
-        campaign_meta = self.workspace.metadata.campaign
+        site = self.workspace.site
+        campaign_meta = self.workspace.campaign_meta
         assert site is not None and campaign_meta is not None
 
-        survey_root = self.workspace.layout.survey
-        campaign = self.workspace.layout.ensure_campaign()
-        tiledb = self.workspace.layout.tiledb()
+        survey_root = self.workspace.survey_dir
+        campaign = self.workspace.ensure_campaign()
+        tiledb = self.workspace.tiledb_layout()
 
         # Find the canonical shotdata file written by parse_surveys.
         shotdata_file_name = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
@@ -310,7 +309,7 @@ class IntermediateDataProcessor(WorkflowBase):
             )
             return
 
-        garpos_layout = self.workspace.layout.ensure_garpos_survey()
+        garpos_layout = self.workspace.ensure_garpos_survey()
 
         if not garpos_layout.settings_file.exists() or overwrite:
             GarposFixed()._to_datafile(garpos_layout.settings_file)
@@ -423,7 +422,7 @@ class IntermediateDataProcessor(WorkflowBase):
             return
 
         s3_station = s3_root / self.workspace.network_name / self.workspace.station_name
-        local_tdb = self.workspace.layout.tiledb()
+        local_tdb = self.workspace.tiledb_layout()
         s3_tdb = s3_station / "TileDB"
 
         for tdb_attr, tdb_basename in [
@@ -463,7 +462,7 @@ class IntermediateDataProcessor(WorkflowBase):
             / self.workspace.station_name
             / self.workspace.campaign_name
         )
-        campaign = self.workspace.layout.ensure_campaign()
+        campaign = self.workspace.ensure_campaign()
 
         local_svp = campaign.svp_file
         s3_svp = s3_campaign / "processed" / "svp.csv"
@@ -516,7 +515,7 @@ class IntermediateDataProcessor(WorkflowBase):
             return
 
         s3_station = s3_root / self.workspace.network_name / self.workspace.station_name
-        local_tdb = self.workspace.layout.tiledb()
+        local_tdb = self.workspace.tiledb_layout()
         s3_tdb = s3_station / "TileDB"
 
         for tdb_attr, tdb_basename in [
@@ -539,7 +538,7 @@ class IntermediateDataProcessor(WorkflowBase):
                     logger.error(f"Failed to upload {tdb_file} to S3: {e}")
 
         # Sync per-campaign svp + logs
-        for campaign_name in self.workspace.layout.list_campaigns():
+        for campaign_name in self.workspace.list_campaigns():
             local_campaign_dir = (
                 self.workspace.root
                 / self.workspace.network_name
@@ -621,10 +620,10 @@ class IntermediateDataProcessor(WorkflowBase):
         override: bool = False,
     ) -> list[GARPOSLayout] | None:
         """Parse QC pseudo-surveys and produce GARPOS input files."""
-        site = self.workspace.metadata.site
-        campaign_meta = self.workspace.metadata.campaign
+        site = self.workspace.site
+        campaign_meta = self.workspace.campaign_meta
         assert site is not None
-        campaign = self.workspace.layout.ensure_campaign()
+        campaign = self.workspace.ensure_campaign()
 
         garpos_layouts: list[GARPOSLayout] = []
         shotDataTDB = TDBShotDataArray(Path(shotdata_uri))

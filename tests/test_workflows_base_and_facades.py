@@ -83,18 +83,18 @@ class TestWorkspaceScope:
         assert ws.station_name is None
         assert ws.campaign_name is None
         assert ws.survey_name is None
-        assert ws.metadata.site is None
-        assert ws.metadata.campaign is None
-        assert ws.metadata.survey is None
+        assert ws.site is None
+        assert ws.campaign_meta is None
+        assert ws.survey_meta is None
 
     def test_set_station_always_clears_site_metadata(self):
         """PRD decision: site metadata is always cleared on station change."""
         ws = Workspace.for_test(network="N", station="S")
         ws.load_site_metadata(object())
-        assert ws.metadata.site is not None
+        assert ws.site is not None
 
         ws.set_station("S")  # same id, still clears
-        assert ws.metadata.site is None
+        assert ws.site is None
 
     def test_set_campaign_clears_survey_only(self):
         ws = Workspace.for_test(network="N", station="S", campaign="C", survey="V")
@@ -106,7 +106,7 @@ class TestWorkspaceScope:
         assert ws.campaign_name == "C2"
         assert ws.survey_name is None
         # Site metadata persists across campaign change.
-        assert ws.metadata.site is site_obj
+        assert ws.site is site_obj
 
 
 # ---------------------------------------------------------------------------
@@ -120,18 +120,18 @@ class TestLayoutFacade:
         tree = DirectoryTree(root=Path("/data"))
         scope = CampaignScope("N", "S", "2026_A")
 
-        assert ws.layout.network == tree.network_dir("N")
-        assert ws.layout.station == tree.station_dir(scope)
-        assert ws.layout.campaign().root == tree.campaign(scope).root
+        assert ws.network_dir == tree.network_dir("N")
+        assert ws.station_dir == tree.station_dir(scope)
+        assert ws.campaign_layout().root == tree.campaign(scope).root
 
     def test_garpos_survey_requires_survey(self):
         ws = Workspace.for_test(root="/data", network="N", station="S", campaign="C")
         with pytest.raises(ValueError, match="survey"):
-            ws.layout.garpos_survey()
+            ws.garpos_survey()
 
     def test_ensure_campaign_materializes_dirs(self):
         ws = Workspace.for_test(root="/data", network="N", station="S", campaign="2026_A")
-        layout = ws.layout.ensure_campaign()
+        layout = ws.ensure_campaign()
         for path in layout.standard_dirs:
             assert ws._files.is_dir(path), f"{path} not materialized"
 
@@ -144,14 +144,14 @@ class TestLayoutFacade:
 class TestAssetQueryFacade:
     def _seed(self) -> Workspace:
         ws = Workspace.for_test(network="N", station="S", campaign="C")
-        ws.assets.add(
+        ws.add_asset(
             AssetEntry(
                 kind=AssetKind.NOVATEL,
                 scope=ws.scope,
                 local_path=Path("/tmp/a.bin"),
             )
         )
-        ws.assets.add(
+        ws.add_asset(
             AssetEntry(
                 kind=AssetKind.RINEX2,
                 scope=ws.scope,
@@ -162,27 +162,27 @@ class TestAssetQueryFacade:
 
     def test_all_filters_by_kind(self):
         ws = self._seed()
-        novatels = ws.assets.all(AssetKind.NOVATEL)
+        novatels = ws.all_assets(AssetKind.NOVATEL)
         assert len(novatels) == 1
         assert novatels[0].kind == AssetKind.NOVATEL
 
     def test_count_by_kind(self):
         ws = self._seed()
-        counts = ws.assets.count_by_kind()
+        counts = ws.count_by_kind()
         assert counts[AssetKind.NOVATEL] == 1
         assert counts[AssetKind.RINEX2] == 1
 
     def test_update_returns_new_frozen_entry(self):
         ws = self._seed()
-        entry = ws.assets.all(AssetKind.NOVATEL)[0]
+        entry = ws.all_assets(AssetKind.NOVATEL)[0]
         assert entry.is_processed is False
 
-        updated = ws.assets.update(entry, is_processed=True)
+        updated = ws.update_asset(entry, is_processed=True)
 
         assert updated is not entry  # frozen — different object
         assert updated.is_processed is True
         # Catalog reflects the change.
-        assert ws.assets.all(AssetKind.NOVATEL)[0].is_processed is True
+        assert ws.all_assets(AssetKind.NOVATEL)[0].is_processed is True
 
     def test_update_unknown_id_raises(self):
         ws = Workspace.for_test(network="N", station="S", campaign="C")
@@ -193,13 +193,13 @@ class TestAssetQueryFacade:
             local_path=Path("/x"),
         )
         with pytest.raises(LookupError):
-            ws.assets.update(ghost, is_processed=True)
+            ws.update_asset(ghost, is_processed=True)
 
     def test_update_requires_persisted_entry(self):
         ws = Workspace.for_test(network="N", station="S", campaign="C")
         unsaved = AssetEntry(kind=AssetKind.NOVATEL, scope=ws.scope, local_path=Path("/y"))
         with pytest.raises(ValueError, match="entry.id"):
-            ws.assets.update(unsaved, is_processed=True)
+            ws.update_asset(unsaved, is_processed=True)
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +280,7 @@ class TestDiscoverCampaign:
         ws._archive.seed(f"{raw}/NOV770_data.bin", b"x")  # type: ignore[attr-defined]
         ws._archive.seed(f"{meta}/ctd/CTD.txt", b"c")  # type: ignore[attr-defined]
 
-        urls = ws.ingest.list_archive_urls()
+        urls = ws.list_archive_urls()
 
         assert sorted(urls) == sorted([f"{raw}/NOV770_data.bin", f"{meta}/ctd/CTD.txt"])
 
@@ -293,8 +293,8 @@ class TestDiscoverCampaign:
 class TestLayoutInspector:
     def test_is_garpos_directory_requires_both_default_files(self):
         ws = Workspace.for_test(root="/d", network="N", station="S", campaign="C", survey="V")
-        ws.layout.ensure_garpos_survey()
-        layout = ws.layout.garpos_survey()
+        ws.ensure_garpos_survey()
+        layout = ws.garpos_survey()
         inspector = LayoutInspector(ws._files)
 
         assert inspector.is_garpos_directory(layout) is False
@@ -307,8 +307,8 @@ class TestLayoutInspector:
 
     def test_find_rectified_shotdata_returns_none_if_missing(self):
         ws = Workspace.for_test(root="/d", network="N", station="S", campaign="C", survey="V")
-        ws.layout.ensure_garpos_survey()
-        layout = ws.layout.garpos_survey()
+        ws.ensure_garpos_survey()
+        layout = ws.garpos_survey()
         inspector = LayoutInspector(ws._files)
 
         assert inspector.find_rectified_shotdata(layout) is None

@@ -28,12 +28,12 @@ from earthscope_sfg_tools.tiledb_integration import (
 from ...data_mgmt.model import AssetEntry, AssetKind
 from ...data_mgmt.utils import get_merge_signature_shotdata
 from ..base import validate_network_station_campaign
-from ..preprocess_ingest.data_handler import _build_default_workspace
+from ..workspace import _build_default_workspace
 from ..workspace import Workspace
 from .config import PrideConfig, QCPipelineConfig, RinexConfig
 
 if TYPE_CHECKING:
-    from ..facades import AssetQueryFacade
+    from ..workspace import Workspace
 from .exceptions import (
     NoKinFound,
     NoLocalData,
@@ -69,7 +69,7 @@ def rangea_string_epoch(
     gnss_obs_tdb: TDBGNSSObsArray,
     rangea_string_queue: deque,
     processed_asset_queue: deque,
-    asset_catalog: "AssetQueryFacade",
+    asset_catalog: "Workspace",
     entries_to_process: int,
     stop_event: threading.Event,
 ) -> None:
@@ -207,7 +207,7 @@ class QCPipeline(GnssRinexPipelineBase):
 
     def _build_tiledb_arrays(self) -> None:
         """Initialize QC-specific TileDB arrays for the current station context."""
-        tiledb = self.workspace.layout.ensure_station()
+        tiledb = self.workspace.ensure_station()
 
         if self.qcShotDataPreTDB is None:
             self.qcShotDataPreTDB = TDBShotDataArray(tiledb.qc_shotdata_pre)
@@ -232,7 +232,7 @@ class QCPipeline(GnssRinexPipelineBase):
         Raises:
             NoQCPinFound: If no QC PIN files are found for the current context.
         """
-        qcpin_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
+        qcpin_entries: list[AssetEntry] = self.workspace.assets_to_process(
             parent_kind=AssetKind.QCPIN,
             override=self.config.qcpin_config.override,
         )
@@ -312,7 +312,7 @@ class QCPipeline(GnssRinexPipelineBase):
         }
 
         if (
-            not self.workspace.assets.is_merge_complete(**merge_job)
+            not self.workspace.is_merge_complete(**merge_job)
             or self.config.position_update_config.override
         ):
             dates.append(dates[-1] + datetime.timedelta(days=1))
@@ -322,7 +322,7 @@ class QCPipeline(GnssRinexPipelineBase):
                 kin_position=self.qcKinPositionTDB,
                 dates=dates,
             )
-            self.workspace.assets.add_merge_job(**merge_job)
+            self.workspace.add_merge_job(**merge_job)
 
     @validate_network_station_campaign
     def run_pipeline(self) -> None:

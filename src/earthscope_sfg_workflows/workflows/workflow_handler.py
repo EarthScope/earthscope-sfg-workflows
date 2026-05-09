@@ -1,4 +1,6 @@
+import os
 import re
+import warnings
 from pathlib import Path
 from typing import (
     Callable,
@@ -9,13 +11,17 @@ from typing import (
 from pride_ppp.specifications.cli import PrideCLIConfig
 
 from earthscope_sfg_workflows.logging import ProcessLogger as logger
+from earthscope_sfg_workflows.logging import change_all_logger_dirs
 from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
 
 from ..config.file_config import (
     DEFAULT_FILE_TYPES_TO_DOWNLOAD,
     DEFAULT_INTERMEDIATE_FILE_TYPES_TO_DOWNLOAD,
+    REMOTE_TYPE,
     AssetType,
 )
+from ..data_mgmt.adapters.disk_filestore import S3FileStore
+from ..data_mgmt.model import AssetEntry, AssetKind
 from earthscope_sfg_tools.datamodels.metadata import Site
 from ..modeling.garpos_tools.schemas import InversionParams
 from .base import (
@@ -36,7 +42,7 @@ from .pipelines.config import (
 )
 from .pipelines.qc_pipeline import QCPipeline
 from .pipelines.sv3_pipeline import SV3Pipeline
-from .preprocess_ingest.data_handler import DataHandler, _build_default_workspace
+from .workspace import TileDBRegistry, Workspace, _build_default_workspace, _to_asset_kind
 
 _SV3_JOBS: dict[str, Callable[["SV3Pipeline"], None]] = {
     "all":                lambda p: p.run_pipeline(),
@@ -66,8 +72,7 @@ qc_pipeline_jobs = list(_QC_JOBS)
 
 class WorkflowHandler(WorkflowBase):
     """Handles data operations including searching, adding, downloading, and processing.
-    Owns a single :class:`Workspace` and composes :class:`DataHandler`,
-    sharing the workspace. All scope state lives on ``self.workspace``.
+    Owns a single :class:`Workspace`. All scope state lives on ``self.workspace``.
     """
 
     def __init__(
@@ -84,15 +89,14 @@ class WorkflowHandler(WorkflowBase):
             workspace: Pre-constructed workspace. Preferred over ``directory``.
         """
         if workspace is None:
-            import os
-
             if directory is None:
                 directory = os.environ.get("MAIN_DIRECTORY", ".")
             workspace = _build_default_workspace(directory)
 
         super().__init__(workspace)
         self.s3_sync_bucket: str | None = s3_sync_bucket
-        self.data_handler = DataHandler(workspace=self.workspace, s3_sync_bucket=s3_sync_bucket)
+        self.tiledb: TileDBRegistry | None = None
+        self.workspace.bootstrap()
 
     # ------------------------------------------------------------------
     # Backwards-compat scope/metadata aliases (forward to workspace).
@@ -116,7 +120,7 @@ class WorkflowHandler(WorkflowBase):
 
     @property
     def current_station_metadata(self) -> Site | None:
-        return self.workspace.metadata.site  # type: ignore[return-value]
+        return self.workspace.site  # type: ignore[return-value]
 
     @current_station_metadata.setter
     def current_station_metadata(self, value: Site | None) -> None:
@@ -132,22 +136,46 @@ class WorkflowHandler(WorkflowBase):
         campaign_id: str | None = None,
     ):
         """Sets the current network, and optionally station and campaign.
-        Delegates to DataHandler which handles both its own setup and parent
-        context switching. Then syncs WorkflowHandler-specific state.
 
         Args:
             network_id: The ID of the network to set.
             station_id: The ID of the station to set. If None, only network context is set.
             campaign_id: The ID of the campaign to set. If None, campaign context is not set.
         """
-        # DataHandler shares the workspace, so its scope mutators update
-        # everything WorkflowHandler observes. No state-sync loop required.
         if network_id != self.workspace.network_name:
-            self.data_handler.set_network(network_id)
+            self._set_network(network_id)
         if station_id is not None and station_id != self.workspace.station_name:
-            self.data_handler.set_station(station_id)
+            self._set_station(station_id)
         if campaign_id is not None and campaign_id != self.workspace.campaign_name:
-            self.data_handler.set_campaign(campaign_id)
+            self._set_campaign(campaign_id)
+
+    # ------------------------------------------------------------------
+    # Internal scope mutators (workspace + side effects)
+    # ------------------------------------------------------------------
+
+    def _set_network(self, network_id: str) -> None:
+        self.workspace.set_network(network_id)
+        self.workspace.bootstrap()
+        self.workspace.ensure_network_dir(network_id)
+
+    def _set_station(self, station_id: str) -> None:
+        self.workspace.set_station(station_id)
+        self.workspace.ensure_station_dir(
+            self.workspace.network_name,  # type: ignore[arg-type]
+            station_id,
+        )
+        self.workspace.try_load_site_metadata_from_disk()
+
+    def _set_campaign(self, campaign_id: str) -> None:
+        layout = self.workspace.activate_campaign(campaign_id)
+        change_all_logger_dirs(layout.logs)
+        os.environ["LOG_FILE_PATH"] = str(layout.logs)
+        logger.info(
+            f"Built directory structure for "
+            f"{self.workspace.network_name} {self.workspace.station_name} {campaign_id}"
+        )
+        if isinstance(self.workspace.root, Path):
+            self.tiledb = self.workspace.build_tiledb()
 
     @validate_network_station
     def list_campaign_directories(self) -> list[str]:
@@ -180,7 +208,7 @@ class WorkflowHandler(WorkflowBase):
             directory_path: The path to the directory to scan.
         """
 
-        self.data_handler.discover_data_and_add_files(directory_path=directory_path)
+        self.workspace.ingest_local(directory_path=directory_path)
 
     @validate_network_station_campaign
     def ingest_catalog_archive_data(self) -> None:
@@ -190,7 +218,7 @@ class WorkflowHandler(WorkflowBase):
         Notes:
             This method does not download any data files. It only updates the catalog with remote file paths. See `ingest_download_archive_data` to download files.:
         """
-        self.data_handler.update_catalog_from_archive()
+        self.workspace.discover_campaign()
 
     @validate_network_station_campaign
     def ingest_download_archive_data(
@@ -204,7 +232,7 @@ class WorkflowHandler(WorkflowBase):
         Notes:
             This method requires that the catalog has been populated with remote file paths using `ingest_catalog_archive_data`.:
         """
-        self.data_handler.download_data(file_types=file_types, rinex_1Hz=rinex_1Hz)
+        self.download_data(file_types=file_types, rinex_1Hz=rinex_1Hz)
 
     @validate_network_station_campaign
     def ingest_download_intermediate_archive_data(
@@ -302,8 +330,8 @@ class WorkflowHandler(WorkflowBase):
             )
 
         pipeline = SV3Pipeline(
-            directory=self.data_handler.directory,
-            s3_sync_bucket=self.data_handler.s3_sync_bucket,
+            directory=self.directory,
+            s3_sync_bucket=self.s3_sync_bucket,
             config=base_config_updated,
         )
         pipeline.set_network_station_campaign(
@@ -350,7 +378,7 @@ class WorkflowHandler(WorkflowBase):
     ) -> None:
         """Runs the SV3 processing pipeline with optional configuration overrides.
         This method creates and configures an :class:`~earthscope_sfg_workflows.workflows.pipelines.config.SV3Pipeline`
-        instance using the :attr:`data_handler` to access the directory structure and catalog.
+        instance using the :attr:`workspace` to access the directory structure and catalog.
 
         Args:
             job: The specific job to run within the pipeline, by default "all".
@@ -364,7 +392,7 @@ class WorkflowHandler(WorkflowBase):
         See Also:
             preprocess_get_pipeline_sv3:
             earthscope_sfg_workflows.workflows.pipelines.config.SV3Pipeline:
-            earthscope_sfg_workflows.data_mgmt.data_handler.DataHandler:
+            earthscope_sfg_workflows.workflows.workflow_handler.WorkflowHandler:
 
         Examples:
             # Run the sv3 pipeline with custom Novatel processing configuration:
@@ -462,8 +490,8 @@ class WorkflowHandler(WorkflowBase):
             )
 
         pipeline = QCPipeline(
-            directory=self.data_handler.directory,
-            s3_sync_bucket=self.data_handler.s3_sync_bucket,
+            directory=self.directory,
+            s3_sync_bucket=self.s3_sync_bucket,
             config=base_config_updated,
         )
         pipeline.set_network_station_campaign(
@@ -543,7 +571,7 @@ class WorkflowHandler(WorkflowBase):
     @validate_network_station
     def midprocess_get_sitemeta(self, site_metadata: Site | str | None = None) -> Site:
         """Loads and returns the site metadata for the current station. Sets the current_station_metadata attribute.
-        1. If site_metadata is None, attempts to load from data_handler's current_station_metadata.
+        1. If site_metadata is None, attempts to load from workspace metadata.
         2. If site_metadata is a string or Path, loads the site metadata from the file.
         3. If site_metadata is already a Site instance, uses it directly.
 
@@ -557,11 +585,11 @@ class WorkflowHandler(WorkflowBase):
             ValueError: If site metadata cannot be loaded or is not provided.
         """
         if site_metadata is None:
-            if self.workspace.metadata.site is not None:
-                site_metadata = self.workspace.metadata.site
+            if self.workspace.site is not None:
+                site_metadata = self.workspace.site
             else:
-                site_metadata: Site | None = self.data_handler.get_site_metadata(
-                    site_metadata=site_metadata
+                site_metadata: Site | None = self.workspace.load_or_fetch_site_metadata(
+                    station_id=self.workspace.station_name
                 )
 
         elif isinstance(site_metadata, (str, Path)):
@@ -635,7 +663,7 @@ class WorkflowHandler(WorkflowBase):
             ValueError: If site metadata is not loaded.
         """
         if self.s3_sync_bucket is not None:
-            self.data_handler.sync_from_s3(overwrite=override)
+            self.sync_from_s3(overwrite=override)
 
         dataPostProcessor: IntermediateDataProcessor = self.midprocess_get_processor(
             site_metadata=site_metadata
@@ -940,3 +968,165 @@ class WorkflowHandler(WorkflowBase):
             savefig=save_fig,
             showfig=show_fig,
         )
+
+    # ------------------------------------------------------------------
+    # Data catalog helpers (moved from DataHandler)
+    # ------------------------------------------------------------------
+
+    @validate_network_station_campaign
+    def add_data_to_catalog(self, local_filepaths: list[Path]) -> None:
+        """Catalog an explicit list of local files. Symlinks them to ``raw/`` if needed."""
+        campaign = self.workspace.ensure_campaign()
+
+        added = 0
+        scope = self.workspace.scope
+        for file_path in local_filepaths:
+            file_path = Path(file_path)
+            if not file_path.exists():
+                logger.error(f"File {file_path} does not exist")
+                continue
+            kind = self.workspace._detector.detect(file_path.name)
+            if kind is None:
+                continue
+            if file_path.parent != campaign.raw:
+                symlinked_path = campaign.raw / file_path.name
+                if symlinked_path != file_path:
+                    try:
+                        file_path.symlink_to(symlinked_path, target_is_directory=False)
+                    except FileExistsError:
+                        pass
+            entry = AssetEntry(kind=kind, scope=scope, local_path=file_path)
+            if self.workspace.add_or_update_asset(entry) is not None:
+                added += 1
+
+        logger.info(f"Added {added} out of {len(local_filepaths)} files to the catalog")
+
+    @validate_network_station_campaign
+    def add_data_remote(
+        self,
+        remote_filepaths: list[str],
+        remote_type: REMOTE_TYPE | str = REMOTE_TYPE.HTTP,
+    ) -> None:
+        """Catalog remote URLs after type detection. Skips already-downloaded entries."""
+        if isinstance(remote_type, str):
+            try:
+                remote_type = REMOTE_TYPE(remote_type)
+            except Exception as e:
+                raise ValueError(
+                    f"Remote type {remote_type} must be one of {REMOTE_TYPE.__members__.keys()}"
+                ) from e
+
+        scope = self.workspace.scope
+        not_recognized = 0
+        already_local = 0
+        added = 0
+
+        for url in remote_filepaths:
+            kind = self.workspace._detector.detect(Path(url).name)
+            if kind is None:
+                logger.debug(f"File type not recognized for {url}")
+                not_recognized += 1
+                continue
+            if self.workspace.remote_file_exists_locally(kind, url):
+                already_local += 1
+                continue
+            entry = AssetEntry(
+                kind=kind,
+                scope=scope,
+                remote_path=url,
+                remote_type=remote_type.value,
+            )
+            if self.workspace.add_or_update_asset(entry) is not None:
+                added += 1
+
+        logger.info(f"{not_recognized} files not recognized and skipped")
+        logger.info(f"{already_local} files already exist in the catalog")
+        logger.info(f"Added {added} out of {len(remote_filepaths)} files to the catalog")
+
+    def download_data(
+        self,
+        file_types: list[AssetType] | list[str] | str = DEFAULT_FILE_TYPES_TO_DOWNLOAD,
+        override: bool = False,
+        rinex_1Hz: bool = False,
+    ) -> None:
+        """Download cataloged remote files of the given types."""
+        if not isinstance(file_types, list):
+            file_types = [file_types]
+
+        kinds: list[AssetKind] = []
+        seen: set[AssetKind] = set()
+        for ft in file_types:
+            if isinstance(ft, str):
+                try:
+                    ft = AssetType(ft.lower())
+                except Exception as e:
+                    raise ValueError(
+                        f"File type {ft!r} must be one of {AssetType.__members__.keys()}"
+                    ) from e
+            kind = _to_asset_kind(ft)
+            if kind not in seen:
+                seen.add(kind)
+                kinds.append(kind)
+
+        report = self.workspace.download_assets(kinds=kinds, override=override, rinex_1hz=rinex_1Hz)
+        logger.info(f"Downloaded {report.downloaded} files (skipped {report.skipped})")
+        for err in report.errors:
+            logger.error(err)
+
+    def get_site_metadata(
+        self,
+        site_metadata: "Site | Path | str | None" = None,
+    ) -> "Site | None":
+        """Load or persist site metadata for the active station."""
+        site = self.workspace.load_or_fetch_site_metadata(explicit=site_metadata)
+        if site is not None:
+            logger.info(
+                f"Site metadata loaded for "
+                f"{self.workspace.network_name} {self.workspace.station_name}"
+            )
+        else:
+            msg = (
+                f"No site metadata found for "
+                f"{self.workspace.network_name} {self.workspace.station_name}. "
+                "Some functionality may be limited."
+            )
+            warnings.warn(msg)
+            logger.warning(msg)
+        return site
+
+    def sync_from_s3(self, overwrite: bool = False) -> None:
+        """Mirror seafloor-geodesy data from a remote S3 prefix into the local workspace."""
+        if self.s3_sync_bucket is None:
+            raise RuntimeError("sync_from_s3 requires s3_sync_bucket to be configured.")
+        if self.workspace.network_name is None or self.workspace.station_name is None:
+            raise ValueError("sync_from_s3 requires network and station to be set.")
+
+        s3_root = self.s3_sync_bucket
+        if not s3_root.startswith("s3://"):
+            s3_root = f"s3://{s3_root}"
+
+        s3_files = S3FileStore()
+        local_files = self.workspace._files
+
+        s3_station = Path(s3_root) / self.workspace.network_name / self.workspace.station_name
+        if not s3_files.is_dir(s3_station):
+            logger.error(f"S3 station path not found: {s3_station}")
+            return
+
+        for info in s3_files.list_files(s3_station, recursive=True):
+            if not info.is_file:
+                continue
+            relative = Path(str(info.path)).relative_to(s3_station)
+            local_dest = (
+                self.workspace.root
+                / self.workspace.network_name
+                / self.workspace.station_name
+                / relative
+            )
+            if local_dest.exists() and not overwrite:
+                continue
+            try:
+                local_dest.parent.mkdir(parents=True, exist_ok=True)
+                local_files.write_bytes(local_dest, s3_files.read_bytes(info.path))
+            except Exception as e:
+                logger.error(f"Failed to download {info.path} to {local_dest}: {e}")

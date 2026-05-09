@@ -25,7 +25,7 @@ from tqdm.auto import tqdm
 from ...data_mgmt.model import AssetEntry, AssetKind
 from ...data_mgmt.utils import get_merge_signature_shotdata
 from ..base import validate_network_station_campaign
-from ..preprocess_ingest.data_handler import _build_default_workspace
+from ..workspace import _build_default_workspace
 from ..workspace import Workspace
 from .config import PrideConfig, RinexConfig, SV3PipelineConfig
 from .exceptions import (
@@ -171,7 +171,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
 
     def _build_tiledb_arrays(self) -> None:
         """Initialize TileDB arrays for the current station context."""
-        tiledb = self.workspace.layout.ensure_station()
+        tiledb = self.workspace.ensure_station()
 
         if self.shotDataPreTDB is None:
             self.shotDataPreTDB = TDBShotDataArray(tiledb.shotdata_pre)
@@ -215,7 +215,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
         found_novatel_770 = False
         found_novatel_000 = False
 
-        novatel_770_entries: list[AssetEntry] = self.workspace.assets.local(AssetKind.NOVATEL770)
+        novatel_770_entries: list[AssetEntry] = self.workspace.local_assets(AssetKind.NOVATEL770)
 
         if novatel_770_entries:
             found_novatel_770 = True
@@ -227,7 +227,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
                 "child_type": AssetKind.GNSSOBSTDB.value,
                 "parent_ids": [x.id for x in novatel_770_entries],
             }
-            if self.config.novatel_config.override or not self.workspace.assets.is_merge_complete(
+            if self.config.novatel_config.override or not self.workspace.is_merge_complete(
                 **merge_signature
             ):
                 try:
@@ -238,7 +238,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
                         logger=ProcessLogger.logger,
                     )
 
-                    self.workspace.assets.add_merge_job(**merge_signature)
+                    self.workspace.add_merge_job(**merge_signature)
                     response = f"Added merge job for {len(novatel_770_entries)} Novatel 770 Entries to the catalog"
                     ProcessLogger.info(response)
                 except Exception as e:
@@ -266,7 +266,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
         ProcessLogger.info(
             f"Processing Novatel 000 data for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
         )
-        novatel_000_entries: list[AssetEntry] = self.workspace.assets.local(AssetKind.NOVATEL000)
+        novatel_000_entries: list[AssetEntry] = self.workspace.local_assets(AssetKind.NOVATEL000)
 
         if novatel_000_entries:
             found_novatel_000 = True
@@ -275,7 +275,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
                 "child_type": AssetKind.GNSSOBSTDB.value,
                 "parent_ids": [x.id for x in novatel_000_entries],
             }
-            if self.config.novatel_config.override or not self.workspace.assets.is_merge_complete(
+            if self.config.novatel_config.override or not self.workspace.is_merge_complete(
                 **merge_signature
             ):
                 try:
@@ -287,7 +287,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
                         logger=ProcessLogger.logger,
                     )
 
-                    self.workspace.assets.add_merge_job(**merge_signature)
+                    self.workspace.add_merge_job(**merge_signature)
                     ProcessLogger.info(
                         f"Added merge job for {len(novatel_000_entries)} Novatel 000 Entries to the catalog"
                     )
@@ -322,7 +322,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
         """
 
         # 1. Get the DFOP00 files to process
-        dfop00_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
+        dfop00_entries: list[AssetEntry] = self.workspace.assets_to_process(
             parent_kind=AssetKind.DFOP00,
             override=self.config.dfop00_config.override,
         )
@@ -347,7 +347,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
                 if shotdata_df is not None and not shotdata_df.empty:
                     self.shotDataPreTDB.write_df(shotdata_df)  # write to pre-shotdata
                     count += 1
-                    self.workspace.assets.update(dfo_entry, is_processed=True)  # mark as processed
+                    self.workspace.update_asset(dfo_entry, is_processed=True)  # mark as processed
                     ProcessLogger.debug(f" Processed {dfo_entry.local_path}")
                 else:
                     ProcessLogger.error(f"Failed to Process {dfo_entry.local_path}")
@@ -389,7 +389,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
         }
         # 2. Check if processing is needed
         if (
-            not self.workspace.assets.is_merge_complete(**merge_job)
+            not self.workspace.is_merge_complete(**merge_job)
             or self.config.position_update_config.override
         ):
             # 3. Merge shotdata with interpolated kinematic positions
@@ -400,7 +400,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
                 position_data=self.imuPositionTDB,
                 dates=dates,
             )
-            self.workspace.assets.add_merge_job(**merge_job)
+            self.workspace.add_merge_job(**merge_job)
 
     @validate_network_station_campaign
     def process_svp(self, override: bool = False) -> None:
@@ -416,13 +416,13 @@ class SV3Pipeline(GnssRinexPipelineBase):
         Args:
             override: If True, forces reprocessing even if SVP file exists. Default is False.
         """
-        svp_df_destination = self.workspace.layout.campaign().svp_file
+        svp_df_destination = self.workspace.campaign_layout().svp_file
         if svp_df_destination.exists() and not override:
             return
 
         # Get the CTD and Seabird files to process
-        ctd_entries: list[AssetEntry] = self.workspace.assets.local(AssetKind.CTD)
-        seabird_entries: list[AssetEntry] = self.workspace.assets.local(AssetKind.SEABIRD)
+        ctd_entries: list[AssetEntry] = self.workspace.local_assets(AssetKind.CTD)
+        seabird_entries: list[AssetEntry] = self.workspace.local_assets(AssetKind.SEABIRD)
 
         if not ctd_entries and not seabird_entries:
             response = f"No CTD or SEABIRD Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
@@ -438,7 +438,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
                     svp_df = function(ctd_entry.local_path)
                     if not svp_df.empty:
                         svp_df.to_csv(svp_df_destination, index=False)
-                        self.workspace.assets.update(ctd_entry, is_processed=True)
+                        self.workspace.update_asset(ctd_entry, is_processed=True)
                         ProcessLogger.info(
                             f"Processed SVP data from CTD file {ctd_entry.local_path} to dataframe with {function.__name__}"
                         )
@@ -456,7 +456,7 @@ class SV3Pipeline(GnssRinexPipelineBase):
                 svp_df = seabird_to_soundvelocity(seabird_entry.local_path, ProcessLogger.logger)
                 if not svp_df.empty:
                     svp_df.to_csv(svp_df_destination, index=False)
-                    self.workspace.assets.update(seabird_entry, is_processed=True)
+                    self.workspace.update_asset(seabird_entry, is_processed=True)
                     ProcessLogger.info(
                         f"Processed SVP data from Seabird file {seabird_entry.local_path} and saved to {str(svp_df_destination)}"
                     )

@@ -1,17 +1,16 @@
 """The :class:`Workspace` — single object owning ports + scope + metadata.
-Replaces the 12-field ``WorkflowContext`` and the
-``DirectoryHandler`` / ``PreProcessCatalogHandler`` pair from the legacy
-:class:`WorkflowABC`. Subclasses of :class:`workflows.base.WorkflowBase`
-receive a single ``workspace`` argument and reach the data layer only via
-the four façades exposed on this object: ``layout``, ``metadata``,
-``assets``, ``ingest``.
+All data-layer access is provided by methods directly on this class.
 
 See ``plans/prds/2026-05-05-workflow-base-and-facades.md``.
 """
 
 from __future__ import annotations
 
+import json
+import os
+import warnings
 from contextlib import AbstractContextManager
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -22,7 +21,16 @@ from earthscope_sfg_workflows.data_mgmt.core import (
     Ingestor,
     LayoutInspector,
 )
-from earthscope_sfg_workflows.data_mgmt.model import CampaignScope, DirectoryTree
+from earthscope_sfg_workflows.data_mgmt.model import (
+    AssetEntry,
+    AssetKind,
+    CampaignLayout,
+    CampaignScope,
+    DirectoryTree,
+    GARPOSLayout,
+    IngestReport,
+    TileDBLayout,
+)
 from earthscope_sfg_workflows.data_mgmt.ports import (
     ArchiveSourcePort,
     AssetCatalogPort,
@@ -34,17 +42,71 @@ from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import (
     InMemoryFileStore,
 )
 
-from .facades import (
-    AssetQueryFacade,
-    IngestFacade,
-    LayoutFacade,
-    MetadataFacade,
-)
-
 from earthscope_sfg_tools.datamodels.metadata import Site
 
 if TYPE_CHECKING:  # pragma: no cover
     from earthscope_sfg_tools.datamodels.metadata import Campaign, Site, Survey
+    from earthscope_sfg_tools.tiledb_integration import (
+        TDBAcousticArray,
+        TDBGNSSObsArray,
+        TDBIMUPositionArray,
+        TDBKinPositionArray,
+        TDBShotDataArray,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Workspace factory helpers
+# ---------------------------------------------------------------------------
+
+
+def _to_asset_kind(t: object) -> AssetKind:
+    """Translate a user-facing AssetType enum/str to :class:`AssetKind`."""
+    from earthscope_sfg_workflows.config.file_config import AssetType
+
+    if isinstance(t, AssetType):
+        return AssetKind(t.value)
+    return AssetKind(str(t).lower())
+
+
+def _build_default_workspace(directory: Path | str) -> "Workspace":
+    """Construct a production :class:`Workspace` rooted at ``directory``.
+    Picks the file store based on the directory scheme: ``s3://`` URIs use
+    :class:`S3FileStore`; everything else uses :class:`LocalFileStore`.
+    """
+    from earthscope_sfg_workflows.data_mgmt.adapters.disk_filestore import (
+        LocalFileStore,
+        S3FileStore,
+    )
+    from earthscope_sfg_workflows.data_mgmt.adapters.earthscope_archive import EarthScopeArchive
+    from earthscope_sfg_workflows.data_mgmt.adapters.sql_asset_catalog import AssetCatalog
+
+    is_s3 = str(directory).startswith("s3://")
+    if is_s3:
+        files = S3FileStore()
+        catalog_db = Path(os.environ.get("MAIN_DIRECTORY", ".")) / "catalog.sqlite"
+        root: Path | str = directory
+    else:
+        files = LocalFileStore()
+        root = Path(directory)
+        root.mkdir(parents=True, exist_ok=True)
+        catalog_db = root / "catalog.sqlite"
+
+    catalog = AssetCatalog.sqlite(catalog_db)
+    archive = EarthScopeArchive()
+    return Workspace(root_dir=root, catalog=catalog, files=files, archive=archive)
+
+
+@dataclass
+class TileDBRegistry:
+
+    acoustic: TDBAcousticArray
+    kin_position: TDBKinPositionArray
+    imu_position: TDBIMUPositionArray
+    shotdata: TDBShotDataArray
+    shotdata_pre: TDBShotDataArray
+    gnss_obs: TDBGNSSObsArray
+    gnss_obs_secondary: TDBGNSSObsArray
 
 
 class Workspace(AbstractContextManager["Workspace"]):
@@ -359,45 +421,289 @@ class Workspace(AbstractContextManager["Workspace"]):
         return path
 
     # ------------------------------------------------------------------
-    # Façade properties
+    # Metadata properties (read-only views of cached metadata)
     # ------------------------------------------------------------------
 
     @property
-    def layout(self) -> LayoutFacade:
-        """Return a `LayoutFacade` bound to the active scope."""
-        return LayoutFacade(
-            _tree=self._tree,
-            _builder=self._builder,
-            _inspector=self._inspector,
-            _scope=self.scope,
+    def site(self) -> "Site | None":
+        """Currently-loaded site metadata, or ``None``."""
+        return self._site
+
+    @property
+    def campaign_meta(self) -> "Campaign | None":
+        """Currently-loaded campaign metadata, or ``None``."""
+        return self._campaign_meta
+
+    @property
+    def survey_meta(self) -> "Survey | None":
+        """Currently-loaded survey metadata, or ``None``."""
+        return self._survey_meta
+
+    # ------------------------------------------------------------------
+    # Layout — paths and materialization
+    # ------------------------------------------------------------------
+
+    @property
+    def network_dir(self) -> Path:
+        """Path to the active network directory."""
+        return self._tree.network_dir(self.scope.network)
+
+    @property
+    def station_dir(self) -> Path:
+        """Path to the active station directory."""
+        return self._tree.station_dir(self.scope)
+
+    @property
+    def survey_dir(self) -> Path:
+        """Path to the active survey directory; requires ``scope.survey``."""
+        if self._survey is None:
+            raise ValueError("scope.survey must be set to access survey path")
+        return self._tree.survey_dir(self.scope)
+
+    def campaign_layout(self) -> CampaignLayout:
+        """Return the :class:`CampaignLayout` for the active campaign."""
+        return self._tree.campaign(self.scope)
+
+    def tiledb_layout(self) -> TileDBLayout:
+        """Return the :class:`TileDBLayout` for the active station."""
+        return self._tree.tiledb(self.scope)
+
+    def garpos_survey(self) -> GARPOSLayout:
+        """Return the :class:`GARPOSLayout` for the active survey; requires ``scope.survey``."""
+        if self._survey is None:
+            raise ValueError("scope.survey must be set to access garpos_survey()")
+        return self._tree.garpos(self.scope)
+
+    def ensure_station(self) -> TileDBLayout:
+        """Materialize the station/TileDB layout on disk and return it."""
+        return self._builder.ensure_station(self.scope)
+
+    def ensure_campaign(self) -> CampaignLayout:
+        """Materialize the active campaign layout on disk and return it."""
+        return self._builder.ensure_campaign(self.scope)
+
+    def ensure_garpos_survey(self) -> GARPOSLayout:
+        """Materialize the GARPOS survey layout on disk; requires ``scope.survey``."""
+        if self._survey is None:
+            raise ValueError("scope.survey must be set to materialize garpos survey")
+        return self._builder.ensure_garpos_survey(self.scope)
+
+    def is_garpos_directory(self) -> bool:
+        """Return True iff the active survey directory looks like a GARPOS layout."""
+        return self._inspector.is_garpos_directory(self.garpos_survey())
+
+    def find_rectified_shotdata(self) -> Path | None:
+        """Locate rectified shotdata under the active GARPOS survey, if any."""
+        return self._inspector.find_rectified_shotdata(self.garpos_survey())
+
+    def find_filtered_shotdata(self) -> Path | None:
+        """Locate filtered shotdata under the active survey, if any."""
+        return self._inspector.find_filtered_shotdata(self.survey_dir)
+
+    def list_campaigns(self) -> list[str]:
+        """Names of campaign directories under the active station (year-prefixed)."""
+        import re
+        try:
+            return sorted(
+                p.name
+                for p in self.station_dir.iterdir()
+                if p.is_dir() and re.match(r"^\d{4}", p.name)
+            )
+        except (OSError, AttributeError):
+            return []
+
+    def list_surveys(self) -> list[str]:
+        """Names of survey directories under the active campaign."""
+        try:
+            return sorted(p.name for p in self.campaign_layout().root.iterdir() if p.is_dir())
+        except (OSError, AttributeError):
+            return []
+
+    @property
+    def site_metadata_file(self) -> Path:
+        """Path to the site metadata JSON for the active station."""
+        return self.station_dir / "site_metadata.json"
+
+    @property
+    def campaign_metadata_file(self) -> Path:
+        """Path to the campaign metadata JSON for the active campaign."""
+        return self.campaign_layout().metadata_file
+
+    @property
+    def survey_metadata_file(self) -> Path:
+        """Path to the survey metadata JSON for the active survey."""
+        return self.survey_dir / "survey_meta.json"
+
+    @property
+    def pride_directory(self) -> Path:
+        """Path to the workspace-level Pride PPP working directory."""
+        return self._tree.pride_dir
+
+    # ------------------------------------------------------------------
+    # Asset catalog — scoped reads and writes
+    # ------------------------------------------------------------------
+
+    def all_assets(self, kind: AssetKind | None = None) -> list[AssetEntry]:
+        """All cataloged assets in the active scope (optionally by kind)."""
+        return self._catalog.assets_for(self.scope, kind)
+
+    def asset_by_id(self, asset_id: int) -> AssetEntry | None:
+        """Return the asset with ``asset_id``, or None if absent."""
+        return self._catalog.by_id(asset_id)
+
+    def assets_by_path(self, path: Path) -> list[AssetEntry]:
+        """Return all cataloged assets whose ``local_path`` matches ``path``."""
+        return self._catalog.by_local_path(path)
+
+    def count_by_kind(self) -> dict[AssetKind, int]:
+        """Return per-:class:`AssetKind` counts within the active scope."""
+        return self._catalog.count_by_kind(self.scope)
+
+    def dtype_counts(self) -> dict[str, int]:
+        """Count-by-kind keyed by string value (legacy ``get_dtype_counts``)."""
+        return {k.value: v for k, v in self._catalog.count_by_kind(self.scope).items()}
+
+    def add_asset(self, asset: AssetEntry) -> AssetEntry:
+        """Insert a new asset. Returns the entry with ``id`` populated."""
+        return self._catalog.add(asset)
+
+    def update_asset(self, entry: AssetEntry, **changes: object) -> AssetEntry:
+        """Persist ``changes`` against ``entry`` and return the updated entry.
+        Raises ``ValueError`` if ``entry.id`` is None; ``LookupError`` if no
+        row matched.
+        """
+        if entry.id is None:
+            raise ValueError(
+                "update_asset requires a persisted entry (entry.id must not be None)"
+            )
+        new_entry = replace(entry, **changes)  # type: ignore[arg-type]
+        if not self._catalog.update(new_entry):
+            raise LookupError(f"No catalog row for asset id={entry.id}")
+        return new_entry
+
+    def update_asset_path(self, asset_id: int, local_path: Path | str) -> bool:
+        """Set the ``local_path`` of the asset with ``asset_id``."""
+        existing = self._catalog.by_id(asset_id)
+        if existing is None:
+            return False
+        new_entry = replace(existing, local_path=Path(local_path))
+        return self._catalog.update(new_entry)
+
+    def local_assets(self, kind: AssetKind) -> list[AssetEntry]:
+        """Assets of ``kind`` in scope that have a non-null ``local_path``."""
+        return [a for a in self._catalog.assets_for(self.scope, kind) if a.local_path]
+
+    def remote_file_exists_locally(self, kind: AssetKind, remote_path: str) -> bool:
+        """Return True iff any in-scope asset of ``kind`` has a local copy of this URL."""
+        from os.path import basename
+        target = basename(remote_path)
+        for a in self._catalog.assets_for(self.scope, kind):
+            if a.local_path and target in str(a.local_path):
+                return True
+        return False
+
+    def add_or_update_asset(self, entry: AssetEntry) -> AssetEntry | None:
+        """Insert if no entry with the same ``local_path`` exists; else update.
+        Idempotent. Returns the persisted entry, or ``None`` if input is ``None``.
+        """
+        if entry is None:
+            return None
+        if entry.local_path is not None:
+            existing = self._catalog.by_local_path(entry.local_path)
+            if existing:
+                replaced = replace(entry, id=existing[0].id)
+                self._catalog.update(replaced)
+                return replaced
+        return self._catalog.add(entry)
+
+    def assets_to_process(
+        self,
+        parent_kind: AssetKind,
+        child_kind: AssetKind | None = None,
+        *,
+        override: bool = False,
+        local_only: bool = False,
+    ) -> list[AssetEntry]:
+        """Parent-kind entries lacking a ``child_kind`` result.
+        When ``child_kind`` is None, falls back to ``is_processed``.
+        """
+        parents = self._catalog.assets_for(self.scope, parent_kind)
+        if child_kind is None:
+            candidates = parents if override else [p for p in parents if not p.is_processed]
+        else:
+            children = self._catalog.assets_for(self.scope, child_kind)
+            parent_id_map = {p.id: p for p in parents if p.id is not None}
+            if not override:
+                for c in children:
+                    if c.parent_id in parent_id_map:
+                        parent_id_map.pop(c.parent_id, None)
+            candidates = list(parent_id_map.values())
+        if local_only:
+            candidates = [e for e in candidates if e.local_path is not None]
+        seen: dict[Path | None, AssetEntry] = {}
+        for e in candidates:
+            seen[e.local_path] = e
+        return list(seen.values())
+
+    def add_merge_job(
+        self,
+        parent_type: str,
+        child_type: str,
+        parent_ids: list[int] | list[str],
+    ) -> None:
+        """Record completion of a merge from ``parent_ids`` into a ``child_type``."""
+        self._catalog.add_merge_job(parent_type, child_type, parent_ids)
+
+    def is_merge_complete(
+        self,
+        parent_type: str,
+        child_type: str,
+        parent_ids: list[int] | list[str],
+    ) -> bool:
+        """Return True iff a matching merge job has been recorded previously."""
+        return self._catalog.is_merge_complete(parent_type, child_type, parent_ids)
+
+    # ------------------------------------------------------------------
+    # Ingest — discover/ingest/download orchestration
+    # ------------------------------------------------------------------
+
+    def ingest_local(self, source_dir: Path) -> IngestReport:
+        """Ingest assets from a local directory into the active scope."""
+        return self._ingestor.ingest_local(self.scope, source_dir)
+
+    def discover_archive(self, archive_url: str) -> IngestReport:
+        """Discover assets at ``archive_url`` and catalog them in the active scope."""
+        return self._ingestor.discover_archive(self.scope, archive_url)
+
+    def discover_campaign(self) -> IngestReport:
+        """Discover all canonical archive locations for the active campaign."""
+        return self._ingestor.discover_campaign(self.scope)
+
+    def list_archive_urls(self) -> list[str]:
+        """Enumerate every archive file URL for the active campaign scope."""
+        return self._ingestor.list_archive_urls(self.scope)
+
+    def download_assets(
+        self,
+        kinds: list[AssetKind] | None = None,
+        dest_dir: Path | None = None,
+        *,
+        override: bool = False,
+        rinex_1hz: bool = False,
+    ) -> IngestReport:
+        """Download remote assets in scope (optionally filtered by ``kinds``) to ``dest_dir``."""
+        return self._ingestor.download(
+            self.scope,
+            kinds,
+            dest_dir,
+            override=override,
+            rinex_1hz=rinex_1hz,
         )
-
-    @property
-    def assets(self) -> AssetQueryFacade:
-        """Return an `AssetQueryFacade` for catalog access in the active scope."""
-        return AssetQueryFacade(_catalog=self._catalog, _scope=self.scope)
-
-    @property
-    def ingest(self) -> IngestFacade:
-        """Return an `IngestFacade` for discovery/download in the active scope."""
-        return IngestFacade(_ingestor=self._ingestor, _scope=self.scope)
 
     @property
     def archive(self) -> ArchiveSourcePort:
-        """Return the injected :class:`ArchiveSource` adapter.
-        Exposed for callers that need archive operations beyond what
-        :class:`IngestFacade` covers (e.g. metadata loading).
-        """
+        """Return the injected :class:`ArchiveSource` adapter."""
         return self._archive
-
-    @property
-    def metadata(self) -> MetadataFacade:
-        """Return a `MetadataFacade` exposing currently-loaded site/campaign/survey."""
-        return MetadataFacade(
-            site=self._site,
-            campaign=self._campaign_meta,
-            survey=self._survey_meta,
-        )
 
     # ------------------------------------------------------------------
     # Lower-level access (intentionally underscored — internal use)
@@ -407,6 +713,100 @@ class Workspace(AbstractContextManager["Workspace"]):
     def _tree_view(self) -> DirectoryTree:
         """Pure tree, exposed for tests and adapters that need raw paths."""
         return self._tree
+
+    def build_tiledb(self) -> TileDBRegistry:
+        """Materialize TileDB directories and return array handles for the active station."""
+        from earthscope_sfg_tools.tiledb_integration import (
+            TDBAcousticArray,
+            TDBGNSSObsArray,
+            TDBIMUPositionArray,
+            TDBKinPositionArray,
+            TDBShotDataArray,
+        )
+
+        layout = self._builder.ensure_station(self.scope)
+        return TileDBRegistry(
+            acoustic=TDBAcousticArray(layout.acoustic),
+            kin_position=TDBKinPositionArray(layout.kin_position),
+            imu_position=TDBIMUPositionArray(layout.imu_position),
+            shotdata=TDBShotDataArray(layout.shotdata),
+            shotdata_pre=TDBShotDataArray(layout.shotdata_pre),
+            gnss_obs=TDBGNSSObsArray(layout.gnss_obs),
+            gnss_obs_secondary=TDBGNSSObsArray(layout.gnss_obs_secondary),
+        )
+
+    def load_or_fetch_site_metadata(
+        self,
+        explicit: Site | Path | str | None = None,
+    ) -> Site | None:
+        """Three-source fallback: explicit arg → disk → archive. Persists to disk on fetch.
+
+        Args:
+            explicit: A :class:`Site` object, path to a JSON file, or ``None``.
+                      When provided it takes priority over the disk copy.
+        Returns:
+            The loaded :class:`Site`, or ``None`` if no source succeeded.
+        """
+        from earthscope_sfg_tools.datamodels.metadata import Site as _Site
+
+        if self._network is None or self._station is None:
+            raise ValueError("network and station must be set before loading site metadata")
+
+        write_dest = self._root_dir / self._network / self._station / "site_metadata.json"
+
+        # Prefer explicit → disk → archive; flip order when explicit is absent.
+        sources: list = [explicit, write_dest] if explicit is not None else [write_dest, None]
+
+        for source in sources:
+            if isinstance(source, str):
+                source = Path(source)
+
+            if isinstance(source, _Site):
+                with open(write_dest, "w") as f:
+                    json.dump(source.model_dump(mode="json"), f, indent=4)
+                return source
+
+            if isinstance(source, Path) and source.exists():
+                try:
+                    return _Site.from_json(source)
+                except Exception as exc:
+                    warnings.warn(f"Error loading site metadata from {source}: {exc}")
+
+            if source is None:
+                try:
+                    site = self._archive.load_site_metadata(
+                        network=self._network,
+                        station=self._station,
+                    )
+                    with open(write_dest, "w") as f:
+                        json.dump(site.model_dump(mode="json"), f, indent=4)
+                    return site
+                except Exception as exc:
+                    warnings.warn(f"Error loading site metadata from the ES archive: {exc}")
+
+        return None
+
+    def activate_campaign(
+        self,
+        campaign_id: str,
+        *,
+        from_metadata: bool = False,
+    ) -> CampaignLayout:
+        """Set campaign scope and materialize campaign directories.
+
+        Args:
+            campaign_id: The campaign ID to activate.
+            from_metadata: When ``True``, selects from already-loaded site
+                           metadata (requires :meth:`load_site_metadata` to
+                           have been called first).
+        Returns:
+            The materialized :class:`CampaignLayout`.
+        """
+        if from_metadata:
+            self.select_campaign_from_metadata(campaign_id)
+        else:
+            self.set_campaign(campaign_id)
+        return self._builder.ensure_campaign(self.scope)
 
     # ------------------------------------------------------------------
     # Resource lifecycle
@@ -422,4 +822,4 @@ class Workspace(AbstractContextManager["Workspace"]):
         self.close()
 
 
-__all__ = ["Workspace"]
+__all__ = ["TileDBRegistry", "Workspace", "_build_default_workspace", "_to_asset_kind"]

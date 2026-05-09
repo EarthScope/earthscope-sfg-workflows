@@ -127,9 +127,9 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
         if campaign_id != self.workspace.campaign_name:
             self.workspace.set_campaign(campaign_id)
 
-        self.workspace.layout.ensure_campaign()
+        self.workspace.ensure_campaign()
 
-        dtype_counts = self.workspace.assets.dtype_counts()
+        dtype_counts = self.workspace.dtype_counts()
         if dtype_counts == {}:
             message = (
                 f"No local files found for {network_id}/{station_id}/{campaign_id}. "
@@ -138,7 +138,7 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
             ProcessLogger.error(message)
             raise NoLocalData(message)
 
-        change_all_logger_dirs(self.workspace.layout.campaign().logs)
+        change_all_logger_dirs(self.workspace.campaign_layout().logs)
 
         for dtype, count in dtype_counts.items():
             ProcessLogger.info(
@@ -156,7 +156,7 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
         ``<campaign_root>/metadata/`` and updates the rinex config's
         ``settings_path`` to point at the v2 file.
         """
-        meta_dir = self.workspace.layout.campaign().root / "metadata"
+        meta_dir = self.workspace.campaign_layout().root / "metadata"
         meta_dir.mkdir(parents=True, exist_ok=True)
         rinex_metav2 = meta_dir / "rinex_metav2.json"
         rinex_metav1 = meta_dir / "rinex_metav1.json"
@@ -184,7 +184,7 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
             NoRinexBuilt: If ``tile2rinex`` produces no files.
         """
         rinex_cfg = self._rinex_config
-        rinex_dest = self.workspace.layout.campaign().intermediate
+        rinex_dest = self.workspace.campaign_layout().intermediate
 
         year = (
             rinex_cfg.processing_year
@@ -212,7 +212,7 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
             "parent_ids": [parent_ids],
         }
 
-        if rinex_cfg.override or not self.workspace.assets.is_merge_complete(**merge_signature):
+        if rinex_cfg.override or not self.workspace.is_merge_complete(**merge_signature):
             try:
                 rinex_paths: list[Path] = tile2rinex(
                     gnss_obs_tdb=gnss_uri,
@@ -245,12 +245,12 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
                         timestamp_data_end=end,
                         timestamp_created=datetime.datetime.now(tz=datetime.UTC),
                     )
-                    persisted = self.workspace.assets.add_or_update(entry)
+                    persisted = self.workspace.add_or_update_asset(entry)
                     rinex_entries.append(persisted if persisted is not None else entry)
                     if persisted is not None:
                         upload_count += 1
 
-                self.workspace.assets.add_merge_job(**merge_signature)
+                self.workspace.add_merge_job(**merge_signature)
 
                 ProcessLogger.info(
                     f"Generated {len(rinex_entries)} RINEX files spanning "
@@ -270,7 +270,7 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
                 sys.exit(1)
 
         else:
-            rinex_entries = self.workspace.assets.local(AssetKind.RINEX2)
+            rinex_entries = self.workspace.local_assets(AssetKind.RINEX2)
             ProcessLogger.debug(
                 f"RINEX already generated for {self.current_network_name}, "
                 f"{self.current_station_name}, {year}. "
@@ -299,10 +299,10 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
             "This may take a few minutes..."
         )
 
-        pride_dir = self.workspace.layout.pride_directory
-        intermediate_dir = self.workspace.layout.campaign().intermediate
+        pride_dir = self.workspace.pride_directory
+        intermediate_dir = self.workspace.campaign_layout().intermediate
 
-        rinex_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
+        rinex_entries: list[AssetEntry] = self.workspace.assets_to_process(
             parent_kind=AssetKind.RINEX2,
             child_kind=AssetKind.KIN,
             override=pride_cfg.override,
@@ -345,7 +345,7 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
             rinex_entry = rinex_path_map.get(result.rinex_path)
             if result.kin_path is not None:
                 kin_count += 1
-                rinex_entry = self.workspace.assets.update(rinex_entry, is_processed=True)
+                rinex_entry = self.workspace.update_asset(rinex_entry, is_processed=True)
                 kin_entry = AssetEntry(
                     kind=AssetKind.KIN,
                     scope=scope,
@@ -355,7 +355,7 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
                     timestamp_data_end=rinex_entry.timestamp_data_end,
                     timestamp_created=datetime.datetime.now(tz=datetime.UTC),
                 )
-                if self.workspace.assets.add_or_update(kin_entry):
+                if self.workspace.add_or_update_asset(kin_entry):
                     upload_count += 1
 
             # Handle both attribute names used across pipeline versions
@@ -371,7 +371,7 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
                     timestamp_data_end=rinex_entry.timestamp_data_end,
                     timestamp_created=datetime.datetime.now(tz=datetime.UTC),
                 )
-                if self.workspace.assets.add_or_update(res_entry):
+                if self.workspace.add_or_update_asset(res_entry):
                     upload_count += 1
 
         ProcessLogger.info(
@@ -398,7 +398,7 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
             f"{self.current_station_name} {self.current_campaign_name}"
         )
 
-        kin_entries: list[AssetEntry] = self.workspace.assets.single_to_process(
+        kin_entries: list[AssetEntry] = self.workspace.assets_to_process(
             parent_kind=AssetKind.KIN,
             override=self._rinex_config.override,
         )
@@ -419,7 +419,7 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
                 df = kin_to_kin_position_df(entry.local_path)
                 if df is not None:
                     processed_count += 1
-                    self.workspace.assets.update(entry, is_processed=True)
+                    self.workspace.update_asset(entry, is_processed=True)
                     self._kin_position_tdb.write_df(df)
             except Exception as e:
                 ProcessLogger.error(f"Error processing {entry.local_path}: {e}")

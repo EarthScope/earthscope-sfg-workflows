@@ -133,7 +133,7 @@ class GarposHandler(IntermediateDataProcessor):
         super().set_survey(survey_id=survey_id)
 
         # Resolve the shotdata file produced by IntermediateDataProcessor.
-        campaign_meta = self.workspace.metadata.campaign
+        campaign_meta = self.workspace.campaign_meta
         survey_type = None
         if campaign_meta is not None:
             for s in campaign_meta.surveys:
@@ -145,7 +145,7 @@ class GarposHandler(IntermediateDataProcessor):
                 f"Survey {survey_id} not found in campaign metadata; cannot locate shotdata."
             )
 
-        survey_root = self.workspace.layout.survey
+        survey_root = self.workspace.survey_dir
         shotdata_file = survey_root / f"{survey_id}_{survey_type}_shotdata.csv".replace(" ", "")
         if not shotdata_file.exists():
             raise ValueError(
@@ -153,8 +153,8 @@ class GarposHandler(IntermediateDataProcessor):
                 "Please run intermediate data processing to create shotdata file."
             )
 
-        garpos_layout = self.workspace.layout.ensure_garpos_survey()
-        rectified = self.workspace.layout.find_rectified_shotdata()
+        garpos_layout = self.workspace.ensure_garpos_survey()
+        rectified = self.workspace.find_rectified_shotdata()
         if rectified is None or not rectified.exists():
             raise ValueError(
                 f"Rectified shotdata for survey {survey_id} not found in "
@@ -470,7 +470,7 @@ class GarposHandler(IntermediateDataProcessor):
         shotdata_dfs = {}
         shotdata_filtered_dfs = {}
         survey_id_to_type = {s.id: s.type.value for s in metadata_surveys}
-        for survey_name in sorted(self.workspace.layout.list_surveys()):
+        for survey_name in sorted(self.workspace.list_surveys()):
             if survey_name in survey_id_to_type:
                 for survey in metadata_surveys:
                     if survey.id == survey_name:
@@ -482,7 +482,7 @@ class GarposHandler(IntermediateDataProcessor):
                         )
                     continue
                 try:
-                    survey_root = self.workspace.layout.campaign().root / survey_name
+                    survey_root = self.workspace.campaign_layout().root / survey_name
                     survey_type = survey_id_to_type[survey_name]
                     shotdata_filepath = (
                         survey_root / f"{survey_name}_{survey_type}_shotdata.csv".replace(" ", "")
@@ -587,7 +587,7 @@ class GarposHandler(IntermediateDataProcessor):
         if showfig:
             plt.show()
 
-        fig_path = f"{self.workspace.layout.campaign().root}/{self.current_station_name}_{self.current_campaign_name}_shotdata_replies.png"
+        fig_path = f"{self.workspace.campaign_layout().root}/{self.current_station_name}_{self.current_campaign_name}_shotdata_replies.png"
         if savefig:
             logger.info(f"Saving figure to {fig_path}")
             plt.savefig(

@@ -108,6 +108,6 @@ extend-select = ["TID251"]
 "__init__.py" = ["F401"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"earthscope_sfg_workflows.data_mgmt.assetcatalog".msg = "Removed in RFC-A. Use `workspace.assets` (AssetQueryFacade) or `data_mgmt.adapters.sql.SqlAssetStore` directly."
-"earthscope_sfg_workflows.data_mgmt.directorymgmt".msg = "Removed in RFC-A. Use `workspace.layout` (LayoutFacade) or `data_mgmt.model` layout dataclasses."
-"earthscope_sfg_workflows.data_mgmt.ingestion".msg = "Removed in RFC-A. Use `workspace.ingest` (IngestFacade) or `data_mgmt.adapters.earthscope_archive.EarthScopeArchive`."
+"earthscope_sfg_workflows.data_mgmt.assetcatalog".msg = "Removed in RFC-A. Use workspace.add_asset / all_assets / update_asset etc., or data_mgmt.adapters.sql.SqlAssetStore directly."
+"earthscope_sfg_workflows.data_mgmt.directorymgmt".msg = "Removed in RFC-A. Use workspace.ensure_campaign / campaign_layout / survey_dir etc., or data_mgmt.model layout dataclasses."
+"earthscope_sfg_workflows.data_mgmt.ingestion".msg = "Removed in RFC-A. Use workspace.ingest_local / discover_campaign / download_assets, or data_mgmt.adapters.earthscope_archive.EarthScopeArchive."
