@@ -189,46 +189,49 @@ class Workspace(AbstractContextManager["Workspace"]):
     # Scope mutators (cascading resets)
     # ------------------------------------------------------------------
 
+    # Ordered hierarchy: each level's index determines what gets cleared
+    # when that level is set or reset.
+    _LEVELS = ("network", "station", "campaign", "survey")
+
+    # Metadata fields that are invalidated when a level is set/reset.
+    # Index matches _LEVELS: setting level i clears _meta_fields[i:].
+    _META_FIELDS = (
+        ("_site", "_campaign_meta", "_survey_meta"),  # network reset → clear all
+        ("_site", "_campaign_meta", "_survey_meta"),  # station reset → clear all (conservative)
+        ("_campaign_meta", "_survey_meta"),            # campaign reset → clear campaign+survey
+        ("_survey_meta",),                             # survey reset → clear survey only
+    )
+
+    # Prerequisite check: level i requires level i-1 to be set first.
+    _REQUIRES = (None, "network", "station", "campaign")
+
+    def _set_level(self, level: str, value: str) -> None:
+        """Set *level* to *value*, clear all lower levels and their metadata."""
+        idx = self._LEVELS.index(level)
+        prereq = self._REQUIRES[idx]
+        if prereq is not None and getattr(self, f"_{prereq}") is None:
+            raise ValueError(f"set_{prereq}() must be called before set_{level}()")
+        setattr(self, f"_{level}", value)
+        for lower in self._LEVELS[idx + 1:]:
+            setattr(self, f"_{lower}", None)
+        for field in self._META_FIELDS[idx]:
+            setattr(self, field, None)
+
     def set_network(self, network: str) -> None:
         """Set the network. Clears station/campaign/survey and *all* metadata."""
-        self._network = network
-        self._station = None
-        self._campaign = None
-        self._survey = None
-        self._site = None
-        self._campaign_meta = None
-        self._survey_meta = None
+        self._set_level("network", network)
 
     def set_station(self, station: str) -> None:
-        """Set the station. Requires network. Clears campaign/survey
-        and all metadata. Site metadata is **always** cleared on station
-        change (PRD decision: conservative — mismatched site metadata
-        silently breaks GARPOS).
-        """
-        if self._network is None:
-            raise ValueError("set_network() must be called before set_station()")
-        self._station = station
-        self._campaign = None
-        self._survey = None
-        self._site = None
-        self._campaign_meta = None
-        self._survey_meta = None
+        """Set the station. Requires network. Clears campaign/survey and all metadata."""
+        self._set_level("station", station)
 
     def set_campaign(self, campaign: str) -> None:
         """Set the campaign. Requires station. Clears survey + campaign/survey metadata."""
-        if self._station is None:
-            raise ValueError("set_station() must be called before set_campaign()")
-        self._campaign = campaign
-        self._survey = None
-        self._campaign_meta = None
-        self._survey_meta = None
+        self._set_level("campaign", campaign)
 
     def set_survey(self, survey: str) -> None:
         """Set the survey. Requires campaign. Clears survey metadata."""
-        if self._campaign is None:
-            raise ValueError("set_campaign() must be called before set_survey()")
-        self._survey = survey
-        self._survey_meta = None
+        self._set_level("survey", survey)
 
     def set_network_station_campaign(
         self,
@@ -246,27 +249,29 @@ class Workspace(AbstractContextManager["Workspace"]):
         if survey is not None:
             self.set_survey(survey)
 
+    def _reset_from(self, level: str) -> None:
+        """Clear *level* and all levels below it, plus their metadata."""
+        idx = self._LEVELS.index(level)
+        for lower in self._LEVELS[idx:]:
+            setattr(self, f"_{lower}", None)
+        for field in self._META_FIELDS[idx]:
+            setattr(self, field, None)
+
     def reset_survey(self) -> None:
         """Clear the active survey and its cached metadata."""
-        self._survey = None
-        self._survey_meta = None
+        self._reset_from("survey")
 
     def reset_campaign(self) -> None:
         """Clear the active campaign (and survey) and their cached metadata."""
-        self._campaign = None
-        self._campaign_meta = None
-        self.reset_survey()
+        self._reset_from("campaign")
 
     def reset_station(self) -> None:
         """Clear the active station, site metadata, and downstream scope."""
-        self._station = None
-        self._site = None
-        self.reset_campaign()
+        self._reset_from("station")
 
     def reset_network(self) -> None:
         """Clear the active network and all downstream scope/metadata."""
-        self._network = None
-        self.reset_station()
+        self._reset_from("network")
 
     # ------------------------------------------------------------------
     # Metadata loaders (explicit; never auto-loaded)
