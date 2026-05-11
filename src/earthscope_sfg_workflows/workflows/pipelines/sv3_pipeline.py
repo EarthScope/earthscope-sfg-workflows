@@ -25,8 +25,7 @@ from tqdm.auto import tqdm
 from ...data_mgmt.model import AssetEntry, AssetKind
 from ...data_mgmt.utils import get_merge_signature_shotdata
 from ..base import validate_network_station_campaign
-from ..workspace import _build_default_workspace
-from ..workspace import Workspace
+from ..session import StationSession as Workspace, _build_default_workspace
 from .config import PrideConfig, RinexConfig, SV3PipelineConfig
 from .exceptions import (
     NoDFOP00Found,

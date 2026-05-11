@@ -47,7 +47,7 @@ from ..base import (
     validate_network_station,
     validate_network_station_campaign,
 )
-from ..workspace import Workspace, _build_default_workspace
+from ..session import StationSession as Workspace, _build_default_workspace
 
 
 class IntermediateDataProcessor(WorkflowBase):
@@ -122,7 +122,7 @@ class IntermediateDataProcessor(WorkflowBase):
                 elevation=-float(value.localGeoidHeight),
             )
         else:
-            self.workspace._site = None
+            self.workspace._station = None
 
     @property
     def current_campaign_metadata(self) -> Campaign | None:

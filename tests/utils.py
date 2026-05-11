@@ -34,8 +34,8 @@ from earthscope_sfg_workflows.data_mgmt.core import (
     FileTypeDetector,
     Ingestor,
 )
-from earthscope_sfg_workflows.data_mgmt.model import CampaignScope, DirectoryTree
-from earthscope_sfg_workflows.workflows.workspace import Workspace
+from earthscope_sfg_workflows.data_mgmt.model import SFGScope, DirectoryTree
+from earthscope_sfg_workflows.workflows.session import StationSession as Workspace
 
 
 def make_ingestor(
@@ -93,9 +93,9 @@ def make_scope(
     network: str = "NET",
     station: str = "STA",
     campaign: str = "2024_A",
-) -> CampaignScope:
+) -> SFGScope:
     """Return a ``CampaignScope`` with sensible defaults for tests."""
-    return CampaignScope(network=network, station=station, campaign=campaign)
+    return SFGScope(network=network, station=station, campaign=campaign)
 
 
 __all__ = [

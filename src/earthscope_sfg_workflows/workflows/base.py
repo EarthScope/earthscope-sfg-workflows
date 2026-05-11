@@ -13,7 +13,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Concatenate, ParamSpec, Protocol, TypeVar
 
-from .workspace import Workspace
+from .session import StationSession as Workspace
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -50,12 +50,12 @@ class WorkflowBase(ABC):
     # ------------------------------------------------------------------
 
     @property
-    def current_network_name(self) -> str | None:
+    def current_network_name(self) -> str:
         """Active network name; alias for `self.workspace.network_name`."""
         return self.workspace.network_name
 
     @property
-    def current_station_name(self) -> str | None:
+    def current_station_name(self) -> str:
         """Active station name; alias for `self.workspace.station_name`."""
         return self.workspace.station_name
 
@@ -72,17 +72,24 @@ class WorkflowBase(ABC):
 def validate_network_station_campaign(
     func: Callable[Concatenate[HasWorkspace, P], R],
 ) -> Callable[Concatenate[HasWorkspace, P], R]:
-    """Decorator: ensure ``self.workspace`` has network/station/campaign set."""
+    """Decorator: ensure ``self.workspace`` has network/station/campaign set.
+
+    Network and station are fixed at :class:`~.session.CampaignSession`
+    construction and are always non-None; the guards below are defensive for
+    future workspace implementations.  Campaign is the meaningful runtime
+    check — it must be set via ``set_campaign()`` before calling decorated
+    methods.
+    """
 
     @wraps(func)
     def wrapper(self: HasWorkspace, *args: P.args, **kwargs: P.kwargs) -> R:
         ws = self.workspace
         if ws.network_name is None:
-            raise ValueError("Network name not set; call set_network() first")
+            raise ValueError("workspace has no network set")
         if ws.station_name is None:
-            raise ValueError("Station name not set; call set_station() first")
+            raise ValueError("workspace has no station set")
         if ws.campaign_name is None:
-            raise ValueError("Campaign name not set; call set_campaign() first")
+            raise ValueError("Campaign not set; call set_campaign() first")
         return func(self, *args, **kwargs)
 
     return wrapper
@@ -91,15 +98,20 @@ def validate_network_station_campaign(
 def validate_network_station(
     func: Callable[Concatenate[HasWorkspace, P], R],
 ) -> Callable[Concatenate[HasWorkspace, P], R]:
-    """Decorator: ensure ``self.workspace`` has network/station set."""
+    """Decorator: ensure ``self.workspace`` has network/station set.
+
+    Network and station are fixed at :class:`~.session.CampaignSession`
+    construction, so this decorator is effectively a no-op for sessions.
+    It is kept for defensive checks and documentation purposes.
+    """
 
     @wraps(func)
     def wrapper(self: HasWorkspace, *args: P.args, **kwargs: P.kwargs) -> R:
         ws = self.workspace
         if ws.network_name is None:
-            raise ValueError("Network name not set; call set_network() first")
+            raise ValueError("workspace has no network set")
         if ws.station_name is None:
-            raise ValueError("Station name not set; call set_station() first")
+            raise ValueError("workspace has no station set")
         return func(self, *args, **kwargs)
 
     return wrapper

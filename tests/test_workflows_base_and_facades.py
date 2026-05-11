@@ -8,6 +8,7 @@ no database.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ import pytest
 from earthscope_sfg_workflows.data_mgmt import (
     AssetEntry,
     AssetKind,
-    CampaignScope,
+    SFGScope,
     DirectoryTree,
     LayoutInspector,
 )
@@ -38,7 +39,7 @@ from earthscope_sfg_workflows.workflows.base import (
     WorkflowBase,
     validate_network_station_campaign,
 )
-from earthscope_sfg_workflows.workflows.workspace import Workspace
+from earthscope_sfg_workflows.workflows.session import StationSession as Workspace
 
 
 # ---------------------------------------------------------------------------
@@ -47,54 +48,24 @@ from earthscope_sfg_workflows.workflows.workspace import Workspace
 
 
 class TestWorkspaceScope:
-    def test_scope_raises_when_incomplete(self):
-        ws = Workspace.for_test()
-        with pytest.raises(ValueError, match="network"):
+    def test_network_station_always_set_after_construction(self):
+        ws = Workspace.for_test(network="N", station="S")
+        assert ws.network_name == "N"
+        assert ws.station_name == "S"
+
+    def test_scope_raises_without_campaign(self):
+        ws = Workspace.for_test(network="N", station="S")
+        with pytest.raises(ValueError, match="campaign"):
             _ = ws.scope
 
-    def test_scope_returns_campaign_scope(self):
+    def test_scope_returns_campaign_scope_when_campaign_set(self):
         ws = Workspace.for_test(network="N", station="S", campaign="2026_A")
-        assert ws.scope == CampaignScope("N", "S", "2026_A")
-
-    def test_set_station_requires_network(self):
-        ws = Workspace.for_test()
-        with pytest.raises(ValueError, match="network"):
-            ws.set_station("S")
-
-    def test_set_campaign_requires_station(self):
-        ws = Workspace.for_test(network="N")
-        with pytest.raises(ValueError, match="station"):
-            ws.set_campaign("C")
+        assert ws.scope == SFGScope("N", "S", "2026_A")
 
     def test_set_survey_requires_campaign(self):
         ws = Workspace.for_test(network="N", station="S")
         with pytest.raises(ValueError, match="campaign"):
             ws.set_survey("V")
-
-    def test_set_network_clears_descendants_and_metadata(self):
-        ws = Workspace.for_test(network="N", station="S", campaign="2026_A", survey="V")
-        ws.load_site_metadata(object())
-        ws.load_campaign_metadata(object())
-        ws.load_survey_metadata(object())
-
-        ws.set_network("N2")
-
-        assert ws.network_name == "N2"
-        assert ws.station_name is None
-        assert ws.campaign_name is None
-        assert ws.survey_name is None
-        assert ws.site is None
-        assert ws.campaign_meta is None
-        assert ws.survey_meta is None
-
-    def test_set_station_always_clears_site_metadata(self):
-        """PRD decision: site metadata is always cleared on station change."""
-        ws = Workspace.for_test(network="N", station="S")
-        ws.load_site_metadata(object())
-        assert ws.site is not None
-
-        ws.set_station("S")  # same id, still clears
-        assert ws.site is None
 
     def test_set_campaign_clears_survey_only(self):
         ws = Workspace.for_test(network="N", station="S", campaign="C", survey="V")
@@ -105,8 +76,71 @@ class TestWorkspaceScope:
 
         assert ws.campaign_name == "C2"
         assert ws.survey_name is None
-        # Site metadata persists across campaign change.
+        # Site metadata persists across campaign changes.
         assert ws.site is site_obj
+
+    def test_set_campaign_returns_campaign_layout(self):
+        ws = Workspace.for_test(network="N", station="S")
+        layout = ws.set_campaign("2026_A")
+        assert layout is not None
+        assert ws.campaign_name == "2026_A"
+
+    def test_campaign_name_none_before_set(self):
+        ws = Workspace.for_test(network="N", station="S")
+        assert ws.campaign_name is None
+
+    def test_survey_name_cleared_by_set_campaign(self):
+        ws = Workspace.for_test(network="N", station="S", campaign="C", survey="V")
+        assert ws.survey_name == "V"
+        ws.set_campaign("C2")
+        assert ws.survey_name is None
+
+
+# ---------------------------------------------------------------------------
+# Decorator enforcement on CampaignSession methods
+# ---------------------------------------------------------------------------
+
+
+class TestSessionDecorators:
+    def test_campaign_layout_requires_campaign(self):
+        ws = Workspace.for_test(network="N", station="S")
+        with pytest.raises(ValueError, match="campaign"):
+            ws.campaign_layout()
+
+    def test_ensure_campaign_requires_campaign(self):
+        ws = Workspace.for_test(network="N", station="S")
+        with pytest.raises(ValueError, match="campaign"):
+            ws.ensure_campaign()
+
+    def test_garpos_survey_requires_survey(self):
+        ws = Workspace.for_test(network="N", station="S", campaign="C")
+        with pytest.raises(ValueError, match="survey"):
+            ws.garpos_survey()
+
+    def test_survey_dir_requires_survey(self):
+        ws = Workspace.for_test(network="N", station="S", campaign="C")
+        with pytest.raises(ValueError, match="survey"):
+            _ = ws.survey_dir
+
+    def test_scope_requires_campaign_for_catalog_calls(self):
+        ws = Workspace.for_test(network="N", station="S")
+        with pytest.raises(ValueError, match="campaign"):
+            ws.catalog.assets_for(ws.scope)
+
+    def test_tiledb_layout_available_without_campaign(self):
+        """TileDB is station-scoped — no campaign needed."""
+        ws = Workspace.for_test(network="N", station="S")
+        layout = ws.tiledb_layout()
+        assert layout is not None
+
+    def test_station_dir_available_without_campaign(self):
+        ws = Workspace.for_test(network="N", station="S")
+        assert ws.station_dir is not None
+
+    def test_list_campaigns_available_without_campaign(self):
+        ws = Workspace.for_test(network="N", station="S")
+        campaigns = ws.list_campaigns()
+        assert isinstance(campaigns, list)
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +152,7 @@ class TestLayoutFacade:
     def test_paths_match_directory_tree(self):
         ws = Workspace.for_test(root="/data", network="N", station="S", campaign="2026_A")
         tree = DirectoryTree(root=Path("/data"))
-        scope = CampaignScope("N", "S", "2026_A")
+        scope = SFGScope("N", "S", "2026_A")
 
         assert ws.network_dir == tree.network_dir("N")
         assert ws.station_dir == tree.station_dir(scope)
@@ -144,62 +178,43 @@ class TestLayoutFacade:
 class TestAssetQueryFacade:
     def _seed(self) -> Workspace:
         ws = Workspace.for_test(network="N", station="S", campaign="C")
-        ws.add_asset(
-            AssetEntry(
-                kind=AssetKind.NOVATEL,
-                scope=ws.scope,
-                local_path=Path("/tmp/a.bin"),
-            )
-        )
-        ws.add_asset(
-            AssetEntry(
-                kind=AssetKind.RINEX2,
-                scope=ws.scope,
-                local_path=Path("/tmp/b.23o"),
-            )
-        )
+        ws.catalog.add(AssetEntry(kind=AssetKind.NOVATEL, scope=ws.scope, local_path=Path("/tmp/a.bin")))
+        ws.catalog.add(AssetEntry(kind=AssetKind.RINEX2, scope=ws.scope, local_path=Path("/tmp/b.23o")))
         return ws
 
     def test_all_filters_by_kind(self):
         ws = self._seed()
-        novatels = ws.all_assets(AssetKind.NOVATEL)
+        novatels = ws.catalog.assets_for(ws.scope, AssetKind.NOVATEL)
         assert len(novatels) == 1
         assert novatels[0].kind == AssetKind.NOVATEL
 
     def test_count_by_kind(self):
         ws = self._seed()
-        counts = ws.count_by_kind()
+        counts = ws.catalog.count_by_kind(ws.scope)
         assert counts[AssetKind.NOVATEL] == 1
         assert counts[AssetKind.RINEX2] == 1
 
     def test_update_returns_new_frozen_entry(self):
         ws = self._seed()
-        entry = ws.all_assets(AssetKind.NOVATEL)[0]
+        entry = ws.catalog.assets_for(ws.scope, AssetKind.NOVATEL)[0]
         assert entry.is_processed is False
 
-        updated = ws.update_asset(entry, is_processed=True)
+        updated = replace(entry, is_processed=True)
+        ws.catalog.update(updated)
 
         assert updated is not entry  # frozen — different object
         assert updated.is_processed is True
-        # Catalog reflects the change.
-        assert ws.all_assets(AssetKind.NOVATEL)[0].is_processed is True
+        assert ws.catalog.assets_for(ws.scope, AssetKind.NOVATEL)[0].is_processed is True
 
-    def test_update_unknown_id_raises(self):
+    def test_update_unknown_id_returns_false(self):
         ws = Workspace.for_test(network="N", station="S", campaign="C")
-        ghost = AssetEntry(
-            kind=AssetKind.NOVATEL,
-            scope=ws.scope,
-            id=999,
-            local_path=Path("/x"),
-        )
-        with pytest.raises(LookupError):
-            ws.update_asset(ghost, is_processed=True)
+        ghost = AssetEntry(kind=AssetKind.NOVATEL, scope=ws.scope, id=999, local_path=Path("/x"))
+        assert ws.catalog.update(ghost) is False
 
-    def test_update_requires_persisted_entry(self):
-        ws = Workspace.for_test(network="N", station="S", campaign="C")
-        unsaved = AssetEntry(kind=AssetKind.NOVATEL, scope=ws.scope, local_path=Path("/y"))
-        with pytest.raises(ValueError, match="entry.id"):
-            ws.update_asset(unsaved, is_processed=True)
+    def test_catalog_requires_campaign_via_scope(self):
+        ws = Workspace.for_test(network="N", station="S")
+        with pytest.raises(ValueError, match="campaign"):
+            _ = ws.scope
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +224,7 @@ class TestAssetQueryFacade:
 
 class TestDiscoverCampaign:
     def test_canonical_urls_compose_year_from_campaign(self):
-        scope = CampaignScope("CAS", "NCB1", "2026_A_FOO")
+        scope = SFGScope("CAS", "NCB1", "2026_A_FOO")
         urls = canonical_campaign_urls(scope)
         assert all(u.startswith(ARCHIVE_PREFIX) for u in urls)
         assert urls[0].endswith("/CAS/2026/NCB1/2026_A_FOO/raw")
@@ -221,7 +236,7 @@ class TestDiscoverCampaign:
         catalog = InMemoryAssetStore()
         files = InMemoryFileStore()
         archive = FakeArchive()
-        scope = CampaignScope("CAS", "NCB1", "2026_A")
+        scope = SFGScope("CAS", "NCB1", "2026_A")
 
         raw, meta, r1, r10 = canonical_campaign_urls(scope)
         archive.seed(f"{raw}/NOV770_data.bin", b"x")
@@ -253,7 +268,7 @@ class TestDiscoverCampaign:
         """
         catalog = InMemoryAssetStore()
         archive = FakeArchive()
-        scope = CampaignScope("CAS", "NCB1", "2026_A")
+        scope = SFGScope("CAS", "NCB1", "2026_A")
 
         raw, meta, r1, _r10 = canonical_campaign_urls(scope)
         archive.seed(f"{raw}/NOV770_data.bin", b"x")
@@ -280,7 +295,7 @@ class TestDiscoverCampaign:
         ws._archive.seed(f"{raw}/NOV770_data.bin", b"x")  # type: ignore[attr-defined]
         ws._archive.seed(f"{meta}/ctd/CTD.txt", b"c")  # type: ignore[attr-defined]
 
-        urls = ws.list_archive_urls()
+        urls = ws.ingestor.list_archive_urls(ws.scope)
 
         assert sorted(urls) == sorted([f"{raw}/NOV770_data.bin", f"{meta}/ctd/CTD.txt"])
 
@@ -331,14 +346,15 @@ class _DummyWorkflow(WorkflowBase):
 
 class TestWorkflowBase:
     def test_directory_property_matches_workspace_root(self):
-        ws = Workspace.for_test(root="/data")
+        ws = Workspace.for_test(root="/data", network="N", station="S")
         wf = _DummyWorkflow(ws)
         assert wf.directory == Path("/data")
 
-    def test_decorator_blocks_incomplete_scope(self):
-        ws = Workspace.for_test(network="N")
+    def test_decorator_blocks_when_campaign_not_set(self):
+        """validate_network_station_campaign raises if campaign is None."""
+        ws = Workspace.for_test(network="N", station="S")  # no campaign
         wf = _DummyWorkflow(ws)
-        with pytest.raises(ValueError, match="Station"):
+        with pytest.raises(ValueError, match="[Cc]ampaign"):
             wf.do_thing()
 
     def test_decorator_passes_when_scope_is_complete(self):
@@ -347,7 +363,7 @@ class TestWorkflowBase:
         assert wf.do_thing() == "ok"
 
     def test_no_port_attributes_leaked(self):
-        wf = _DummyWorkflow(Workspace.for_test())
+        wf = _DummyWorkflow(Workspace.for_test(network="N", station="S"))
         # Façade-only access. The base must not expose ports as attributes.
         assert not hasattr(wf, "asset_catalog")
         assert not hasattr(wf, "directory_handler")

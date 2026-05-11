@@ -13,7 +13,7 @@ from dataclasses import replace
 from itertools import count
 from upath import UPath
 
-from ..model import ArchiveFile, AssetEntry, AssetKind, CampaignScope, FileInfo
+from ..model import ArchiveFile, AssetEntry, AssetKind, SFGScope, FileInfo
 from ..ports import ArchiveNotFoundError
 
 
@@ -62,7 +62,7 @@ class InMemoryAssetStore:
 
     def assets_for(
         self,
-        scope: CampaignScope,
+        scope: SFGScope,
         kind: AssetKind | None = None,
     ) -> list[AssetEntry]:
         """Return assets within `scope`, optionally filtered by `kind`."""
@@ -79,7 +79,7 @@ class InMemoryAssetStore:
 
     def delete(
         self,
-        scope: CampaignScope,
+        scope: SFGScope,
         kind: AssetKind | None = None,
     ) -> int:
         """Delete assets in `scope` (optionally filtered by `kind`); return count."""
@@ -93,7 +93,7 @@ class InMemoryAssetStore:
                 del self._rows[aid]
             return len(doomed)
 
-    def count_by_kind(self, scope: CampaignScope) -> dict[AssetKind, int]:
+    def count_by_kind(self, scope: SFGScope) -> dict[AssetKind, int]:
         """Return a per-`AssetKind` row count for assets in `scope`."""
         with self._lock:
             counts: dict[AssetKind, int] = defaultdict(int)

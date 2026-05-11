@@ -30,7 +30,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..model import AssetEntry, AssetKind, CampaignScope
+from ..model import AssetEntry, AssetKind, SFGScope
 
 Base = declarative_base()
 
@@ -68,7 +68,7 @@ def _row_to_entry(row: Assets) -> AssetEntry:
     return AssetEntry(
         id=row.id,
         kind=AssetKind(row.type),
-        scope=CampaignScope(
+        scope=SFGScope(
             network=row.network,
             station=row.station,
             campaign=row.campaign,
@@ -166,7 +166,7 @@ class AssetCatalog:
 
     def assets_for(
         self,
-        scope: CampaignScope,
+        scope: SFGScope,
         kind: AssetKind | None = None,
     ) -> list[AssetEntry]:
         """Return assets in `scope`, optionally filtered by `kind`, ordered by id."""
@@ -183,7 +183,7 @@ class AssetCatalog:
 
     def delete(
         self,
-        scope: CampaignScope,
+        scope: SFGScope,
         kind: AssetKind | None = None,
     ) -> int:
         """Delete assets in `scope` (optionally filtered by `kind`); return count."""
@@ -203,7 +203,7 @@ class AssetCatalog:
             result = session.execute(delete(Assets).where(Assets.id == asset_id))
             return (result.rowcount or 0) > 0
 
-    def count_by_kind(self, scope: CampaignScope) -> dict[AssetKind, int]:
+    def count_by_kind(self, scope: SFGScope) -> dict[AssetKind, int]:
         """Return a per-`AssetKind` row count for assets in `scope`."""
         with self._Session() as session:
             rows = (

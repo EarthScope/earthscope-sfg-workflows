@@ -23,7 +23,7 @@ from .model import (
     AssetEntry,
     AssetKind,
     CampaignLayout,
-    CampaignScope,
+    SFGScope,
     DirectoryTree,
     FileInfo,
     GARPOSLayout,
@@ -59,6 +59,31 @@ DEFAULT_PATTERNS: tuple[tuple[re.Pattern[str], AssetKind], ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# FileTypeDetector — pure file-name → AssetKind classifier
+# ---------------------------------------------------------------------------
+
+
+class FileTypeDetector:
+    """Classifies filenames to :class:`AssetKind` using regex patterns.
+
+    Wraps :data:`DEFAULT_PATTERNS` by default; inject a custom list to
+    override.
+    """
+
+    def __init__(
+        self,
+        patterns: Iterable[tuple[re.Pattern[str], AssetKind]] | None = None,
+    ) -> None:
+        self._patterns = tuple(patterns if patterns is not None else DEFAULT_PATTERNS)
+
+    def detect(self, filename: str) -> AssetKind | None:
+        """Return the first matching :class:`AssetKind`, or ``None``."""
+        for pattern, kind in self._patterns:
+            if pattern.search(filename):
+                return kind
+        return None
+
 
 # ---------------------------------------------------------------------------
 # FileManager — materializes a DirectoryTree on a FileStore
@@ -79,7 +104,7 @@ class FileManager:
         self.file_backend.mkdir(self.directory_tree.root)
         self.file_backend.mkdir(self.directory_tree.pride_dir)
 
-    def ensure_station(self, scope: CampaignScope) -> TileDBLayout:
+    def ensure_station(self, scope: SFGScope) -> TileDBLayout:
         """Materialize the station and TileDB array directories; return the layout."""
         self.file_backend.mkdir(self.directory_tree.station_dir(scope))
         layout = self.directory_tree.tiledb(scope)
@@ -87,7 +112,7 @@ class FileManager:
             self.file_backend.mkdir(path)
         return layout
 
-    def ensure_campaign(self, scope: CampaignScope) -> CampaignLayout:
+    def ensure_campaign(self, scope: SFGScope) -> CampaignLayout:
         """Materialize the campaign directory tree (top-down); return the layout."""
         self.file_backend.mkdir(self.directory_tree.network_dir(scope.network))
         self.file_backend.mkdir(self.directory_tree.station_dir(scope))
@@ -96,7 +121,12 @@ class FileManager:
             self.file_backend.mkdir(path)
         return layout
 
-    def ensure_garpos_survey(self, scope: CampaignScope) -> GARPOSLayout:
+    def ensure_survey(self, scope: SFGScope) -> SurveyLayout:
+        """Materialize the survey directory; return the layout."""
+        self.file_backend.mkdir(self.directory_tree.survey_dir(scope))
+        return self.directory_tree.survey(scope)
+    
+    def ensure_garpos_survey(self, scope: SFGScope) -> GARPOSLayout:
         """Materialize the GARPOS survey directory tree; requires ``scope.survey``."""
         if scope.survey is None:
             raise ValueError("CampaignScope.survey is required for GARPOS materialization")
@@ -128,11 +158,16 @@ class Ingestor:
         file_manager: FileManager,
         archive: ArchiveSourcePort,
         patterns: Iterable[tuple[re.Pattern[str], AssetKind]] | None = None,
+        *,
+        detector: FileTypeDetector | None = None,
     ) -> None:
         self._catalog = catalog
         self._file_manager = file_manager
         self._archive = archive
-        self._patterns = tuple(patterns if patterns is not None else DEFAULT_PATTERNS)
+        if detector is not None:
+            self._patterns = detector._patterns
+        else:
+            self._patterns = tuple(patterns if patterns is not None else DEFAULT_PATTERNS)
 
     def detect(self, filename: str) -> AssetKind | None:
         """Return the first matching kind, or ``None`` if no pattern matches."""
@@ -143,7 +178,7 @@ class Ingestor:
 
     # -- local ingest ------------------------------------------------------
 
-    def ingest_local(self, scope: CampaignScope, source_dir: Path) -> IngestReport:
+    def ingest_local(self, scope: SFGScope, source_dir: Path) -> IngestReport:
         """Catalog every recognized file under ``source_dir``."""
         if not self._file_manager.file_backend.is_dir(source_dir):
             return IngestReport(errors=(f"Not a directory: {source_dir}",))
@@ -183,7 +218,7 @@ class Ingestor:
 
     def discover_archive(
         self,
-        scope: CampaignScope,
+        scope: SFGScope,
         directory_url: str,
     ) -> IngestReport:
         """List ``directory_url`` on the archive and catalog every recognized file."""
@@ -222,7 +257,7 @@ class Ingestor:
 
     # -- canonical campaign discovery -------------------------------------
 
-    def discover_campaign(self, scope: CampaignScope) -> IngestReport:
+    def discover_campaign(self, scope: SFGScope) -> IngestReport:
         """Discover the canonical EarthScope campaign URLs and catalog them."""
         from .archives.earthscope._archive_urls import canonical_campaign_urls
 
@@ -242,7 +277,7 @@ class Ingestor:
             errors=tuple(errors),
         )
 
-    def list_archive_urls(self, scope: CampaignScope) -> list[str]:
+    def list_archive_urls(self, scope: SFGScope) -> list[str]:
         """Enumerate every archive file URL for ``scope`` without writing to the catalog."""
         from .archives.earthscope._archive_urls import list_campaign_archive_urls
 
@@ -252,7 +287,7 @@ class Ingestor:
 
     def download(
         self,
-        scope: CampaignScope,
+        scope: SFGScope,
         kinds: list[AssetKind] | None = None,
         dest_dir: Path | None = None,
         *,
@@ -324,7 +359,7 @@ class Ingestor:
 
     def _collect_remote_candidates(
         self,
-        scope: CampaignScope,
+        scope: SFGScope,
         kinds: list[AssetKind] | None,
     ) -> list[AssetEntry]:
         if kinds is None:

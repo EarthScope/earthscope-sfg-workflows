@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 from upath import UPath
 
-from .model import ArchiveFile, AssetEntry, AssetKind, CampaignScope, FileInfo
+from .model import ArchiveFile, AssetEntry, AssetKind, SFGScope, FileInfo
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ class AssetCatalogPort(Protocol):
 
     def assets_for(
         self,
-        scope: CampaignScope,
+        scope: SFGScope,
         kind: AssetKind | None = None,
     ) -> list[AssetEntry]:
         """Query assets in ``scope``, optionally filtered by ``kind``."""
@@ -81,7 +81,7 @@ class AssetCatalogPort(Protocol):
 
     def delete(
         self,
-        scope: CampaignScope,
+        scope: SFGScope,
         kind: AssetKind | None = None,
     ) -> int:
         """Delete assets matching the scope (and optional kind). Return count."""
@@ -91,7 +91,7 @@ class AssetCatalogPort(Protocol):
         """Delete one asset by id. Return True if deleted."""
         ...
 
-    def count_by_kind(self, scope: CampaignScope) -> dict[AssetKind, int]:
+    def count_by_kind(self, scope: SFGScope) -> dict[AssetKind, int]:
         """Aggregate count of assets per kind in ``scope``."""
         ...
 

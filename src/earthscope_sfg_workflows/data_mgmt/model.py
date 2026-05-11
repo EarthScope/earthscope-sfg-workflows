@@ -57,7 +57,7 @@ class AssetKind(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class CampaignScope:
+class SFGScope:
     """Immutable identifier for a network/station/campaign[/survey] context."""
 
     network: str
@@ -69,7 +69,7 @@ class CampaignScope:
     def tuple(self) -> tuple[str, str, str]:
         return (self.network, self.station, self.campaign)
 
-    def with_survey(self, survey: str) -> "CampaignScope":
+    def with_survey(self, survey: str) -> "SFGScope":
         return replace(self, survey=survey)
 
 
@@ -83,7 +83,7 @@ class AssetEntry:
     """A single asset in the catalog. Pure data, no I/O methods."""
 
     kind: AssetKind
-    scope: CampaignScope
+    scope: SFGScope
     id: int | None = None
     local_path: UPath | None = None
     remote_path: str | None = None
@@ -231,6 +231,43 @@ class CampaignLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class SurveyLayout:
+    """All paths for a survey directory. Pure."""
+
+    root: UPath
+    metadata_file: UPath
+    garpos: "GARPOSLayout"
+    shotdata: UPath | None = None
+    kinpositiondata: UPath | None = None
+    imupositiondata: UPath | None = None
+
+    @staticmethod
+    def for_survey(
+        survey_dir: UPath,
+        survey_id: str | None = None,
+        survey_type: str | None = None,
+    ) -> "SurveyLayout":
+        shotdata = kinpositiondata = imupositiondata = None
+        if survey_id is not None and survey_type is not None:
+            prefix = f"{survey_id}_{survey_type}".replace(" ", "")
+            shotdata = survey_dir / f"{prefix}_shotdata.csv"
+            kinpositiondata = survey_dir / f"{prefix}_kinpositiondata.csv"
+            imupositiondata = survey_dir / f"{prefix}_imupositiondata.csv"
+        return SurveyLayout(
+            root=survey_dir,
+            metadata_file=survey_dir / _SURVEY_META_FILE,
+            garpos=GARPOSLayout.for_survey(survey_dir),
+            shotdata=shotdata,
+            kinpositiondata=kinpositiondata,
+            imupositiondata=imupositiondata,
+        )
+
+    @property
+    def standard_dirs(self) -> tuple[UPath, ...]:
+        return (self.root,)
+
+
+@dataclass(frozen=True, slots=True)
 class GARPOSLayout:
     """All paths for a GARPOS survey directory. Pure."""
 
@@ -275,24 +312,27 @@ class DirectoryTree:
     def network_dir(self, network: str) -> UPath:
         return self.root / network
 
-    def station_dir(self, scope: CampaignScope) -> UPath:
+    def station_dir(self, scope: SFGScope) -> UPath:
         return self.network_dir(scope.network) / scope.station
 
-    def campaign_dir(self, scope: CampaignScope) -> UPath:
+    def campaign_dir(self, scope: SFGScope) -> UPath:
         return self.station_dir(scope) / scope.campaign
 
-    def survey_dir(self, scope: CampaignScope) -> UPath:
+    def survey_dir(self, scope: SFGScope) -> UPath:
         if scope.survey is None:
             raise ValueError("CampaignScope.survey must be set to compute survey_dir")
         return self.campaign_dir(scope) / scope.survey
 
-    def tiledb(self, scope: CampaignScope) -> TileDBLayout:
+    def tiledb(self, scope: SFGScope) -> TileDBLayout:
         return TileDBLayout.for_station(self.station_dir(scope))
 
-    def campaign(self, scope: CampaignScope) -> CampaignLayout:
+    def campaign(self, scope: SFGScope) -> CampaignLayout:
         return CampaignLayout.for_campaign(self.campaign_dir(scope))
 
-    def garpos(self, scope: CampaignScope) -> GARPOSLayout:
+    def survey(self, scope: SFGScope) -> SurveyLayout:
+        return SurveyLayout.for_survey(self.survey_dir(scope))
+
+    def garpos(self, scope: SFGScope) -> GARPOSLayout:
         return GARPOSLayout.for_survey(self.survey_dir(scope))
 
 
@@ -338,10 +378,11 @@ class ArchiveFile:
 
 __all__ = [
     "AssetKind",
-    "CampaignScope",
+    "SFGScope",
     "AssetEntry",
     "TileDBLayout",
     "CampaignLayout",
+    "SurveyLayout",
     "GARPOSLayout",
     "DirectoryTree",
     "IngestReport",

@@ -82,16 +82,16 @@ class FsspecFileStore:
 
     def get_remote(self, source: str, target: UPath) -> None:
         """Download a remote file to a local path."""
-        self._fs_for(source).get(source, str(target))
+        self._fs.get(source, str(target))
 
     def put_remote(self, source: UPath, target: str) -> None:
         """Upload a local file to a remote path."""
-        self._fs_for(target).put(str(source), target)
+        self._fs.put(str(source), target)
 
     def get_remote_batch(self, sources: list[str], target_dir: UPath) -> None:
         """Download multiple remote files to a local directory."""
-        if sources:
-            self._fs_for(sources[0]).cp(sources, str(target_dir))
+
+        self._fs.cp(sources, str(target_dir))
 
     def put_remote_batch(self, sources: list[UPath], target_dir: str) -> None:
         """Upload multiple local files to a remote directory."""
@@ -100,25 +100,24 @@ class FsspecFileStore:
 
     def mkdir(self, path: UPath | str, parents: bool = True) -> None:
         """Create local directory *path*; no-op on S3 (no real directories)."""
-        url = _url(UPath(path)) if not isinstance(path, str) else path
-        if _is_s3(url):
-            return
-        self._fs_for(path).mkdir(url, create_parents=parents, exist_ok=True)
+        url = UPath(path) if not isinstance(path, str) else path
+      
+        self._fs.mkdir(url, create_parents=parents, exist_ok=True)
 
     def remove(self, path: UPath | str) -> bool:
         """Delete the file at *path* (local or S3); return True iff it existed."""
-        url = _url(UPath(path)) if not isinstance(path, str) else path
+        url = UPath(path) if not isinstance(path, str) else path
         try:
-            self._fs_for(path).rm(url)
+            self._fs.rm(url)
             return True
         except FileNotFoundError:
             return False
 
     def get_size(self, path: UPath | str) -> int | None:
         """Return the size in bytes, or None if *path* is not a file."""
-        url = _url(UPath(path)) if not isinstance(path, str) else path
+        url = UPath(path) if not isinstance(path, str) else path
         try:
-            return self._fs_for(path).size(url)
+            return self._fs.size(url)
         except FileNotFoundError:
             return None
 

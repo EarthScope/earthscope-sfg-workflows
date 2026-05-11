@@ -20,7 +20,7 @@ from ..config.file_config import (
     REMOTE_TYPE,
     AssetType,
 )
-from ..data_mgmt.adapters.disk_filestore import S3FileStore
+from ..data_mgmt.filestore.disk_filestore import S3FileStore
 from ..data_mgmt.model import AssetEntry, AssetKind
 from earthscope_sfg_tools.datamodels.metadata import Site
 from ..modeling.garpos_tools.schemas import InversionParams
@@ -42,7 +42,7 @@ from .pipelines.config import (
 )
 from .pipelines.qc_pipeline import QCPipeline
 from .pipelines.sv3_pipeline import SV3Pipeline
-from .workspace import TileDBRegistry, Workspace, _build_default_workspace, _to_asset_kind
+from .session import StationSession as Workspace, TileDBRegistry, _build_default_workspace, _to_asset_kind
 
 _SV3_JOBS: dict[str, Callable[["SV3Pipeline"], None]] = {
     "all":                lambda p: p.run_pipeline(),
@@ -127,7 +127,7 @@ class WorkflowHandler(WorkflowBase):
         if value is not None:
             self.workspace.load_site_metadata(value)
         else:
-            self.workspace._site = None
+            self.workspace._station = None
 
     def set_network_station_campaign(
         self,

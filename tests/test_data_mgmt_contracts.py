@@ -14,7 +14,7 @@ import pytest
 from earthscope_sfg_workflows.data_mgmt import (
     AssetEntry,
     AssetKind,
-    CampaignScope,
+    SFGScope,
     DirectoryTree,
     FileManager,
     FileTypeDetector,
@@ -33,8 +33,8 @@ from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import (
 
 
 @pytest.fixture
-def scope() -> CampaignScope:
-    return CampaignScope(network="cascadia", station="NCB1", campaign="2024_A")
+def scope() -> SFGScope:
+    return SFGScope(network="cascadia", station="NCB1", campaign="2024_A")
 
 
 @pytest.fixture
@@ -48,30 +48,30 @@ def workspace_tree() -> DirectoryTree:
 
 
 class TestPureModel:
-    def test_scope_is_frozen(self, scope: CampaignScope) -> None:
+    def test_scope_is_frozen(self, scope: SFGScope) -> None:
         with pytest.raises(Exception):
             scope.network = "other"  # type: ignore[misc]
 
-    def test_with_survey(self, scope: CampaignScope) -> None:
+    def test_with_survey(self, scope: SFGScope) -> None:
         s = scope.with_survey("S1")
         assert s.survey == "S1"
         assert scope.survey is None  # original untouched
 
     def test_directory_tree_paths(
-        self, workspace_tree: DirectoryTree, scope: CampaignScope
+        self, workspace_tree: DirectoryTree, scope: SFGScope
     ) -> None:
         assert workspace_tree.station_dir(scope) == Path("/ws/cascadia/NCB1")
         assert workspace_tree.campaign_dir(scope) == Path("/ws/cascadia/NCB1/2024_A")
         assert workspace_tree.catalog_db == Path("/ws/catalog.sqlite")
 
     def test_survey_dir_requires_survey(
-        self, workspace_tree: DirectoryTree, scope: CampaignScope
+        self, workspace_tree: DirectoryTree, scope: SFGScope
     ) -> None:
         with pytest.raises(ValueError):
             workspace_tree.survey_dir(scope)
 
     def test_tiledb_layout_is_pure(
-        self, workspace_tree: DirectoryTree, scope: CampaignScope
+        self, workspace_tree: DirectoryTree, scope: SFGScope
     ) -> None:
         layout = workspace_tree.tiledb(scope)
         assert layout.acoustic == Path("/ws/cascadia/NCB1/TileDB/acoustic.tdb")
@@ -79,7 +79,7 @@ class TestPureModel:
         for p in layout.all_paths:
             assert str(p).startswith("/ws/cascadia/NCB1/TileDB")
 
-    def test_asset_entry_addressability(self, scope: CampaignScope) -> None:
+    def test_asset_entry_addressability(self, scope: SFGScope) -> None:
         a = AssetEntry(kind=AssetKind.NOVATEL, scope=scope)
         assert not a.is_addressable()
         b = a.with_local_path(Path("/tmp/n.bin"))
@@ -121,15 +121,15 @@ class TestFileTypeDetector:
 
 
 class TestInMemoryAssetStore:
-    def test_add_assigns_id(self, scope: CampaignScope) -> None:
+    def test_add_assigns_id(self, scope: SFGScope) -> None:
         store = InMemoryAssetStore()
         out = store.add(AssetEntry(kind=AssetKind.NOVATEL, scope=scope))
         assert out.id is not None
         assert store.by_id(out.id) == out
 
-    def test_assets_for_scope_filter(self, scope: CampaignScope) -> None:
+    def test_assets_for_scope_filter(self, scope: SFGScope) -> None:
         store = InMemoryAssetStore()
-        other = CampaignScope(network="x", station="y", campaign="z")
+        other = SFGScope(network="x", station="y", campaign="z")
         store.add(AssetEntry(kind=AssetKind.KIN, scope=scope))
         store.add(AssetEntry(kind=AssetKind.KIN, scope=scope))
         store.add(AssetEntry(kind=AssetKind.KIN, scope=other))
@@ -137,7 +137,7 @@ class TestInMemoryAssetStore:
         assert len(store.assets_for(scope)) == 2
         assert len(store.assets_for(other)) == 1
 
-    def test_count_by_kind(self, scope: CampaignScope) -> None:
+    def test_count_by_kind(self, scope: SFGScope) -> None:
         store = InMemoryAssetStore()
         for k in (AssetKind.NOVATEL, AssetKind.NOVATEL, AssetKind.KIN):
             store.add(AssetEntry(kind=k, scope=scope))
@@ -145,7 +145,7 @@ class TestInMemoryAssetStore:
         assert counts[AssetKind.NOVATEL] == 2
         assert counts[AssetKind.KIN] == 1
 
-    def test_update_and_delete(self, scope: CampaignScope) -> None:
+    def test_update_and_delete(self, scope: SFGScope) -> None:
         store = InMemoryAssetStore()
         a = store.add(AssetEntry(kind=AssetKind.NOVATEL, scope=scope))
         assert store.update(a.with_local_path(Path("/tmp/x.bin")))
@@ -157,7 +157,7 @@ class TestInMemoryAssetStore:
 class TestAssetCatalog:
     """Smoke contract tests for the SQLAlchemy adapter against on-disk SQLite."""
 
-    def test_roundtrip(self, tmp_path: Path, scope: CampaignScope) -> None:
+    def test_roundtrip(self, tmp_path: Path, scope: SFGScope) -> None:
         from earthscope_sfg_workflows.data_mgmt.adapters import AssetCatalog
 
         store = AssetCatalog.sqlite(tmp_path / "catalog.sqlite")
@@ -251,7 +251,7 @@ class TestFakeArchive:
 
 class TestFileManager:
     def test_ensure_campaign_creates_standard_dirs(
-        self, workspace_tree: DirectoryTree, scope: CampaignScope
+        self, workspace_tree: DirectoryTree, scope: SFGScope
     ) -> None:
         fs = InMemoryFileStore()
         tb = FileManager(workspace_tree, fs)
@@ -260,14 +260,14 @@ class TestFileManager:
             assert fs.is_dir(d)
 
     def test_ensure_garpos_requires_survey(
-        self, workspace_tree: DirectoryTree, scope: CampaignScope
+        self, workspace_tree: DirectoryTree, scope: SFGScope
     ) -> None:
         tb = FileManager(workspace_tree, InMemoryFileStore())
         with pytest.raises(ValueError):
             tb.ensure_garpos_survey(scope)
 
     def test_ensure_garpos_survey(
-        self, workspace_tree: DirectoryTree, scope: CampaignScope
+        self, workspace_tree: DirectoryTree, scope: SFGScope
     ) -> None:
         fs = InMemoryFileStore()
         tb = FileManager(workspace_tree, fs)
@@ -283,7 +283,7 @@ class TestFileManager:
 
 class TestIngestor:
     def _ingestor(
-        self, scope: CampaignScope, tree: DirectoryTree
+        self, scope: SFGScope, tree: DirectoryTree
     ) -> tuple[Ingestor, InMemoryAssetStore, InMemoryFileStore, FakeArchive]:
         catalog = InMemoryAssetStore()
         files = InMemoryFileStore()
@@ -296,7 +296,7 @@ class TestIngestor:
         )
         return ing, catalog, files, archive
 
-    def test_ingest_local(self, scope: CampaignScope, workspace_tree: DirectoryTree) -> None:
+    def test_ingest_local(self, scope: SFGScope, workspace_tree: DirectoryTree) -> None:
         ing, catalog, files, _ = self._ingestor(scope, workspace_tree)
         files.write_bytes(Path("/in/foo.24o"), b"R")
         files.write_bytes(Path("/in/sonardyne.log"), b"S")
@@ -314,7 +314,7 @@ class TestIngestor:
         assert kinds == {AssetKind.RINEX2, AssetKind.SONARDYNE}
 
     def test_discover_archive_sets_remote_only(
-        self, scope: CampaignScope, workspace_tree: DirectoryTree
+        self, scope: SFGScope, workspace_tree: DirectoryTree
     ) -> None:
         ing, catalog, _, archive = self._ingestor(scope, workspace_tree)
         archive.seed("https://arc/a/foo.24o", b"R")
@@ -327,10 +327,10 @@ class TestIngestor:
             assert a.local_path is None
 
     def test_download_marks_local_path(
-        self, scope: CampaignScope, workspace_tree: DirectoryTree, tmp_path: Path
+        self, scope: SFGScope, workspace_tree: DirectoryTree, tmp_path: Path
     ) -> None:
         # Need a real local fs for download because FakeArchive writes to disk.
-        from earthscope_sfg_workflows.data_mgmt.adapters.disk_filestore import LocalFileStore
+        from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import LocalFileStore
 
         catalog = InMemoryAssetStore()
         files = LocalFileStore(root=tmp_path)
