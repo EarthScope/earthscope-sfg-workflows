@@ -198,13 +198,6 @@ class StationSession:
         self.campaign: ScopeRegistry = ScopeRegistry()  # dummy initial value; guarded by _require_campaign
         self.survey: ScopeRegistry = ScopeRegistry()  # dummy initial value; guarded by _require_survey
 
-        self.scope = SFGScope(
-            network=self.network,
-            station=self.station,
-            campaign=self.campaign,
-            survey=self.survey,
-        )  
-
         self._ingestor = Ingestor(
             catalog=self._catalog,
             file_manager=self._file_manager,
@@ -243,6 +236,16 @@ class StationSession:
         level_index = _SCOPE_LEVELS.index(level)
         for lower_level in _SCOPE_LEVELS[level_index + 1 :]:
             setattr(self, lower_level, ScopeRegistry(name="", layout=None, metadata=None))
+
+    @property
+    def scope(self) -> SFGScope:
+        """Live view of the current network/station/campaign/survey context."""
+        return SFGScope(
+            network=self.network,
+            station=self.station,
+            campaign=self.campaign if self.campaign.name else None,
+            survey=self.survey if self.survey.name else None,
+        )
 
     def _fetch_site_metadata(self, network: str, station: str) -> "Site | None":
         """Load site metadata: disk first, then EarthScope archive. Persist on fetch."""
@@ -302,18 +305,53 @@ class StationSession:
         logger.info(f"Ingested {report.cataloged} assets from {source_dir} with {report.errors} errors")
 
     @_require_campaign
+    def ingest_qcpin_tarballs(
+        self,
+        tarball_dir: Path | None = None,
+        *,
+        override: bool = False,
+    ) -> None:
+        """Extract ``.pin`` files from ``.tar.gz`` tarballs and catalog them as QCPIN assets.
+
+        Defaults to the campaign's ``qc/`` directory when *tarball_dir* is not given.
+        """
+        if tarball_dir is None:
+            if self.campaign.layout is None:
+                raise ValueError("ingest_qcpin_tarballs requires a campaign with a layout")
+            tarball_dir = Path(self.campaign.layout.qc)
+        report: IngestReport = self._ingestor.ingest_qcpin_tarballs(
+            self.scope, tarball_dir, override=override
+        )
+        logger.info(
+            f"Ingested {report.cataloged} QCPIN assets from tarballs in {tarball_dir}"
+            f" ({report.skipped} skipped, {len(report.errors)} errors)"
+        )
+
+    @_require_campaign
     def discover_remote(self) -> None:
         """Discover assets in the archive for the current scope and add to catalog."""
         report: IngestReport = self._ingestor.discover_archive(self.scope)
         logger.info(f"Discovered {report.cataloged} assets in archive for scope {self.scope} with {report.errors} errors")
 
     @_require_campaign
-    def download_remote(self,override:bool=False,rinex_1hz: bool = False) -> None:
-        """Download assets from the archive for the current scope to local storage."""
+    def download_remote(
+        self,
+        kinds: list[AssetKind] | None = None,
+        override: bool = False,
+        rinex_1hz: bool = False,
+    ) -> None:
+        """Download assets from the archive for the current scope to local storage.
 
+        Args:
+            kinds: Restrict downloads to these asset kinds. ``None`` downloads all.
+            override: Re-download even when a local file already exists.
+            rinex_1hz: When ``True``, keep only 1-Hz RINEX files.
+        """
         dest_dir = self.campaign.layout.raw
-        report: IngestReport = self._ingestor.download(self.scope, dest_dir=dest_dir, override=override, rinex_1hz=rinex_1hz)
-        logger.info(f"Downloaded {report.cataloged} assets from archive for scope {self.scope} with {report.errors} errors")
+        report: IngestReport = self._ingestor.download(
+            self.scope, kinds=kinds, dest_dir=dest_dir, override=override, rinex_1hz=rinex_1hz
+        )
+        logger.info(f"Downloaded {report.downloaded} files (skipped {report.skipped})")
 
     # ------------------------------------------------------------------
     # Mutation
@@ -323,7 +361,9 @@ class StationSession:
         """Set the active campaign, clear survey, materialise campaign dirs."""
         self._reset_lower("campaign")  # clear mutable levels below campaign (i.e. survey)
         campaign_meta:Optional[Campaign] = self._resolve_campaign_in_site(campaign_id)
-        layout:Optional[CampaignLayout] = self._file_manager.ensure_campaign(self.scope)
+        layout:Optional[CampaignLayout] = self._file_manager.ensure_campaign(
+            network=self.network.name, station=self.station.name, campaign=campaign_id
+        )
         self.campaign = ScopeRegistry(
             name=campaign_id, layout=layout,metadata=campaign_meta
         )

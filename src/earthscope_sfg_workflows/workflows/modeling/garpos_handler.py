@@ -242,9 +242,11 @@ class GarposHandler:
         shotdata_file_name = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
         shotdata_path = survey_root / shotdata_file_name
         if not shotdata_path.exists():
-            raise FileNotFoundError(
-                f"Shotdata file {shotdata_path} does not exist. Please run parse_surveys first."
+            logger.warning(
+                f"Shotdata file {shotdata_path} does not exist — skipping survey. "
+                "Run parse_surveys first to generate shotdata CSVs."
             )
+            return
 
         shot_data_raw = pd.read_csv(shotdata_path)
         if shot_data_raw.empty:

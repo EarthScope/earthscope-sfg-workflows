@@ -16,9 +16,10 @@ from abc import ABC
 from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
-from typing import Concatenate, ParamSpec, Protocol, TypeVar
+from typing import TYPE_CHECKING, Concatenate, ParamSpec, Protocol, TypeVar
 
-from .session import StationSession as Workspace
+if TYPE_CHECKING:
+    from .session import StationSession as Workspace
 
 P = ParamSpec("P")
 R = TypeVar("R")

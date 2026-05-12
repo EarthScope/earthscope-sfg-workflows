@@ -86,7 +86,7 @@ def _build_ports(directory: "Path | str") -> _Ports:
         catalog_db = Path(os.environ.get("MAIN_DIRECTORY", ".")) / "catalog.sqlite"
         root: Path = Path(str(directory))
     else:
-        files = LocalFileStore()
+        files = LocalFileStore(root=directory)
         root = Path(directory)
         root.mkdir(parents=True, exist_ok=True)
         catalog_db = root / "catalog.sqlite"

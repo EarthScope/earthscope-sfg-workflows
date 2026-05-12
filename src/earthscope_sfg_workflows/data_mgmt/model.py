@@ -248,7 +248,7 @@ class CampaignLayout:
 
     @property
     def standard_dirs(self) -> tuple[UPath, ...]:
-        return (self.root, self.raw, self.processed, self.intermediate, self.logs, self.qc)
+        return (self.root, self.raw, self.processed, self.intermediate, self.logs, self.qc, self.metadata_dir)
 
 @dataclass(frozen=True, slots=True)
 class StationLayout:
@@ -345,8 +345,14 @@ class DirectoryTree:
     """Workspace-rooted view of the hierarchy. Pure path math, no I/O."""
 
     root: UPath
-    catalog_db: UPath = field(default_factory=lambda self: self.root / _CATALOG_DB_FILE,init=True)
-    pride_dir: UPath = field(default_factory=lambda self: self.root / _PRIDE_DIR,init=True)
+    catalog_db: UPath = field(default=None, init=False)  # type: ignore[assignment]
+    pride_dir: UPath = field(default=None, init=False)   # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.catalog_db is None:
+            self.catalog_db = self.root / _CATALOG_DB_FILE
+        if self.pride_dir is None:
+            self.pride_dir = self.root / _PRIDE_DIR
 
     def network_dir(self, network: str) -> UPath:
         return self.root / network

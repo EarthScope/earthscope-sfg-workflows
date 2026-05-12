@@ -25,7 +25,7 @@ from earthscope_sfg_tools.tiledb_integration import TDBKinPositionArray, tile2ri
 from earthscope_sfg_workflows.logging import ProcessLogger, change_all_logger_dirs
 
 from ...data_mgmt.model import AssetEntry, AssetKind
-from ..base import WorkflowBase, validate_network_station_campaign
+from ..base import validate_network_station_campaign
 from .config import PrideConfig, RinexConfig
 from .exceptions import NoKinFound, NoLocalData, NoRinexBuilt, NoRinexFound
 

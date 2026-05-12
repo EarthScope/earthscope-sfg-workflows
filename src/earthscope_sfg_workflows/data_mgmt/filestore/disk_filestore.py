@@ -24,11 +24,11 @@ def _is_s3(url: str) -> bool:
     return url.startswith("s3://")
 
 def _open_fs(url: str, storage_options: dict):
-    if _is_s3(url):
-        fs, _ = fsspec.url_to_fs(url, **storage_options)
+    if _is_s3(str(url)):
+        fs, _ = fsspec.url_to_fs(str(url), **storage_options)
         return fs
-    fs, _ = fsspec.url_to_fs(url)
-    return fsspec.AbstractFileSystem
+    fs, _ = fsspec.url_to_fs(str(url))
+    return fs
 
 
 class FsspecFileStore:
@@ -77,7 +77,7 @@ class FsspecFileStore:
             if info.get("type") == "directory":
                 continue
             size: int | None = info.get("size")
-            out.append(FileInfo(path=fpath, size_bytes=size, is_file=True))
+            out.append(FileInfo(path=UPath(fpath), size_bytes=size, is_file=True))
         return out
 
     def get_remote(self, source: str, target: UPath) -> None:
@@ -99,10 +99,12 @@ class FsspecFileStore:
             self.put_remote(s, target=target_dir)
 
     def mkdir(self, path: UPath | str, parents: bool = True) -> None:
-        """Create local directory *path*; no-op on S3 (no real directories)."""
-        url = UPath(path) if not isinstance(path, str) else path
-      
-        self._fs.mkdir(url, create_parents=parents, exist_ok=True)
+        """Create directory *path*; no-op if it already exists or on S3."""
+        url = str(UPath(path) if not isinstance(path, str) else path)
+        try:
+            self._fs.mkdir(url, create_parents=parents, exist_ok=True)
+        except FileExistsError:
+            pass
 
     def remove(self, path: UPath | str) -> bool:
         """Delete the file at *path* (local or S3); return True iff it existed."""

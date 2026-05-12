@@ -293,9 +293,15 @@ class Ingestor:
                 skipped += 1
                 continue
 
+            if self._catalog.by_local_path(info.path):
+                skipped += 1
+                continue
+
             asset = AssetEntry(
                 kind=kind,
-                scope=scope,
+                network=scope.network.name if scope.network else None,
+                station=scope.station.name if scope.station else None,
+                campaign=scope.campaign.name if scope.campaign else None,
                 local_path=info.path,
                 timestamp_created=_now(),
             )
@@ -362,7 +368,7 @@ class Ingestor:
                         for member in pin_members:
                             pin_name = Path(member.name).name
                             dest = extract_dir / pin_name
-                            if dest.exists() and not override:
+                            if not override and self._catalog.by_local_path(UPath(dest)):
                                 skipped += 1
                                 continue
                             reader = tf.extractfile(member)
@@ -372,7 +378,9 @@ class Ingestor:
                             dest.write_bytes(reader.read())
                             asset = AssetEntry(
                                 kind=AssetKind.QCPIN,
-                                scope=scope,
+                                network=scope.network.name if scope.network else None,
+                                station=scope.station.name if scope.station else None,
+                                campaign=scope.campaign.name if scope.campaign else None,
                                 local_path=UPath(dest),
                                 timestamp_created=_now(),
                             )
@@ -414,7 +422,9 @@ class Ingestor:
                 continue
             asset = AssetEntry(
                 kind=kind,
-                scope=scope,
+                network=scope.network.name if scope.network else None,
+                station=scope.station.name if scope.station else None,
+                campaign=scope.campaign.name if scope.campaign else None,
                 remote_path=af.url,
                 remote_type="http",
                 timestamp_created=_now(),

@@ -241,7 +241,7 @@ class QCPipeline:
             network=self.current_network_name,
             station=self.current_station_name,
             campaign=self.current_campaign_name,
-            parent_kind=AssetKind.QCPIN,
+            kind=AssetKind.QCPIN,
             override=self.config.qcpin_config.override,
         )
         if not qcpin_entries:
@@ -379,10 +379,14 @@ class QCPipeline:
             except NoRinexBuilt:
                 raise
 
+            except NotImplementedError as e:
+                ProcessLogger.warning(f"tile2rinex not yet available: {e}")
+                raise NoRinexBuilt("tile2rinex is not yet implemented") from e
+
             except Exception as e:
                 if (message := ProcessLogger.error(f"Error generating QC RINEX files: {e}")) is not None:
                     print(message)
-                sys.exit(1)
+                raise NoRinexBuilt(f"QC RINEX generation failed: {e}") from e
 
         else:
             rinex_entries = self.catalog.assets_for(

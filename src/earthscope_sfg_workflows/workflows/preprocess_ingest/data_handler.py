@@ -217,7 +217,13 @@ class DataHandler(WorkflowBase):
                         file_path.symlink_to(symlinked_path, target_is_directory=False)
                     except FileExistsError:
                         pass
-            entry = AssetEntry(kind=kind, scope=scope, local_path=file_path)
+            entry = AssetEntry(
+                kind=kind,
+                network=scope.network.name if scope.network else None,
+                station=scope.station.name if scope.station else None,
+                campaign=scope.campaign.name if scope.campaign else None,
+                local_path=file_path,
+            )
             if self.workspace.assets.add_or_update(entry) is not None:
                 added += 1
 
@@ -254,7 +260,9 @@ class DataHandler(WorkflowBase):
                 continue
             entry = AssetEntry(
                 kind=kind,
-                scope=scope,
+                network=scope.network.name if scope.network else None,
+                station=scope.station.name if scope.station else None,
+                campaign=scope.campaign.name if scope.campaign else None,
                 remote_path=url,
                 remote_type=remote_type.value,
             )

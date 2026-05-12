@@ -30,14 +30,14 @@ class EarthScopeArchive:
     """
     ARCHIVE_PREFIX = "https://data.earthscope.org/archive/seafloor"
 
-    def __init__(self, profile: str = "prod") -> None:
+    def __init__(self, profile: str = "default") -> None:
         """Bind to an EarthScope SDK `profile` (defaults to the active profile)."""
         self._profile = profile
         self._token: str | None = None
 
     # -- auth --------------------------------------------------------------
 
-    def authenticate(self, profile: str = 'prod') -> bool:
+    def authenticate(self, profile: str = 'default') -> bool:
         """Acquire/refresh an access token from the EarthScope SDK; return True on success."""
         # Imported lazily so the data_mgmt package stays importable in
         # environments that don't have earthscope-sdk installed.

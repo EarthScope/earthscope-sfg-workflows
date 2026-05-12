@@ -32,7 +32,6 @@ from earthscope_sfg_tools.tiledb_integration import TDBKinPositionArray, tile2ri
 from ...data_mgmt.model import AssetEntry, AssetKind, SFGScope, TileDBLayout
 from ...data_mgmt.utils import get_merge_signature_shotdata
 from ..base import validate_network_station_campaign
-from ..session import StationSession as Workspace, _build_default_workspace
 from .config import PrideConfig, RinexConfig, SV3PipelineConfig
 from .exceptions import (
     NoDFOP00Found,
@@ -154,15 +153,10 @@ class SV3Pipeline:
         self.catalog: AssetCatalogPort = catalog
 
         tiledb: TileDBLayout = self.scope.station.layout.tiledb
-        if self.shotDataPreTDB is None:
-            self.shotDataPreTDB = TDBShotDataArray(tiledb.shotdata_pre)
-
-        if self.kinPositionTDB is None:
-            self.kinPositionTDB = TDBKinPositionArray(tiledb.kin_position)
-        if self.imuPositionTDB is None:
-            self.imuPositionTDB = TDBIMUPositionArray(tiledb.imu_position)
-        if self.shotDataFinalTDB is None:
-            self.shotDataFinalTDB = TDBShotDataArray(tiledb.shotdata)
+        self.shotDataPreTDB = TDBShotDataArray(tiledb.shotdata_pre)
+        self.kinPositionTDB = TDBKinPositionArray(tiledb.kin_position)
+        self.imuPositionTDB = TDBIMUPositionArray(tiledb.imu_position)
+        self.shotDataFinalTDB = TDBShotDataArray(tiledb.shotdata)
 
         # Store GNSS URIs for later use
         self.gnssObsTDBURI = tiledb.gnss_obs
@@ -333,7 +327,7 @@ class SV3Pipeline:
             network=self.scope.network.name,
             station=self.scope.station.name,
             campaign=self.scope.campaign.name,
-            parent_kind=AssetKind.DFOP00,
+            kind=AssetKind.DFOP00,
             override=self.config.dfop00_config.override,
         )
         if not dfop00_entries:
@@ -606,12 +600,16 @@ class SV3Pipeline:
             except NoRinexBuilt:
                 raise
 
+            except NotImplementedError as e:
+                ProcessLogger.warning(f"tile2rinex not yet available: {e}")
+                raise NoRinexBuilt("tile2rinex is not yet implemented") from e
+
             except Exception as e:
                 if (
                     message := ProcessLogger.error(f"Error generating RINEX files: {e}")
                 ) is not None:
                     print(message)
-                sys.exit(1)
+                raise NoRinexBuilt(f"RINEX generation failed: {e}") from e
 
         else:
             rinex_entries = self.catalog.assets_for(
@@ -648,7 +646,7 @@ class SV3Pipeline:
             "This may take a few minutes..."
         )
 
-        pride_dir = self.scope.campaign.layout.pride
+        pride_dir = self.scope.campaign.layout.intermediate / "pride"
         intermediate_dir = self.scope.campaign.layout.intermediate
 
         rinex_entries: list[AssetEntry] = self.catalog.assets_to_process(

@@ -26,6 +26,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
@@ -45,7 +46,7 @@ class Assets(Base):
     campaign = Column(String)
     remote_path = Column(String, nullable=True, unique=True)
     remote_type = Column(String, nullable=True)
-    local_path = Column(String, nullable=True, unique=False)
+    local_path = Column(String, nullable=True, unique=True)
     type = Column(String)
     timestamp_data_start = Column(DateTime, nullable=True)
     timestamp_data_end = Column(DateTime, nullable=True)
@@ -68,11 +69,9 @@ def _row_to_entry(row: Assets) -> AssetEntry:
     return AssetEntry(
         id=row.id,
         kind=AssetKind(row.type),
-        scope=SFGScope(
-            network=row.network,
-            station=row.station,
-            campaign=row.campaign,
-        ),
+        network=row.network,
+        station=row.station,
+        campaign=row.campaign,
         local_path=Path(row.local_path) if row.local_path else None,
         remote_path=row.remote_path,
         remote_type=row.remote_type,
@@ -86,9 +85,9 @@ def _row_to_entry(row: Assets) -> AssetEntry:
 
 def _entry_to_kwargs(asset: AssetEntry) -> dict:
     return {
-        "network": asset.scope.network,
-        "station": asset.scope.station,
-        "campaign": asset.scope.campaign,
+        "network": asset.network,
+        "station": asset.station,
+        "campaign": asset.campaign,
         "type": asset.kind.value,
         "local_path": str(asset.local_path) if asset.local_path else None,
         "remote_path": asset.remote_path,
@@ -115,6 +114,8 @@ class AssetCatalog:
             bind=engine, expire_on_commit=False, future=True
         )
 
+
+
     # -- factories ---------------------------------------------------------
 
     @classmethod
@@ -132,12 +133,26 @@ class AssetCatalog:
     # -- AssetStore protocol ----------------------------------------------
 
     def add(self, asset: AssetEntry) -> AssetEntry:
-        """Insert `asset`, returning the persisted entry with its assigned id."""
-        with self._Session.begin() as session:
-            row = Assets(**_entry_to_kwargs(asset))
-            session.add(row)
-            session.flush()
-            return _row_to_entry(row)
+        """Insert `asset`, returning the persisted entry with its assigned id.
+
+        Raises ``IntegrityError`` if the local_path or remote_path already
+        exists (UNIQUE constraint violation), which callers can treat as a
+        no-op skip.
+        """
+        try:
+            with self._Session.begin() as session:
+                row = Assets(**_entry_to_kwargs(asset))
+                session.add(row)
+                session.flush()
+                return _row_to_entry(row)
+        except IntegrityError:
+            # Duplicate local_path or remote_path — return existing entry.
+            existing = (
+                self.by_local_path(Path(asset.local_path)) if asset.local_path else []
+            )
+            if existing:
+                return existing[0]
+            raise
 
     def update(self, asset: AssetEntry) -> bool:
         """Update an existing row by id; return True iff a row was modified."""
