@@ -20,7 +20,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, TypeVar
+from typing import TYPE_CHECKING, Callable, Optional, TypeVar
 
 from upath import UPath
 
@@ -34,9 +34,12 @@ from earthscope_sfg_workflows.data_mgmt.ports import ArchiveNotFoundError
 from earthscope_sfg_workflows.data_mgmt.model import (
     AssetKind,
     CampaignLayout,
+    IngestReport,
+    NetworkLayout,
     SFGScope,
     DirectoryTree,
     GARPOSLayout,
+    StationLayout,
     SurveyLayout,
     SurveyLayout,
     TileDBLayout,
@@ -77,7 +80,7 @@ def _require_campaign(method: _F) -> _F:
 
     @wraps(method)
     def wrapper(self: "StationSession", *args, **kwargs):
-        if self._campaign is None:
+        if self.campaign is None:
             raise ValueError(
                 f"{method.__name__} requires a campaign to be set; "
                 "call set_campaign() first"
@@ -92,7 +95,7 @@ def _require_survey(method: _F) -> _F:
 
     @wraps(method)
     def wrapper(self: "StationSession", *args, **kwargs):
-        if self._survey is None:
+        if self.survey is None:
             raise ValueError(
                 f"{method.__name__} requires a survey to be set; "
                 "call set_survey() first"
@@ -120,9 +123,12 @@ class TileDBRegistry:
 
 @dataclass
 class ScopeRegistry:
-    name: str
-    layout: CampaignLayout | SurveyLayout | None
-    metadata: Campaign | Survey | None
+    name: str | None = None
+    layout: StationLayout | CampaignLayout | SurveyLayout | None = None
+    metadata: Site | Campaign | Survey | None = None
+
+_SCOPE_LEVELS = ["network", "station", "campaign", "survey"]
+
 # ---------------------------------------------------------------------------
 # CampaignSession
 # ---------------------------------------------------------------------------
@@ -151,34 +157,47 @@ class StationSession:
         file_manager: FileManager,
         archive: ArchiveSourcePort = EarthScopeArchive(),
     ) -> None:
-        self._network = ScopeRegistry(name=network, layout=None, location=None)
-        self._station = ScopeRegistry(name=station, layout=None, location=None)
+
         self._catalog = catalog
         self._file_manager = file_manager
         self._archive = archive
+
+        network_layout: NetworkLayout = self._file_manager.ensure_network(network)
+        self.network = ScopeRegistry(name=network, layout=network_layout)
+
+        station_layout: StationLayout = self._file_manager.ensure_station(network=network, station=station)
+        station_metadata = self._fetch_site_metadata()
+        self.station = ScopeRegistry(name=station, layout=station_layout, metadata=station_metadata)
+
+        # Mutable campaign/survey slots — None until explicitly set.
+        self.campaign: ScopeRegistry = ScopeRegistry()  # dummy initial value; guarded by _require_campaign
+        self.survey: ScopeRegistry = ScopeRegistry()  # dummy initial value; guarded by _require_survey
 
         self._ingestor = Ingestor(
             catalog=self._catalog,
             file_manager=self._file_manager,
             archive=self._archive,
         )
-    
-        self._station_scope = SFGScope(network=self._network.name, station=self._station.name, campaign="")
-        # Materialise N/S dirs eagerly; TileDB is station-scoped (built once here).
-  
-        self._file_manager.ensure_station(self._station_scope)
-        
-        # Load site metadata eagerly: disk → archive fallback.
-        self._station.metadata = self._fetch_site_metadata()
 
-        # Mutable campaign/survey slots — None until explicitly set.
-        self._campaign:ScopeRegistry = ScopeRegistry(name="", layout=None, metadata=None)  # dummy initial value; guarded by _require_campaign
-        self._survey:ScopeRegistry = ScopeRegistry(name="", layout=None, metadata=None)  # dummy initial value; guarded by _require_survey
-
+    @property
+    def scope(self) -> SFGScope:
+        """Current session scope as a plain dataclass. Campaign and survey may be None."""
+        return SFGScope(
+            network=self.network,
+            station=self.station,
+            campaign=self.campaign,
+            survey=self.survey,
+        )
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
+    def _reset_lower(self, level: str) -> None:
+        """Reset mutable scope levels below *level* (e.g. if campaign changes, clear survey)."""
+        if level not in _SCOPE_LEVELS:
+            raise ValueError(f"Invalid scope level {level!r}; must be one of {_SCOPE_LEVELS}")
+        level_index = _SCOPE_LEVELS.index(level)
+        for lower_level in _SCOPE_LEVELS[level_index + 1 :]:
+            setattr(self, lower_level, ScopeRegistry(name="", layout=None, metadata=None))
 
     def _fetch_site_metadata(self) -> "Site | None":
         """Load site metadata: disk first, then EarthScope archive. Persist on fetch."""
@@ -195,8 +214,7 @@ class StationSession:
 
         try:
             site = self._archive.load_site_metadata(
-                network=self._network.name,
-                station=self._station.name,
+                scope=self._station_scope
             )
             with open(write_dest, "w") as f:
                 json.dump(site.model_dump(mode="json"), f, indent=4)
@@ -210,327 +228,75 @@ class StationSession:
 
     def _resolve_campaign_in_site(self, campaign_id: str) -> "Campaign | None":
         """Find the campaign object in site metadata matching ``campaign_id``."""
-        if self._station is None:
+        if self.station is None or self.station.metadata is None:
             return None
         try:
-            for c in self._station.campaigns:
+            for c in self.station.metadata.campaigns:
                 if c.name == campaign_id:
                     return c
         except AttributeError:
             pass
         return None
 
-    # ------------------------------------------------------------------
-    # Test factory
-    # ------------------------------------------------------------------
+    def _resolve_survey_in_campaign(self, survey_id: str) -> "Survey | None":
+        """Find the survey object in campaign metadata matching ``survey_id``."""
+        if self.campaign is None or self.campaign.metadata is None:
+            return None
+        try:
+            for s in self.campaign.metadata.surveys:
+                if s.id == survey_id:
+                    return s
+        except AttributeError:
+            pass
+        return None
 
-    @classmethod
-    def for_test(
-        cls,
-        *,
-        root: Path | str = Path("/virtual"),
-        network: str = "test_net",
-        station: str = "test_sta",
-        campaign: str | None = None,
-        survey: str | None = None,
-    ) -> "StationSession":
-        """Build a session backed entirely by in-memory adapters."""
-
-
-        session = cls(
-            network,
-            station,
-            root=root,
-            catalog=InMemoryAssetStore(),
-            files=InMemoryFileStore(),
-            archive=FakeArchive(),
-        )
-        if campaign is not None:
-            session.set_campaign(campaign)
-        if survey is not None:
-            session.set_survey(survey)
-        return session
-
-    # ------------------------------------------------------------------
-    # Scope readers — N/S fixed, C/V mutable
-    # ------------------------------------------------------------------
-
-
-
-    @property
     @_require_campaign
-    def scope(self) -> SFGScope:
-        """Active scope including campaign and current survey (survey may be None)."""
-        return SFGScope(
-            network=self._network.name,
-            station=self._station.name,
-            campaign=self._campaign,  # type: ignore[arg-type]  # guarded above
-            survey=self._survey,
-        )
+    def ingest_local(self,source_dir:UPath) -> None:
+        """Ingest files from a local directory into the session's asset catalog."""
+        report: IngestReport = self._ingestor.ingest_local(self.scope, source_dir)
+        logger.info(f"Ingested {report.cataloged} assets from {source_dir} with {report.errors} errors")
+
+    @_require_campaign
+    def discover_remote(self) -> None:
+        """Discover assets in the archive for the current scope and add to catalog."""
+        report: IngestReport = self._ingestor.discover_archive(self.scope)
+        logger.info(f"Discovered {report.cataloged} assets in archive for scope {self.scope} with {report.errors} errors")
+
+    @_require_campaign
+    def download_remote(self,override:bool=False,rinex_1hz: bool = False) -> None:
+        """Download assets from the archive for the current scope to local storage."""
+
+        dest_dir = self.campaign.layout.raw
+        report: IngestReport = self._ingestor.download(self.scope, dest_dir=dest_dir, override=override, rinex_1hz=rinex_1hz)
+        logger.info(f"Downloaded {report.cataloged} assets from archive for scope {self.scope} with {report.errors} errors")
 
     # ------------------------------------------------------------------
-    # Campaign mutation
+    # Mutation
     # ------------------------------------------------------------------
 
-    def set_campaign(self, campaign_id: str) -> CampaignLayout:
+    def set_campaign(self, campaign_id: str) -> None:
         """Set the active campaign, clear survey, materialise campaign dirs."""
-        self._campaign = campaign_id
-        self._survey = None
-        self._survey_meta = None
-        self._campaign_meta = self._resolve_campaign_in_site(campaign_id)
-        layout = self._file_manager.ensure_campaign(self.scope)
-        self._campaign = ScopeRegistry(
-            name=campaign_id, layout=layout,metadata=self._campaign_meta
+        self._reset_lower("campaign")  # clear mutable levels below campaign (i.e. survey)
+        campaign_meta:Optional[Campaign] = self._resolve_campaign_in_site(campaign_id)
+        layout:Optional[CampaignLayout] = self._file_manager.ensure_campaign(self.scope)
+        self.campaign = ScopeRegistry(
+            name=campaign_id, layout=layout,metadata=campaign_meta
         )
 
-    # ------------------------------------------------------------------
-    # Survey mutation
-    # ------------------------------------------------------------------
-
-    def set_survey(self, survey_id: str) -> SurveyLayout:
+    def set_survey(self, survey_id: str) -> None:
         """Set the active survey and materialise its directory."""
-        if self._campaign is None:
+        if self.campaign is None:
             raise ValueError(
                 "A campaign must be set before setting a survey; "
                 "call set_campaign() first"
             )
-        layout =  self._file_manager.ensure_survey(self.scope)
-        self._survey = ScopeRegistry(
-            name=survey_id, layout=layout, metadata=None
+        layout: Optional[SurveyLayout] =  self._file_manager.ensure_survey(
+            network=self.network.name,
+            station=self.station.name,
+            campaign=self.campaign.name,
+            survey=survey_id,
         )
-
-    def select_survey_from_metadata(self, survey_id: str) -> None:
-        """Find ``survey_id`` in campaign metadata, activate it, materialise directory."""
-        if self._campaign_meta is None:
-            raise ValueError(
-                "Campaign metadata not loaded; cannot select survey from metadata."
-            )
-        for survey in self._campaign_meta.surveys:
-            if survey.id == survey_id:
-                self.set_survey(survey_id)
-                self._survey.metadata = survey
-                return
-        raise ValueError(
-            f"Survey {survey_id!r} not found in campaign {self._campaign!r}"
+        survey_metadata: Optional[Survey] = self._resolve_survey_in_campaign(survey_id)
+        self.survey = ScopeRegistry(
+            name=survey_id, layout=layout, metadata=survey_metadata
         )
-
-    # ------------------------------------------------------------------
-    # Metadata properties and loaders
-    # ------------------------------------------------------------------
-
-    @property
-    def site(self) -> "Site | None":
-        return self._station.metadata
-
-    @property
-    def campaign_meta(self) -> "Campaign | None":
-        return self._campaign.metadata
-
-    @property
-    def survey_meta(self) -> "Survey | None":
-        return self._survey.metadata
-
-    def load_site_metadata(self, site: "Site") -> None:
-        """Override the cached site metadata and re-resolve campaign metadata."""
-        self._station = site
-        if self._campaign is not None:
-            self._campaign_meta = self._resolve_campaign_in_site(self._campaign.name)
-
-    def load_campaign_metadata(self, campaign: "Campaign") -> None:
-        """Override the cached campaign metadata."""
-        if self._campaign is not None:
-            self._campaign.metadata = campaign
-
-    def load_survey_metadata(self, survey: "Survey") -> None:
-        """Override the cached survey metadata."""
-        self._survey_meta = survey
-        
-    @_require_campaign
-    def select_campaign_from_metadata(self, campaign_id: str) -> CampaignLayout:
-        """Switch to ``campaign_id`` (must match an entry in site metadata)."""
-        if self._station is None:
-            raise ValueError(
-                "Site metadata must be loaded before select_campaign_from_metadata()"
-            )
-        self._campaign_meta = self._resolve_campaign_in_site(campaign_id)
-        self._campaign = campaign_id
-        self._survey = None
-        self._survey_meta = None
-        return self._file_manager.ensure_campaign(self.scope)
-
-    # ------------------------------------------------------------------
-    # Layout — paths and materialisation
-    # ------------------------------------------------------------------
-
-    @property
-    def network_dir(self) -> Path:
-        return self._tree.network_dir(self._network)
-
-    @property
-    def station_dir(self) -> Path:
-        return self._tree.station_dir(self._station_scope)
-
-    @property
-    @_require_campaign
-    @_require_survey
-    def survey_dir(self) -> Path:
-        return self._tree.survey_dir(self.scope)
-
-    @_require_campaign
-    def campaign_layout(self) -> CampaignLayout:
-        return self._tree.campaign(self.scope)
-
-    def tiledb_layout(self) -> TileDBLayout:
-        """Station-scoped TileDB layout — always available after construction."""
-        return self._tree.tiledb(self._station_scope)
-
-    @_require_campaign
-    @_require_survey
-    def garpos_survey(self) -> GARPOSLayout:
-        return self._tree.garpos(self.scope)
-
-    def ensure_station(self) -> TileDBLayout:
-        """Materialise TileDB layout dirs (idempotent); station-scoped."""
-        return self._file_manager.ensure_station(self._station_scope)
-
-    @_require_campaign
-    def ensure_campaign(self) -> CampaignLayout:
-        """Materialise campaign dirs (idempotent)."""
-        return self._file_manager.ensure_campaign(self.scope)
-
-    @_require_campaign
-    @_require_survey
-    def ensure_garpos_survey(self) -> GARPOSLayout:
-        return self._file_manager.ensure_garpos_survey(self.scope)
-
-    @_require_campaign
-    @_require_survey
-    def is_garpos_directory(self) -> bool:
-        return self._inspector.is_garpos_directory(self.garpos_survey())
-
-    @_require_campaign
-    @_require_survey
-    def find_rectified_shotdata(self) -> Path | None:
-        return self._inspector.find_rectified_shotdata(self.garpos_survey())
-
-    @_require_campaign
-    @_require_survey
-    def find_filtered_shotdata(self) -> Path | None:
-        return self._inspector.find_filtered_shotdata(self.survey_dir)
-
-    @_require_campaign
-    def list_surveys(self) -> list[str]:
-        try:
-            return sorted(
-                p.name for p in self.campaign_layout().root.iterdir() if p.is_dir()
-            )
-        except (OSError, AttributeError):
-            return []
-
-    def list_campaigns(self) -> list[str]:
-        import re
-        try:
-            return sorted(
-                p.name
-                for p in self.station_dir.iterdir()
-                if p.is_dir() and re.match(r"^\d{4}", p.name)
-            )
-        except (OSError, AttributeError):
-            return []
-
-    @property
-    def site_metadata_file(self) -> Path:
-        return self.station_dir / "site_metadata.json"
-
-    @property
-    @_require_campaign
-    def campaign_metadata_file(self) -> Path:
-        return self.campaign_layout().metadata_file
-
-    @property
-    @_require_campaign
-    @_require_survey
-    def survey_metadata_file(self) -> Path:
-        return self.survey_dir / "survey_meta.json"
-
-    @property
-    def pride_directory(self) -> Path:
-        return self._tree.pride_dir
-
-    # ------------------------------------------------------------------
-    # Port accessors — callers use these with self.scope directly
-    # ------------------------------------------------------------------
-
-    @property
-    def catalog(self) -> AssetCatalogPort:
-        return self._catalog
-
-    @property
-    def ingestor(self) -> Ingestor:
-        return self._ingestor
-
-    @property
-    def archive(self) -> ArchiveSourcePort:
-        return self._archive
-
-    # ------------------------------------------------------------------
-    # TileDB — station-scoped, built once
-    # ------------------------------------------------------------------
-
-    def build_tiledb(self) -> TileDBRegistry:
-        """Materialise TileDB directories and return array handles.
-
-        TileDB arrays are station-scoped.  This method is idempotent and does
-        not depend on campaign being set — call it once after construction
-        rather than on every campaign switch.
-        """
-        from earthscope_sfg_tools.tiledb_integration import (
-            TDBAcousticArray,
-            TDBGNSSObsArray,
-            TDBIMUPositionArray,
-            TDBKinPositionArray,
-            TDBShotDataArray,
-        )
-
-        layout = self._file_manager.ensure_station(self._station_scope)
-        return TileDBRegistry(
-            acoustic=TDBAcousticArray(layout.acoustic),
-            kin_position=TDBKinPositionArray(layout.kin_position),
-            imu_position=TDBIMUPositionArray(layout.imu_position),
-            shotdata=TDBShotDataArray(layout.shotdata),
-            shotdata_pre=TDBShotDataArray(layout.shotdata_pre),
-            gnss_obs=TDBGNSSObsArray(layout.gnss_obs),
-            gnss_obs_secondary=TDBGNSSObsArray(layout.gnss_obs_secondary),
-        )
-
-    # ------------------------------------------------------------------
-    # Internal (for adapters / tests)
-    # ------------------------------------------------------------------
-
-    @property
-    def _tree_view(self) -> DirectoryTree:
-        return self._tree
-
-    # ------------------------------------------------------------------
-    # Resource lifecycle
-    # ------------------------------------------------------------------
-
-    def close(self) -> None:
-        self._catalog.close()
-        self._files.close()
-        self._archive.close()
-
-    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: D401
-        self.close()
-
-
-__all__ = [
-    "StationSession",
-    "TileDBRegistry",
-    "_Ports",
-    "_build_default_workspace",
-    "_build_ports",
-    "_require_campaign",
-    "_require_survey",
-    "_to_asset_kind",
-]

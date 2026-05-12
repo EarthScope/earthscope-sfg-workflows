@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
+from earthscope_sfg_tools.datamodels import Campaign, Site, Survey
 from upath import UPath
 
 # ---------------------------------------------------------------------------
@@ -56,22 +57,36 @@ class AssetKind(str, Enum):
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass
+class ScopeRegistry:
+    name: str
+    layout: NetworkLayout |CampaignLayout | SurveyLayout | None
+    metadata: Site | Campaign | Survey | None
+
+@dataclass
 class SFGScope:
-    """Immutable identifier for a network/station/campaign[/survey] context."""
+    """Identifier for a network/station/campaign[/survey] context."""
 
-    network: str
-    station: str
-    campaign: str
-    survey: str | None = None
+    network: ScopeRegistry
+    station: ScopeRegistry
+    campaign: ScopeRegistry | None
+    survey: ScopeRegistry | None = None
 
-    @property
-    def tuple(self) -> tuple[str, str, str]:
-        return (self.network, self.station, self.campaign)
-
-    def with_survey(self, survey: str) -> "SFGScope":
-        return replace(self, survey=survey)
-
+    @classmethod
+    def from_ids(
+        cls,
+        network_name: str,
+        station_name: str,
+        campaign_name: str | None = None,
+        survey_name: str | None = None,
+    ) -> "SFGScope":
+        """Helper to construct a scope with just names. Layout and metadata are left None."""
+        return cls(
+            network=ScopeRegistry(name=network_name, layout=None, metadata=None),
+            station=ScopeRegistry(name=station_name, layout=None, metadata=None),
+            campaign=ScopeRegistry(name=campaign_name, layout=None, metadata=None) if campaign_name else None,
+            survey=ScopeRegistry(name=survey_name, layout=None, metadata=None) if survey_name else None,
+        )
 
 # ---------------------------------------------------------------------------
 # Asset entry (pure data; replaces Pydantic AssetEntry with embedded I/O)
@@ -83,7 +98,9 @@ class AssetEntry:
     """A single asset in the catalog. Pure data, no I/O methods."""
 
     kind: AssetKind
-    scope: SFGScope
+    network: str | None = None
+    station: str | None = None
+    campaign: str | None = None
     id: int | None = None
     local_path: UPath | None = None
     remote_path: str | None = None
@@ -208,8 +225,10 @@ class CampaignLayout:
     intermediate: UPath
     logs: UPath
     qc: UPath
+    metadata_dir: UPath
     metadata_file: UPath
     svp_file: UPath
+    rinex: UPath | None = None
 
     @staticmethod
     def for_campaign(campaign_dir: UPath) -> "CampaignLayout":
@@ -221,16 +240,42 @@ class CampaignLayout:
             intermediate=campaign_dir / _INTERMEDIATE_DIR,
             logs=campaign_dir / _LOGS_DIR,
             qc=campaign_dir / _QC_DIR,
-            metadata_file=campaign_dir / _CAMPAIGN_META_FILE,
+            metadata_dir=campaign_dir / "metadata",
+            metadata_file=campaign_dir / "metadata" / _CAMPAIGN_META_FILE,
             svp_file=processed / _CAMPAIGN_SVP_FILE,
+            rinex=processed / "rinex",
         )
 
     @property
     def standard_dirs(self) -> tuple[UPath, ...]:
         return (self.root, self.raw, self.processed, self.intermediate, self.logs, self.qc)
 
-
 @dataclass(frozen=True, slots=True)
+class StationLayout:
+    """All paths for a station directory. Pure."""
+
+    root: UPath
+    campaigns : dict[str, CampaignLayout | None] = field(default_factory=dict)
+    metadata: UPath | None = None
+    tiledb: TileDBLayout | None = None
+
+    @property
+    def standard_dirs(self) -> tuple[UPath, ...]:
+        return (self.root,)
+    
+@dataclass
+class NetworkLayout:
+    """All paths for a network directory. Pure."""
+
+    root: UPath
+    stations: dict[str, StationLayout | None] = field(default_factory=dict)
+
+    @property
+    def standard_dirs(self) -> tuple[UPath, ...]:
+        return (self.root,)
+
+    
+@dataclass
 class SurveyLayout:
     """All paths for a survey directory. Pure."""
 
@@ -295,45 +340,49 @@ class GARPOSLayout:
         return (self.root, self.logs, self.results)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass
 class DirectoryTree:
     """Workspace-rooted view of the hierarchy. Pure path math, no I/O."""
 
     root: UPath
-
-    @property
-    def catalog_db(self) -> UPath:
-        return self.root / _CATALOG_DB_FILE
-
-    @property
-    def pride_dir(self) -> UPath:
-        return self.root / _PRIDE_DIR
+    catalog_db: UPath = field(default_factory=lambda self: self.root / _CATALOG_DB_FILE,init=True)
+    pride_dir: UPath = field(default_factory=lambda self: self.root / _PRIDE_DIR,init=True)
 
     def network_dir(self, network: str) -> UPath:
         return self.root / network
 
-    def station_dir(self, scope: SFGScope) -> UPath:
-        return self.network_dir(scope.network) / scope.station
+    def station_dir(self,*, network:str, station:str) -> UPath:
+        return self.network_dir(network) / station
 
-    def campaign_dir(self, scope: SFGScope) -> UPath:
-        return self.station_dir(scope) / scope.campaign
+    def campaign_dir(self,*, network:str, station:str, campaign:str) -> UPath:
+        return self.station_dir(network=network, station=station) / campaign
 
-    def survey_dir(self, scope: SFGScope) -> UPath:
-        if scope.survey is None:
-            raise ValueError("CampaignScope.survey must be set to compute survey_dir")
-        return self.campaign_dir(scope) / scope.survey
+    def survey_dir(self,*, network:str, station:str, campaign:str, survey:str) -> UPath:
+        if survey is None:
+            raise ValueError("survey must be set to compute survey_dir")
+        return self.campaign_dir(network=network, station=station, campaign=campaign) / survey
 
-    def tiledb(self, scope: SFGScope) -> TileDBLayout:
-        return TileDBLayout.for_station(self.station_dir(scope))
+    def network(self, network: str) -> NetworkLayout:
+        return NetworkLayout(root=self.network_dir(network))
+    
+    def station(self,*, network:str, station:str) -> StationLayout:
+        return StationLayout(
+            root=self.station_dir(network=network, station=station),
+            metadata=self.station_dir(network=network, station=station) / "site_metadata.json",
+            tiledb=self.tiledb(network=network, station=station),
+        )
+    
+    def tiledb(self,*, network:str, station:str) -> TileDBLayout:
+        return TileDBLayout.for_station(self.station_dir(network=network, station=station))
 
-    def campaign(self, scope: SFGScope) -> CampaignLayout:
-        return CampaignLayout.for_campaign(self.campaign_dir(scope))
+    def campaign(self, *,network:str, station:str, campaign:str) -> CampaignLayout:
+        return CampaignLayout.for_campaign(self.campaign_dir(network=network, station=station, campaign=campaign))
 
-    def survey(self, scope: SFGScope) -> SurveyLayout:
-        return SurveyLayout.for_survey(self.survey_dir(scope))
+    def survey(self, *,network:str, station:str, campaign:str, survey:str) -> SurveyLayout:
+        return SurveyLayout.for_survey(self.survey_dir(network=network, station=station, campaign=campaign, survey=survey))
 
-    def garpos(self, scope: SFGScope) -> GARPOSLayout:
-        return GARPOSLayout.for_survey(self.survey_dir(scope))
+    def garpos(self, *,network:str, station:str, campaign:str, survey:str) -> GARPOSLayout:
+        return GARPOSLayout.for_survey(self.survey_dir(network=network, station=station, campaign=campaign, survey=survey))
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +423,7 @@ class ArchiveFile:
     @property
     def filename(self) -> str:
         return UPath(self.url).name
+
 
 
 __all__ = [

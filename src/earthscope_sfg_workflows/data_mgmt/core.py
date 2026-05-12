@@ -23,11 +23,14 @@ from .model import (
     AssetEntry,
     AssetKind,
     CampaignLayout,
+    NetworkLayout,
     SFGScope,
     DirectoryTree,
+    StationLayout,
     FileInfo,
     GARPOSLayout,
     IngestReport,
+    SurveyLayout,
     TileDBLayout,
 )
 from .ports import ArchiveError, ArchiveSourcePort, AssetCatalogPort, FileStorePort
@@ -97,41 +100,44 @@ class FileManager:
         self.directory_tree = directory_tree
         self.file_backend = file_backend
 
-
-
     def ensure_workspace(self) -> None:
         """Create the workspace root and Pride directory."""
         self.file_backend.mkdir(self.directory_tree.root)
         self.file_backend.mkdir(self.directory_tree.pride_dir)
 
-    def ensure_station(self, scope: SFGScope) -> TileDBLayout:
-        """Materialize the station and TileDB array directories; return the layout."""
-        self.file_backend.mkdir(self.directory_tree.station_dir(scope))
-        layout = self.directory_tree.tiledb(scope)
-        for path in layout.all_paths:
+    def ensure_network(self, network: str) -> NetworkLayout:
+        network_layout: NetworkLayout = self.directory_tree.network(network)
+        for path in network_layout.standard_dirs:
             self.file_backend.mkdir(path)
-        return layout
+        return network_layout
+    
+    def ensure_station(self,*,network:str,station:str) -> StationLayout:
+        """Materialize the station and TileDB array directories; return the layout."""
+        self.file_backend.mkdir(self.directory_tree.station_dir(network=network, station=station))
+        station_layout:StationLayout = self.directory_tree.station(network=network, station=station)
+        for path in station_layout.standard_dirs:
+            self.file_backend.mkdir(path)
+        return station_layout
 
-    def ensure_campaign(self, scope: SFGScope) -> CampaignLayout:
+    def ensure_campaign(self,*,network:str,station:str,campaign:str) -> CampaignLayout:
         """Materialize the campaign directory tree (top-down); return the layout."""
-        self.file_backend.mkdir(self.directory_tree.network_dir(scope.network))
-        self.file_backend.mkdir(self.directory_tree.station_dir(scope))
-        layout = self.directory_tree.campaign(scope)
+        self.file_backend.mkdir(self.directory_tree.network_dir(network=network))
+        self.file_backend.mkdir(self.directory_tree.station_dir(network=network, station=station))
+        layout = self.directory_tree.campaign(network=network, station=station, campaign=campaign)
         for path in layout.standard_dirs:
             self.file_backend.mkdir(path)
         return layout
 
-    def ensure_survey(self, scope: SFGScope) -> SurveyLayout:
+    def ensure_survey(self,*,network:str,station:str,campaign:str,survey:str) -> SurveyLayout:
         """Materialize the survey directory; return the layout."""
-        self.file_backend.mkdir(self.directory_tree.survey_dir(scope))
-        return self.directory_tree.survey(scope)
+        survey_layout:SurveyLayout = self.directory_tree.survey(network=network, station=station, campaign=campaign, survey=survey)
+        for path in survey_layout.standard_dirs:
+            self.file_backend.mkdir(path)
+        return self.directory_tree.survey(network=network, station=station, campaign=campaign, survey=survey)
     
-    def ensure_garpos_survey(self, scope: SFGScope) -> GARPOSLayout:
+    def ensure_garpos_survey(self,*,network:str,station:str,campaign:str,survey:str) -> GARPOSLayout:
         """Materialize the GARPOS survey directory tree; requires ``scope.survey``."""
-        if scope.survey is None:
-            raise ValueError("CampaignScope.survey is required for GARPOS materialization")
-        self.file_backend.mkdir(self.directory_tree.survey_dir(scope))
-        layout = self.directory_tree.garpos(scope)
+        layout = self.directory_tree.garpos(network=network, station=station, campaign=campaign, survey=survey)
         for path in layout.standard_dirs:
             self.file_backend.mkdir(path)
         return layout
@@ -158,16 +164,12 @@ class Ingestor:
         file_manager: FileManager,
         archive: ArchiveSourcePort,
         patterns: Iterable[tuple[re.Pattern[str], AssetKind]] | None = None,
-        *,
-        detector: FileTypeDetector | None = None,
+
     ) -> None:
         self._catalog = catalog
         self._file_manager = file_manager
         self._archive = archive
-        if detector is not None:
-            self._patterns = detector._patterns
-        else:
-            self._patterns = tuple(patterns if patterns is not None else DEFAULT_PATTERNS)
+        self._patterns = tuple(patterns if patterns is not None else DEFAULT_PATTERNS)
 
     def detect(self, filename: str) -> AssetKind | None:
         """Return the first matching kind, or ``None`` if no pattern matches."""

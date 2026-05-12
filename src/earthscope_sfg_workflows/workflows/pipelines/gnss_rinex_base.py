@@ -30,7 +30,7 @@ from .config import PrideConfig, RinexConfig
 from .exceptions import NoKinFound, NoLocalData, NoRinexBuilt, NoRinexFound
 
 
-class GnssRinexPipelineBase(WorkflowBase, ABC):
+class GnssRinexPipelineBase:
     """Abstract base class providing shared GNSS→RINEX→KIN processing steps.
 
     Subclasses must implement the abstract properties and methods below to
@@ -39,115 +39,6 @@ class GnssRinexPipelineBase(WorkflowBase, ABC):
     ``get_rinex_files``, ``process_rinex``, ``process_kin``) are provided
     here and delegate to those abstract properties/hooks.
     """
-
-    # ── abstract interface ───────────────────────────────────────────────────
-
-    @property
-    @abstractmethod
-    def _gnss_obs_uri(self):
-        """TileDB URI passed to ``tile2rinex`` and recorded in merge keys."""
-
-    @property
-    @abstractmethod
-    def _kin_position_tdb(self) -> TDBKinPositionArray:
-        """TileDB array where KIN-position dataframes are written."""
-
-    @property
-    @abstractmethod
-    def _rinex_config(self) -> RinexConfig:
-        """``RinexConfig`` for this pipeline."""
-
-    @property
-    @abstractmethod
-    def _pride_config(self) -> PrideConfig:
-        """``PrideConfig`` for this pipeline."""
-
-    @abstractmethod
-    def _reset_tiledb_arrays(self) -> None:
-        """Set all TileDB array attributes to ``None`` (called on context switch)."""
-
-    @abstractmethod
-    def _build_tiledb_arrays(self) -> None:
-        """Initialise TileDB array objects for the current station context."""
-
-    # ── customisation hooks ──────────────────────────────────────────────────
-
-    @property
-    def _rinex_merge_label(self) -> str:
-        """Extra suffix appended to the RINEX merge ``parent_ids`` key.
-
-        Override in QC pipelines to return ``"|QC"``.
-        """
-        return ""
-
-    def _on_rinex_path(self, path: Path) -> None:
-        """Called for each RINEX file immediately after generation.
-
-        Override to run per-file QC or any other post-processing.
-        The default implementation is a no-op.
-        """
-
-    # ── shared concrete implementation ──────────────────────────────────────
-
-    def set_network_station_campaign(
-        self,
-        network_id: str,
-        station_id: str,
-        campaign_id: str,
-    ) -> None:
-        """Set the current processing context and initialise TileDB arrays.
-
-        Steps:
-        1. Nulls TileDB arrays when the context changes (avoids stale refs).
-        2. Forwards the scope to the workspace and materialises campaign dirs.
-        3. Validates that locally-ingested files exist.
-        4. Updates all logger output directories.
-        5. Calls :meth:`_build_tiledb_arrays` to initialise arrays.
-        6. Calls :meth:`_build_rinex_meta` to ensure metadata files exist.
-
-        Args:
-            network_id: Network identifier (e.g. ``"cascadia-gorda"``).
-            station_id: Station identifier (e.g. ``"NCC1"``).
-            campaign_id: Campaign identifier (e.g. ``"2023_A_1126"``).
-
-        Raises:
-            NoLocalData: If no locally-ingested files are found.
-        """
-        if (
-            network_id != self.current_network_name
-            or station_id != self.current_station_name
-            or campaign_id != self.current_campaign_name
-        ):
-            self._reset_tiledb_arrays()
-
-        if network_id != self.workspace.network_name:
-            self.workspace.set_network(network_id)
-        if station_id != self.workspace.station_name:
-            self.workspace.set_station(station_id)
-        if campaign_id != self.workspace.campaign_name:
-            self.workspace.set_campaign(campaign_id)
-
-        self.workspace.ensure_campaign()
-
-        dtype_counts = self.workspace.dtype_counts()
-        if dtype_counts == {}:
-            message = (
-                f"No local files found for {network_id}/{station_id}/{campaign_id}. "
-                "Ensure data is ingested before processing."
-            )
-            ProcessLogger.error(message)
-            raise NoLocalData(message)
-
-        change_all_logger_dirs(self.workspace.campaign_layout().logs)
-
-        for dtype, count in dtype_counts.items():
-            ProcessLogger.info(
-                f"Found {count} local files of type {dtype} "
-                f"for {network_id}/{station_id}/{campaign_id}"
-            )
-
-        self._build_tiledb_arrays()
-        self._build_rinex_meta()
 
     def _build_rinex_meta(self) -> None:
         """Create RINEX metadata JSON files for the current campaign if absent.

@@ -12,9 +12,10 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from earthscope_sfg_tools.datamodels import Site, Vessel
 import requests
 
-from ..model import ArchiveFile
+from ..model import ArchiveFile, SFGScope
 from ..ports import ArchiveAuthError, ArchiveError, ArchiveNotFoundError
 
 def _campaign_year(campaign: str) -> str:
@@ -132,7 +133,7 @@ class EarthScopeArchive:
         return dest_path
 
 
-    def canonical_campaign_urls(self,scope: CampaignScope) -> tuple[str, str, str, str]:
+    def canonical_campaign_urls(self,scope: SFGScope) -> tuple[str, str, str, str]:
         """The four canonical archive URLs for a campaign.
         Order: raw, metadata, RINEX 1Hz, RINEX 10Hz. ``Ingestor.discover_campaign``
         consumes them in that order.
@@ -147,7 +148,7 @@ class EarthScopeArchive:
 
     def list_campaign_archive_urls(
         self,
-        scope: CampaignScope,
+        scope: SFGScope,
     ) -> list[str]:
         """Enumerate every archive file URL for a campaign.
         Lists each of :func:`canonical_campaign_urls`, plus the legacy
@@ -176,24 +177,24 @@ class EarthScopeArchive:
                 continue
         return urls
 
-    def campaign_raw_url(self,scope: CampaignScope) -> str:
+    def campaign_raw_url(self,scope: SFGScope) -> str:
         """Return the archive URL for the raw data directory of a campaign."""
         year = _campaign_year(scope.campaign)
         return (
             f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/raw"
         )
 
-    def campaign_metadata_url(self,scope: CampaignScope) -> str:
+    def campaign_metadata_url(self,scope: SFGScope) -> str:
         """Return the archive URL for the metadata directory of a campaign."""
         year = _campaign_year(scope.campaign)
         return f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/metadata"
 
-    def campaign_rinex_url(self,scope: CampaignScope, hz: str) -> str:
+    def campaign_rinex_url(self,scope: SFGScope, hz: str) -> str:
         """Compose a RINEX directory URL. ``hz`` is ``"1Hz"`` or ``"10Hz"``."""
         year = _campaign_year(scope.campaign)
         return f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/rinex_{hz}"
 
-    def site_metadata_url(self, scope: CampaignScope) -> str:
+    def site_metadata_url(self, scope: SFGScope) -> str:
         """Return the archive URL for a station's site metadata JSON."""
         return f"{self.ARCHIVE_PREFIX}/metadata/{scope.network}/{scope.station}.json"
 
@@ -203,49 +204,37 @@ class EarthScopeArchive:
 
         return f"{self.ARCHIVE_PREFIX}/metadata/vessels/{vessel_code}.json"
 
-    def load_vessel_metadata(self, vessel_code: str, local_path: Path | str | None = None):
+    def load_vessel_metadata(self, vessel_code: str) -> Vessel:
         """Load a :class:`Vessel` from the archive (or a local JSON file)."""
-        from earthscope_sfg_tools.datamodels.metadata import import_vessel
-
-        if local_path is not None:
-            json_file_path = Path(local_path)
-            if not json_file_path.exists():
-                raise FileNotFoundError(
-                    f"Local vessel metadata file {json_file_path} does not exist."
-                )
-            return import_vessel(json_file_path)
 
         url = self.vessel_json_url(vessel_code)
         local = self.download_to_dir(url, Path("./"))
         try:
-            return import_vessel(local)
+            vessel = Vessel.from_json(local)
         finally:
             try:
                 local.unlink()
             except Exception:
                 pass
+        return vessel
 
-    def load_site_metadata(self, scope: CampaignScope, local_path: Path | str | None = None):
+    def load_site_metadata(self, scope: SFGScope=None,*,network: str=None,station:str=None) -> Site:
         """Load a :class:`Site` from the archive, populating per-campaign vessels."""
-        from earthscope_sfg_tools.datamodels.metadata import import_site
 
-        if local_path is not None:
-            json_file_path = Path(local_path)
-            if not json_file_path.exists():
-                raise FileNotFoundError(
-                    f"Local site metadata file {json_file_path} does not exist."
-                )
-            site = import_site(json_file_path)
-        else:
-            url = self.site_metadata_url(scope)
-            local = self.download_to_dir(url, Path("./"))
+        if scope is None:
+            if network is None or station is None:
+                raise ValueError("Must provide either scope or both network and station")
+            scope = SFGScope(network=network, station=station, campaign="")
+            
+        url = self.site_metadata_url(scope)
+        local = self.download_to_dir(url, Path("./"))
+        try:
+            site = Site.from_json(local)
+        finally:
             try:
-                site = import_site(local)
-            finally:
-                try:
-                    local.unlink()
-                except Exception:
-                    pass
+                local.unlink()
+            except Exception:
+                pass
 
         for campaign in site.campaigns:
             try:

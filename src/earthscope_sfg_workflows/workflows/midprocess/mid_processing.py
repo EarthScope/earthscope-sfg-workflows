@@ -122,7 +122,7 @@ class IntermediateDataProcessor(WorkflowBase):
                 elevation=-float(value.localGeoidHeight),
             )
         else:
-            self.workspace._station = None
+            self.workspace.station = None
 
     @property
     def current_campaign_metadata(self) -> Campaign | None:

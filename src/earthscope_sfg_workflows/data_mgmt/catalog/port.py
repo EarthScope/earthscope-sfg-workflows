@@ -31,15 +31,34 @@ class AssetCatalogPort(Protocol):
 
     def assets_for(
         self,
-        scope: SFGScope,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
         kind: AssetKind | None = None,
     ) -> list[AssetEntry]:
         """Query assets in ``scope``, optionally filtered by ``kind``."""
         ...
 
+    def assets_to_process(
+        self,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+        kind: AssetKind | None = None,
+        parent_kind: AssetKind | None = None,
+        override: bool = False,
+    ) -> list[AssetEntry]:
+        """Return assets matching the scope and kind that need processing.
+        If *parent_kind* is given, only return assets with no existing children of that kind.
+        If *override* is True, ignore existing children and return all candidates.
+        """
+        ...
+        
     def delete(
         self,
-        scope: SFGScope,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
         kind: AssetKind | None = None,
     ) -> int:
         """Delete assets matching the scope (and optional kind). Return count."""
@@ -49,8 +68,13 @@ class AssetCatalogPort(Protocol):
         """Delete one asset by id. Return True if deleted."""
         ...
 
-    def count_by_kind(self, scope: SFGScope) -> dict[AssetKind, int]:
-        """Aggregate count of assets per kind in ``scope``."""
+    def count_by_kind(
+        self,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+    ) -> dict[AssetKind, int]:
+        """Aggregate count of assets per kind in the specified scope."""
         ...
 
     # -- merge job tracking (carried over from legacy MergeJobs table) ----

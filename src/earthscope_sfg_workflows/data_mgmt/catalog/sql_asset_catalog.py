@@ -166,14 +166,16 @@ class AssetCatalog:
 
     def assets_for(
         self,
-        scope: SFGScope,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
         kind: AssetKind | None = None,
     ) -> list[AssetEntry]:
         """Return assets in `scope`, optionally filtered by `kind`, ordered by id."""
         stmt = select(Assets).where(
-            Assets.network == scope.network,
-            Assets.station == scope.station,
-            Assets.campaign == scope.campaign,
+            Assets.network == network,
+            Assets.station == station,
+            Assets.campaign == campaign,
         )
         if kind is not None:
             stmt = stmt.where(Assets.type == kind.value)
@@ -181,16 +183,42 @@ class AssetCatalog:
             rows = session.execute(stmt.order_by(Assets.id)).scalars().all()
             return [_row_to_entry(r) for r in rows]
 
+    def assets_to_process(
+        self,
+        network: str ,
+        station: str ,
+        campaign: str ,
+        kind: AssetKind ,
+        override: bool = False,
+    ) -> list[AssetEntry]:
+        """Return unprocessed assets in `scope` with `parent_kind` (if given)."""
+        if override:
+            return self.assets_for(network, station, campaign, kind)
+        
+        stmt = select(Assets).where(
+            Assets.network == network,
+            Assets.station == station,
+            Assets.campaign == campaign,
+            Assets.is_processed.is_(False),
+        )
+        if kind is not None:
+            stmt = stmt.where(Assets.type == kind.value)
+        with self._Session() as session:
+            rows = session.execute(stmt.order_by(Assets.id)).scalars().all()
+            return [_row_to_entry(r) for r in rows]
+        
     def delete(
         self,
-        scope: SFGScope,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
         kind: AssetKind | None = None,
     ) -> int:
         """Delete assets in `scope` (optionally filtered by `kind`); return count."""
         stmt = delete(Assets).where(
-            Assets.network == scope.network,
-            Assets.station == scope.station,
-            Assets.campaign == scope.campaign,
+            Assets.network == network,
+            Assets.station == station,
+            Assets.campaign == campaign,
         )
         if kind is not None:
             stmt = stmt.where(Assets.type == kind.value)
@@ -203,15 +231,20 @@ class AssetCatalog:
             result = session.execute(delete(Assets).where(Assets.id == asset_id))
             return (result.rowcount or 0) > 0
 
-    def count_by_kind(self, scope: SFGScope) -> dict[AssetKind, int]:
-        """Return a per-`AssetKind` row count for assets in `scope`."""
+    def count_by_kind(
+        self,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+    ) -> dict[AssetKind, int]:
+        """Return a per-`AssetKind` row count for assets in the specified scope."""
         with self._Session() as session:
             rows = (
                 session.execute(
                     select(Assets.type).where(
-                        Assets.network == scope.network,
-                        Assets.station == scope.station,
-                        Assets.campaign == scope.campaign,
+                        Assets.network == network,
+                        Assets.station == station,
+                        Assets.campaign == campaign,
                     )
                 )
                 .scalars()

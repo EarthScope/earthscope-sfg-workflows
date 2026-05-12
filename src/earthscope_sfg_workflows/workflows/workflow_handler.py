@@ -127,7 +127,7 @@ class WorkflowHandler(WorkflowBase):
         if value is not None:
             self.workspace.load_site_metadata(value)
         else:
-            self.workspace._station = None
+            self.workspace.station = None
 
     def set_network_station_campaign(
         self,
