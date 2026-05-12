@@ -3,7 +3,7 @@ GarposHandler class for processing and preparing shot data for the GARPOS model.
 """
 
 import shutil
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from pathlib import Path
 
 # Plotting imports
@@ -17,22 +17,38 @@ from matplotlib.colors import Normalize
 
 sns.set_theme(style="whitegrid")
 
-from earthscope_sfg_tools.datamodels.metadata import Site  # noqa: E402
+from earthscope_sfg_tools.datamodels.metadata import Campaign, Site, Survey  # noqa: E402
+from earthscope_sfg_tools.tiledb_integration import (  # noqa: E402
+    TDBIMUPositionArray,
+    TDBKinPositionArray,
+    TDBShotDataArray,
+)
 
+from ...config.loadconfigs import (  # noqa: E402
+    GarposSiteConfig,
+    get_garpos_site_config,
+    get_survey_filter_config,
+)
 from ...data_mgmt.model import GARPOSLayout  # noqa: E402
+from ...modeling.garpos_tools.data_prep import (  # noqa: E402
+    GP_Transponders_from_benchmarks,
+    apply_survey_config,
+    get_array_dpos_center,
+    prepare_garpos_input_from_survey,
+    prepare_shotdata_for_garpos,
+)
+from ...modeling.garpos_tools.functions import CoordTransformer, process_garpos_results  # noqa: E402
+from ...modeling.garpos_tools.load_utils import get_drive_garpos, get_lib_paths  # noqa: E402
 from ...modeling.garpos_tools.schemas import (  # noqa: E402
     GarposFixed,
     GarposInput,
     InversionParams,
+    ObservationData,
 )
-
+from ...prefiltering import filter_shotdata  # noqa: E402
 from earthscope_sfg_workflows.logging import GarposLogger as logger  # noqa: E402
 from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config  # noqa: E402
-
-from ...modeling.garpos_tools.functions import process_garpos_results  # noqa: E402
-from ...modeling.garpos_tools.load_utils import get_drive_garpos, get_lib_paths  # noqa: E402
-from ...modeling.garpos_tools.schemas import ObservationData  # noqa: E402
-from ..midprocess.mid_processing import IntermediateDataProcessor  # noqa: E402
+from ..session import StationSession  # noqa: E402
 
 colors = [
     "blue",
@@ -48,80 +64,74 @@ colors = [
 ]
 
 
-class GarposHandler(IntermediateDataProcessor):
-    """Handles the processing and preparation of shot data for the GARPOS model.
-    This class provides a high-level interface for running the GARPOS model,
-    including data preparation, setting parameters, and processing results.
+class GarposHandler:
+    """High-level interface for running the GARPOS acoustic positioning model.
+
+    Wraps a :class:`StationSession` to provide data preparation, model
+    execution, and result visualisation for GARPOS inversions.
 
     Attributes:
-        workspace: Manages the directory structure and data layer access.
-        site: The site metadata.
-        network: The network name.
-        station: The station name.
-        campaign: The campaign metadata.
-        current_survey: The current survey being processed.
-        coord_transformer: Coordinate transformer for the site.
-        garpos_fixed: Fixed parameters for the GARPOS model.
-        sound_speed_path: Path to the sound speed profile file.
+        station_session: Active session providing scope, paths, and metadata.
+        garpos_fixed: Fixed/inversion parameters passed to the GARPOS solver.
+        coordTransformer: ENU coordinate transformer derived from the site array centre.
+        current_garpos_survey_dir: Layout for the most recently activated survey.
     """
 
-    mid_process_workflow = True
 
-    def __init__(
-        self,
-        directory: Path | str = None,
-        station_metadata: Site = None,
-        s3_sync_bucket: str | None = None,
-    ):
+    def __init__(self, station_session: StationSession) -> None:
         """Initializes the GarposHandler.
-        Args:
-            directory: Root path of the data tree.
-            station_metadata: The site metadata.
-            s3_sync_bucket: S3 bucket name/URI for sync operations.
-        """
 
-        super().__init__(
-            directory=directory, station_metadata=station_metadata, s3_sync_bucket=s3_sync_bucket
+        Args:
+            station_session: The active :class:`StationSession` providing scope, paths,
+                and metadata.
+        """
+        self.station_session = station_session
+        self.garpos_fixed = GarposFixed()
+        self.current_garpos_survey_dir: GARPOSLayout | None = None
+        site = station_session.site
+        if site is not None:
+            self.coordTransformer: CoordTransformer | None = CoordTransformer(
+                latitude=site.arrayCenter.latitude,
+                longitude=site.arrayCenter.longitude,
+                elevation=-float(site.localGeoidHeight),
+            )
+        else:
+            self.coordTransformer = None
+
+    def ensure_garpos_survey(self) -> GARPOSLayout:
+        """Materialise GARPOS survey directories and return the layout."""
+        ss = self.station_session
+        if ss.survey.name is None:
+            raise ValueError("ensure_garpos_survey requires a survey to be set; call set_survey() first")
+        return ss._file_manager.ensure_garpos_survey(
+            network=ss.network.name,
+            station=ss.station.name,
+            campaign=ss.campaign.name,
+            survey=ss.survey.name,
         )
 
-        self.garpos_fixed = GarposFixed()
+    def _load_results_file(self, run_dir: Path) -> Path:
+        """Return the last *-res.dat file in run_dir, sorted by iteration number."""
+        data_files = sorted(
+            run_dir.glob("*-res.dat"),
+            key=lambda x: int(x.stem.split("_")[-1].split("-")[0]),
+        )
+        if not data_files:
+            raise FileNotFoundError(f"No *-res.dat files found in {run_dir}")
+        logger.info(f"Using data file {data_files[-1]} for plotting.")
+        return data_files[-1]
 
-        self.current_garpos_survey_dir: GARPOSLayout | None = None
+    def set_campaign(
+        self, campaign_id: str
+    ) -> None:
+        """Backward-compat scope setter.
 
-    def set_network(self, network_id: str):
-        """Sets the current network.
-        Args:
-            network_id: The ID of the network to set.
-
-        Raises:
-            ValueError: If the network is not found in the site metadata.
+        Network and station are already fixed on the underlying
+        :class:`StationSession`; only the campaign is applied here.
         """
-        super().set_network(network_id=network_id)
+        self.station_session.set_campaign(campaign_id)
 
-        self.current_garpos_survey_dir = None
-
-    def set_station(self, station_id: str):
-        """Sets the current station.
-        Args:
-            station_id: The ID of the station to set.
-
-        Raises:
-            ValueError: If the station is not found in the site metadata.
-        """
-
-        super().set_station(station_id=station_id)
-
-    def set_campaign(self, campaign_id: str):
-        """Sets the current campaign.
-        Args:
-            campaign_id: The ID of the campaign to set.
-
-        Raises:
-            ValueError: If the campaign is not found in the site metadata.
-        """
-        super().set_campaign(campaign_id=campaign_id)
-
-    def set_survey(self, survey_id: str):
+    def set_survey(self, survey_id: str) -> None:
         """Sets the current survey.
         Args:
             survey_id: The ID of the survey to set.
@@ -130,10 +140,10 @@ class GarposHandler(IntermediateDataProcessor):
             ValueError: If the survey is not found in the current campaign.
         """
 
-        super().set_survey(survey_id=survey_id)
+        self.station_session.set_survey(survey_id)
 
-        # Resolve the shotdata file produced by IntermediateDataProcessor.
-        campaign_meta = self.workspace.campaign_meta
+        # Resolve the shotdata file produced by parse_surveys.
+        campaign_meta = self.station_session.campaign_meta
         survey_type = None
         if campaign_meta is not None:
             for s in campaign_meta.surveys:
@@ -145,21 +155,21 @@ class GarposHandler(IntermediateDataProcessor):
                 f"Survey {survey_id} not found in campaign metadata; cannot locate shotdata."
             )
 
-        survey_root = self.workspace.survey_dir
+        survey_root = self.station_session.survey_dir
         shotdata_file = survey_root / f"{survey_id}_{survey_type}_shotdata.csv".replace(" ", "")
         if not shotdata_file.exists():
             raise ValueError(
                 f"Shotdata for survey {survey_id} not found at {shotdata_file}. "
-                "Please run intermediate data processing to create shotdata file."
+                "Please run parse_surveys() first."
             )
 
-        garpos_layout = self.workspace.ensure_garpos_survey()
-        rectified = self.workspace.find_rectified_shotdata()
+        garpos_layout = self.ensure_garpos_survey()
+        rectified_files = list(garpos_layout.root.glob("*_rectified.csv"))
+        rectified = rectified_files[0] if rectified_files else None
         if rectified is None or not rectified.exists():
             raise ValueError(
                 f"Rectified shotdata for survey {survey_id} not found in "
-                f"{garpos_layout.root}. Please run intermediate data processing "
-                "to create rectified shotdata file."
+                f"{garpos_layout.root}. Please run prepare_shotdata_garpos() first."
             )
         self.current_garpos_survey_dir = garpos_layout
         logger.set_dir(garpos_layout.logs)
@@ -178,6 +188,297 @@ class GarposHandler(IntermediateDataProcessor):
         self.garpos_fixed.inversion_params = validate_and_merge_config(
             base_class=self.garpos_fixed.inversion_params, override_config=parameters
         )
+
+    # ------------------------------------------------------------------
+    # Survey parsing and GARPOS data preparation
+    # ------------------------------------------------------------------
+
+    def prepare_shotdata_garpos(
+        self,
+        campaign_id: str | None = None,
+        survey_id: str | None = None,
+        custom_filters: dict | None = None,
+        overwrite: bool = False,
+    ) -> None:
+        """Prepares shotdata for GARPOS processing for the active campaign."""
+        if campaign_id is not None:
+            self.station_session.set_campaign(campaign_id=campaign_id)
+
+        campaign_meta = self.station_session.campaign_meta
+        if campaign_meta is None:
+            raise ValueError("Campaign must be set before preparing GARPOS shotdata.")
+
+        surveys_to_process = [
+            s for s in campaign_meta.surveys if survey_id is None or s.id == survey_id
+        ]
+        if not surveys_to_process:
+            raise ValueError(f"Survey {survey_id} not found in campaign {campaign_meta.name}.")
+
+        for survey in surveys_to_process:
+            self.station_session.set_survey(survey_id=survey.id)
+            logger.info(f"Processing survey {survey.id}")
+            self.prepare_single_garpos_survey(
+                survey=survey,
+                custom_filters=custom_filters,
+                overwrite=overwrite,
+            )
+
+    def prepare_single_garpos_survey(
+        self,
+        survey: Survey,
+        custom_filters: dict | None = None,
+        overwrite: bool = False,
+    ) -> None:
+        """Prepare a single survey for GARPOS processing."""
+
+        site = self.station_session.site
+        campaign_meta = self.station_session.campaign_meta
+        assert site is not None and campaign_meta is not None
+
+        survey_root = self.station_session.survey_dir
+        campaign = self.station_session.ensure_campaign()
+        tiledb = self.station_session.tiledb_layout()
+
+        shotdata_file_name = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
+        shotdata_path = survey_root / shotdata_file_name
+        if not shotdata_path.exists():
+            raise FileNotFoundError(
+                f"Shotdata file {shotdata_path} does not exist. Please run parse_surveys first."
+            )
+
+        shot_data_raw = pd.read_csv(shotdata_path)
+        if shot_data_raw.empty:
+            logger.warning(
+                f"No shot data found for survey {shotdata_path}, skipping shot data preparation."
+            )
+            return
+
+        garpos_layout = self.ensure_garpos_survey()
+
+        if not garpos_layout.settings_file.exists() or overwrite:
+            GarposFixed()._to_datafile(garpos_layout.settings_file)
+
+        filtered_path = shotdata_path.parent / f"{shotdata_path.stem}_filtered.csv"
+        if filtered_path.exists():
+            shot_data_filtered = pd.read_csv(filtered_path)
+        else:
+            shot_data_filtered = pd.DataFrame()
+
+        if shot_data_filtered.empty or overwrite:
+            filter_config = get_survey_filter_config(survey_type=survey.type)
+            if custom_filters is not None:
+                filter_config = validate_and_merge_config(
+                    base_class=filter_config,
+                    override_config=custom_filters,
+                )
+            shot_data_filtered = filter_shotdata(
+                survey_type=survey.type,
+                site=site,
+                shot_data=shot_data_raw,
+                kinPostionTDBUri=tiledb.kin_position,
+                start_time=survey.start.replace(tzinfo=UTC),
+                end_time=survey.end.replace(tzinfo=UTC),
+                custom_filters=custom_filters,
+            )
+            if shot_data_filtered.empty:
+                logger.warning(
+                    f"No shot data remaining after filtering for survey "
+                    f"{survey.id}, skipping survey."
+                )
+                return
+            shot_data_filtered.to_csv(filtered_path)
+
+        gp_transponders = GP_Transponders_from_benchmarks(
+            coord_transformer=self.coordTransformer,
+            survey=survey,
+            site=site,
+        )
+        array_dpos_center = get_array_dpos_center(self.coordTransformer, gp_transponders)
+
+        rectified_path = garpos_layout.root / f"{filtered_path.stem}_rectified.csv"
+        if rectified_path.exists():
+            shot_data_rectified = pd.read_csv(rectified_path)
+        else:
+            shot_data_rectified = pd.DataFrame()
+
+        if shot_data_rectified.empty or overwrite:
+            shot_data_rectified = prepare_shotdata_for_garpos(
+                coord_transformer=self.coordTransformer,
+                shodata_out_path=rectified_path,
+                shot_data=shot_data_filtered,
+                GPtransponders=gp_transponders,
+            )
+            if shot_data_rectified.empty:
+                logger.warning(
+                    f"No shot data remaining after rectification for survey "
+                    f"{survey.id}, skipping survey."
+                )
+                return
+            shot_data_rectified.to_csv(rectified_path)
+
+        if not garpos_layout.svp_file.exists():
+            if campaign.svp_file.exists():
+                shutil.copy(campaign.svp_file, garpos_layout.svp_file)
+            else:
+                logger.warning(
+                    f"No sound speed profile file found for campaign "
+                    f"{campaign_meta.name}, GARPOS processing may fail."
+                )
+
+        if not garpos_layout.obs_file.exists() or overwrite:
+            garpos_input = prepare_garpos_input_from_survey(
+                shot_data_path=rectified_path,
+                survey=survey,
+                site=site,
+                campaign=campaign_meta,
+                ss_path=garpos_layout.svp_file,
+                array_dpos_center=array_dpos_center,
+                num_of_shots=len(shot_data_rectified),
+                GPtransponders=gp_transponders,
+            )
+            site_config_update: GarposSiteConfig = get_garpos_site_config(survey.type)
+            garpos_input_configured: GarposInput = apply_survey_config(
+                site_config_update, garpos_input
+            )
+            garpos_input_configured.to_datafile(garpos_layout.obs_file)
+
+    def get_pseudo_surveys(self, shotdatatdb: TDBShotDataArray) -> list[Survey]:
+        """Generate pseudo-surveys from unique shotdata dates."""
+        pseudo_surveys: list[Survey] = []
+        dates: list[np.datetime64] = shotdatatdb.get_unique_dates().tolist()
+        if not dates:
+            logger.warning("No shotdata dates found to generate pseudo-surveys.")
+            return pseudo_surveys
+
+        campaign_name = self.station_session.campaign_name
+        if campaign_name is None:
+            return pseudo_surveys
+        current_year = int(campaign_name.split("_")[0])
+        filtered_dates = [d for d in dates if d.year == current_year]
+        if not filtered_dates:
+            logger.warning(
+                f"No shotdata dates found for campaign year {current_year} "
+                "to generate pseudo-surveys."
+            )
+            return pseudo_surveys
+
+        for idx, date in enumerate(sorted(filtered_dates)):
+            start_time = (
+                pd.Timestamp(date)
+                .tz_localize("UTC")
+                .to_pydatetime()
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+            )
+            end_time = datetime.combine(start_time.date(), time.max).replace(tzinfo=UTC)
+            year, month, day = start_time.year, start_time.month, start_time.day
+            pseudo_surveys.append(
+                Survey(
+                    id=f"{year}_{month}_{day}_{idx + 1}",
+                    type="unknown",
+                    start=start_time,
+                    end=end_time,
+                    benchmarkIDs=[],
+                )
+            )
+        return pseudo_surveys
+
+    def parse_surveys_qc(
+        self,
+        shotdata_uri: str | Path,
+        override: bool = False,
+    ) -> list[GARPOSLayout] | None:
+        """Parse QC pseudo-surveys and produce GARPOS input files."""
+
+        site = self.station_session.site
+        campaign_meta = self.station_session.campaign_meta
+        assert site is not None
+        campaign = self.station_session.ensure_campaign()
+
+        garpos_layouts: list[GARPOSLayout] = []
+        shotDataTDB = TDBShotDataArray(Path(shotdata_uri))
+        surveys_to_process: list[Survey] = self.get_pseudo_surveys(shotDataTDB)
+
+        for survey in surveys_to_process:
+            survey_dir = campaign.qc / survey.id
+            survey_dir.mkdir(parents=True, exist_ok=True)
+
+            shotdata_file_name = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
+            shotdata_dest = survey_dir / shotdata_file_name
+
+            if not shotdata_dest.exists() or shotdata_dest.stat().st_size == 0 or override:
+                df = shotDataTDB.read_df(start=survey.start, end=survey.end)
+                if df.empty:
+                    logger.warning(
+                        f"No shot data found for survey {survey.id} from "
+                        f"{survey.start} to {survey.end}, skipping survey."
+                    )
+                    continue
+                df.to_csv(shotdata_dest)
+            else:
+                df = pd.read_csv(shotdata_dest)
+
+            garpos_layout = GARPOSLayout.for_survey(survey_dir)
+            for d in garpos_layout.standard_dirs:
+                d.mkdir(parents=True, exist_ok=True)
+
+            if not garpos_layout.svp_file.exists():
+                if campaign.svp_file.exists():
+                    shutil.copy(campaign.svp_file, garpos_layout.svp_file)
+
+            if not garpos_layout.settings_file.exists() or override:
+                GarposFixed()._to_datafile(garpos_layout.settings_file)
+
+            rectified_path = garpos_layout.root / f"{shotdata_dest.stem}_rectified.csv"
+
+            if not rectified_path.exists() or override:
+                gp_transponders = GP_Transponders_from_benchmarks(
+                    coord_transformer=self.coordTransformer,
+                    survey=survey,
+                    site=site,
+                    is_qc=True,
+                )
+                array_dpos_center = get_array_dpos_center(self.coordTransformer, gp_transponders)
+
+                if rectified_path.exists():
+                    shotdata_rectified = pd.read_csv(rectified_path)
+                else:
+                    shotdata_rectified = pd.DataFrame()
+
+                if shotdata_rectified.empty or override:
+                    shotdata_rectified = prepare_shotdata_for_garpos(
+                        coord_transformer=self.coordTransformer,
+                        shodata_out_path=rectified_path,
+                        shot_data=df,
+                        GPtransponders=gp_transponders,
+                    )
+                    if shotdata_rectified.empty:
+                        logger.warning(
+                            f"No shot data remaining after rectification for "
+                            f"survey {survey.id}, skipping survey."
+                        )
+                        return None
+                    shotdata_rectified.to_csv(rectified_path)
+
+            if not garpos_layout.obs_file.exists() or override:
+                garpos_input = prepare_garpos_input_from_survey(
+                    shot_data_path=rectified_path,
+                    survey=survey,
+                    site=site,
+                    campaign=campaign_meta,
+                    ss_path=garpos_layout.svp_file,
+                    array_dpos_center=array_dpos_center,
+                    num_of_shots=len(shotdata_rectified),
+                    GPtransponders=gp_transponders,
+                )
+                site_config_update: GarposSiteConfig = get_garpos_site_config(survey.type)
+                garpos_input_configured: GarposInput = apply_survey_config(
+                    site_config_update, garpos_input
+                )
+                garpos_input_configured.to_datafile(garpos_layout.obs_file)
+
+            garpos_layouts.append(garpos_layout)
+
+        return garpos_layouts
 
     def _run_garpos(
         self,
@@ -319,68 +620,20 @@ class GarposHandler(IntermediateDataProcessor):
         iterations: int = 1,
         override: bool = False,
     ) -> None:
-        """Run the GARPOS model for a specific survey.
-        Args:
-            survey_id: The ID of the survey to run.
-            custom_settings: Custom GARPOS settings to apply, by default None.
-            run_id: The run identifier, by default 0.
-            iterations: The number of iterations to run, by default 1.
-            override: If True, override existing results, by default False.
-
-        Raises:
-            ValueError: If the observation file does not exist.
-        """
+        """Run the GARPOS model for a specific survey."""
         logger.info(f"Running GARPOS model for survey {survey_id}. Run ID: {run_id}")
-
         try:
             self.set_survey(survey_id=survey_id)
         except ValueError as e:
             logger.warning(f"Skipping survey {survey_id}: {e}")
             return
-
-        results_dir_main = self.current_garpos_survey_dir.results
-        results_dir = results_dir_main / f"run_{run_id}"
-        if results_dir.exists() and override:
-            # Remove existing results directory if override is True
-            try:
-                shutil.rmtree(results_dir)
-            except Exception as e:
-                logger.error(f"Failed to remove existing results directory {results_dir}: {e}")
-
-        results_dir.mkdir(parents=True, exist_ok=True)
-
-        obsfile_path = self.current_garpos_survey_dir.obs_file
-
-        if not obsfile_path.exists():
-            raise ValueError(f"Observation file not found at {obsfile_path}")
-
-        initialInput = GarposInput.from_datafile(obsfile_path)
-
-        for i in range(iterations):
-            logger.info(f"Iteration {i + 1} of {iterations} for survey {survey_id}")
-
-            obsfile_path = self._run_garpos(
-                custom_settings=custom_settings,
-                obsfile_path=obsfile_path,
-                results_dir=results_dir,
-                run_id=f"{i}",
-                override=override,
-            )
-            if iterations > 1 and i < iterations - 1:
-                iterationInput = GarposInput.from_datafile(obsfile_path)
-                delta_position = iterationInput.delta_center_position.get_position()
-                iterationInput.array_center_enu.east += delta_position[0]
-                iterationInput.array_center_enu.north += delta_position[1]
-                iterationInput.array_center_enu.up += delta_position[2]
-                # zero out delta position for next iteration
-                iterationInput.delta_center_position = initialInput.delta_center_position
-
-                iterationInput.to_datafile(obsfile_path)
-
-            # Add array delta center position to the array center enu
-
-        results = GarposInput.from_datafile(obsfile_path)
-        process_garpos_results(results)
+        self._run_garpos_survey_dir(
+            garpos_survey_dir=self.current_garpos_survey_dir,
+            custom_settings=custom_settings,
+            run_id=run_id,
+            iterations=iterations,
+            override=override,
+        )
 
     def run_garpos(
         self,
@@ -403,7 +656,7 @@ class GarposHandler(IntermediateDataProcessor):
         logger.info(f"Running GARPOS model. Run ID: {run_id}")
         if surveys is None:
             surveys_to_process = (
-                [s.id for s in self.current_campaign_metadata.surveys]
+                [s.id for s in self.station_session.campaign_meta.surveys]
                 if survey_id is None
                 else [survey_id]
             )
@@ -435,42 +688,23 @@ class GarposHandler(IntermediateDataProcessor):
         savefig: bool = False,
         showfig: bool = True,
     ) -> None:
-        """Plots the time series results for a given survey.
-        Args:
-            survey_id: ID of the survey to plot results for, by default None.
-            savefig: If True, save the figure, by default False.
-            showfig: If True, display the figure, by default True.
-        """
-        self._plot_shotdata_replies_per_transponder(
-            savefig=savefig,
-            showfig=showfig,
-        )
-
-    def _plot_shotdata_replies_per_transponder(
-        self,
-        savefig: bool,
-        showfig: bool,
-    ) -> None:
-        """
-        Plots the shotdata replies for a given survey and transponder.
-
-        Args:
-            survey_id: The ID of the survey to plot.
-            survey_type: The type of the survey to plot.
-            savefig: If True, save the figure, by default False.
-            showfig: If True, display the figure, by default True.
-        """
+        """Plots shotdata reply percentages per transponder for the active campaign."""
         metadata_surveys = []
-        for campaign in self.current_station_metadata.campaigns:
-            if campaign.name == self.current_campaign_name:
-                metadata_surveys = campaign.surveys
+        site = self.station_session.site
+        if site is not None:
+            for campaign in site.campaigns:
+                if campaign.name == self.station_session.campaign.name:
+                    metadata_surveys = campaign.surveys
+                    break
 
         metadata_time_windows = {}
         shotdata_time_windows = {}
         shotdata_dfs = {}
         shotdata_filtered_dfs = {}
         survey_id_to_type = {s.id: s.type.value for s in metadata_surveys}
-        for survey_name in sorted(self.workspace.list_surveys()):
+        campaign_meta = self.station_session.campaign_meta
+        survey_names = sorted(s.id for s in campaign_meta.surveys) if campaign_meta else []
+        for survey_name in survey_names:
             if survey_name in survey_id_to_type:
                 for survey in metadata_surveys:
                     if survey.id == survey_name:
@@ -482,7 +716,7 @@ class GarposHandler(IntermediateDataProcessor):
                         )
                     continue
                 try:
-                    survey_root = self.workspace.campaign_layout().root / survey_name
+                    survey_root = self.station_session.ensure_campaign().root / survey_name
                     survey_type = survey_id_to_type[survey_name]
                     shotdata_filepath = (
                         survey_root / f"{survey_name}_{survey_type}_shotdata.csv".replace(" ", "")
@@ -491,7 +725,7 @@ class GarposHandler(IntermediateDataProcessor):
                     shotdata_dfs[survey_name] = shotdata_df
                     # use utc
                     start = datetime.fromtimestamp(shotdata_df["pingTime"].iloc[0], tz=UTC)
-                    end = datetime.fromtimestamp(shotdata_df["pingTime"].iloc[-1], tz=UTC)
+                    end = datetime.fromtimestamp(shotdata_df["pingTime"].iloc[-1], tz=UTC)  # noqa: F841
                     shotdata_time_windows[survey_name] = (start, end)
 
                     shotdata_filtered_filepath = (
@@ -506,18 +740,6 @@ class GarposHandler(IntermediateDataProcessor):
                     print(e)
 
         fig, axs = plt.subplots(3, 1, figsize=(20, 15), sharex=False)
-        colors = [
-            "blue",
-            "orange",
-            "red",
-            "green",
-            "purple",
-            "brown",
-            "pink",
-            "gray",
-            "olive",
-            "cyan",
-        ]
         for i, (survey_name, shotdata_df) in enumerate(shotdata_dfs.items()):
             try:
                 unique_ids = shotdata_df["transponderID"].unique()
@@ -548,7 +770,6 @@ class GarposHandler(IntermediateDataProcessor):
                         color=colors[(i) % len(colors)],
                     )
                     total_pings = shotdata_df["pingTime"].nunique()
-                    shotdata_filtered_df["pingTime"].nunique()
                     survey_midpoint = (
                         metadata_time_windows[survey_name][0]
                         + (
@@ -578,16 +799,16 @@ class GarposHandler(IntermediateDataProcessor):
             except Exception:
                 logger.warning(f"Error processing {survey_name}")
         fig.suptitle(
-            f"Shotdata Reply Percentages for {self.current_station_name} {self.current_campaign_name}"
+            f"Shotdata Reply Percentages for {self.station_session.station.name} {self.station_session.campaign.name}"
         )
-        axs[0].set_title(f"{self.current_station_name} Transponder 5209")
-        axs[1].set_title(f"{self.current_station_name} Transponder 5210")
-        axs[2].set_title(f"{self.current_station_name} Transponder 5211")
+        axs[0].set_title(f"{self.station_session.station.name} Transponder 5209")
+        axs[1].set_title(f"{self.station_session.station.name} Transponder 5210")
+        axs[2].set_title(f"{self.station_session.station.name} Transponder 5211")
         fig.tight_layout()
         if showfig:
             plt.show()
 
-        fig_path = f"{self.workspace.campaign_layout().root}/{self.current_station_name}_{self.current_campaign_name}_shotdata_replies.png"
+        fig_path = f"{self.station_session.ensure_campaign().root}/{self.station_session.station.name}_{self.station_session.campaign.name}_shotdata_replies.png"
         if savefig:
             logger.info(f"Saving figure to {fig_path}")
             plt.savefig(
@@ -605,21 +826,21 @@ class GarposHandler(IntermediateDataProcessor):
         showfig: bool = True,
     ):
         surveys_to_process = []
-        for survey in self.current_campaign_metadata.surveys:
+        for survey in self.station_session.campaign_meta.surveys:
             if survey.id == survey_id or survey_id is None:
                 surveys_to_process.append((survey.id, survey.type.value))
 
-        for survey_id, _ in surveys_to_process:
+        for sid, _ in surveys_to_process:
             try:
-                self.set_survey(survey_id)
+                self.set_survey(sid)
                 self._plot_residuals_per_transponder_before_and_after(
-                    survey_id=survey_id,
+                    survey_id=sid,
                     run_id=run_id,
                     savefig=savefig,
                     showfig=showfig,
                 )
             except Exception as e:
-                logger.warning(f"Skipping plotting for survey {survey_id}: {e}")
+                logger.warning(f"Skipping plotting for survey {sid}: {e}")
                 continue
 
     def _plot_residuals_per_transponder_before_and_after(
@@ -641,25 +862,7 @@ class GarposHandler(IntermediateDataProcessor):
         if not run_dir.exists():
             raise FileNotFoundError(f"Run directory {run_dir} does not exist.")
 
-        # Get *-res.dat files
-        data_files = list(run_dir.glob("*-res.dat"))
-        if not data_files:
-            raise FileNotFoundError(f"No .dat files found in run directory {run_dir}.")
-
-        """
-            sort by iteration number if multiple files found
-
-            >>> data_files = [NTH1.2025_A_1126_0-res.dat,NTH1.2025_A_1126_1-res.dat,NTH1.2025_A_1126_2-res.dat]
-            >>> sorted_data_files = sorted(data_files, key=lambda x: int(x.stem.split("_")[-1].split("-")[0]))
-            >>> sorted_data_files
-            [NTH1.2025_A_1126_0-res.dat,NTH1.2025_A_1126_1-res.dat,NTH1.2025_A_1126_2-res.dat]
-
-            """
-        data_files = sorted(data_files, key=lambda x: int(x.stem.split("_")[-1].split("-")[0]))
-        data_file = data_files[-1]
-        logger.info(f"Using data file {data_file} for plotting.")
-
-        garpos_results = GarposInput.from_datafile(data_file)
+        garpos_results = GarposInput.from_datafile(self._load_results_file(run_dir))
 
         array_enu = garpos_results.array_center_enu
         array_dpos = garpos_results.delta_center_position
@@ -673,16 +876,13 @@ class GarposHandler(IntermediateDataProcessor):
 
         results_df_raw = pd.read_csv(garpos_results.shot_data)
         results_df_raw = ObservationData.validate(results_df_raw, lazy=True)
-        results_df_raw["time"] = results_df_raw.ST.apply(lambda x: datetime.fromtimestamp(x, UTC))
-        # df_filter_1 = results_df_raw["ResiRange"].abs() < res_filter
+        results_df_raw["time"] = results_df_raw.ST.apply(lambda x: datetime.fromtimestamp(x, tz=UTC))
         df_filter_2 = ~results_df_raw["flag"]
-        # results_df = results_df_raw[df_filter_1 & df_filter_2]
         results_df = results_df_raw[df_filter_2]
-        # logger.info(results_df_raw.columns)
         unique_ids = results_df_raw["MT"].unique()
         # make a plot with 3 subplots showing ResiRange vs time for each unique_id
         fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
-        fig.suptitle(f"Residuals for {self.current_station_name} {survey_id} (Run {run_id})")
+        fig.suptitle(f"Residuals for {self.station_session.station.name} {survey_id} (Run {run_id})")
         for i, unique_id in enumerate(unique_ids):
             transponder_df_raw = results_df_raw[results_df_raw["MT"] == unique_id].sort_values(
                 "time"
@@ -715,7 +915,7 @@ class GarposHandler(IntermediateDataProcessor):
         for ax in axs:
             ax.grid()
         plt.tight_layout()
-        fig_path = f"{self.current_garpos_survey_dir.results}/{self.current_station_name}_{survey_id}_flagged_residuals.png"
+        fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.station.name}_{survey_id}_flagged_residuals.png"
         if savefig:
             logger.info(f"Saving figure to {fig_path}")
             plt.savefig(
@@ -743,22 +943,22 @@ class GarposHandler(IntermediateDataProcessor):
             showfig (bool, optional): If True, display the figure. Defaults to True.
         """
         surveys_to_process = []
-        for survey in self.current_campaign_metadata.surveys:
+        for survey in self.station_session.campaign_meta.surveys:
             if survey.id == survey_id or survey_id is None:
                 surveys_to_process.append((survey.id, survey.type.value))
 
-        for survey_id, _ in surveys_to_process:
+        for sid, _ in surveys_to_process:
             try:
-                self.set_survey(survey_id)
+                self.set_survey(sid)
                 self._plot_remaining_residuals_per_transponder(
-                    survey_id=survey_id,
+                    survey_id=sid,
                     run_id=run_id,
                     subplots=subplots,
                     savefig=savefig,
                     showfig=showfig,
                 )
             except Exception as e:
-                logger.warning(f"Skipping plotting for survey {survey_id}: {e}")
+                logger.warning(f"Skipping plotting for survey {sid}: {e}")
                 continue
 
     def _plot_remaining_residuals_per_transponder(
@@ -782,25 +982,7 @@ class GarposHandler(IntermediateDataProcessor):
         if not run_dir.exists():
             raise FileNotFoundError(f"Run directory {run_dir} does not exist.")
 
-        # Get *-res.dat files
-        data_files = list(run_dir.glob("*-res.dat"))
-        if not data_files:
-            raise FileNotFoundError(f"No .dat files found in run directory {run_dir}.")
-
-        """
-            sort by iteration number if multiple files found
-
-            >>> data_files = [NTH1.2025_A_1126_0-res.dat,NTH1.2025_A_1126_1-res.dat,NTH1.2025_A_1126_2-res.dat]
-            >>> sorted_data_files = sorted(data_files, key=lambda x: int(x.stem.split("_")[-1].split("-")[0]))
-            >>> sorted_data_files
-            [NTH1.2025_A_1126_0-res.dat,NTH1.2025_A_1126_1-res.dat,NTH1.2025_A_1126_2-res.dat]
-
-            """
-        data_files = sorted(data_files, key=lambda x: int(x.stem.split("_")[-1].split("-")[0]))
-        data_file = data_files[-1]
-        logger.info(f"Using data file {data_file} for plotting.")
-
-        garpos_results = GarposInput.from_datafile(data_file)
+        garpos_results = GarposInput.from_datafile(self._load_results_file(run_dir))
 
         array_enu = garpos_results.array_center_enu
         array_dpos = garpos_results.delta_center_position
@@ -814,18 +996,15 @@ class GarposHandler(IntermediateDataProcessor):
 
         results_df_raw = pd.read_csv(garpos_results.shot_data)
         results_df_raw = ObservationData.validate(results_df_raw, lazy=True)
-        results_df_raw["time"] = results_df_raw.ST.apply(lambda x: datetime.fromtimestamp(x, UTC))
-        # df_filter_1 = results_df_raw["ResiRange"].abs() < res_filter
+        results_df_raw["time"] = results_df_raw.ST.apply(lambda x: datetime.fromtimestamp(x, tz=UTC))
         df_filter_2 = ~results_df_raw["flag"]
-        # results_df = results_df_raw[df_filter_1 & df_filter_2]
         results_df = results_df_raw[df_filter_2]
-        # logger.info(results_df_raw.columns)
         unique_ids = results_df_raw["MT"].unique()
-        colors = ["green", "orange", "blue"]
+        transponder_colors = ["green", "orange", "blue"]
         if subplots:
             # make a plot with 3 subplots showing ResiRange vs time for each unique_id
             fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
-            fig.suptitle(f"Residuals for {self.current_station_name} {survey_id} (Run {run_id})")
+            fig.suptitle(f"Residuals for {self.station_session.station.name} {survey_id} (Run {run_id})")
             for i, unique_id in enumerate(unique_ids):
                 transponder_df = results_df[results_df["MT"] == unique_id].sort_values("time")
                 axs[i].scatter(
@@ -833,7 +1012,7 @@ class GarposHandler(IntermediateDataProcessor):
                     transponder_df["ResiRange"],
                     s=1,
                     label=f"{unique_id}_unflagged {transponder_df['time'].count()}",
-                    color=colors[i],
+                    color=transponder_colors[i],
                 )
                 axs[i].set_ylabel("Residual (m)")
                 axs[i].legend(loc="upper right")
@@ -852,7 +1031,7 @@ class GarposHandler(IntermediateDataProcessor):
                     transponder_df["ResiRange"],
                     s=1,
                     label=f"{unique_id}_unflagged {transponder_df['time'].count()}",
-                    color=colors[i],
+                    color=transponder_colors[i],
                 )
             ax.set_ylabel("Residual (m)")
             ax.legend()
@@ -862,7 +1041,7 @@ class GarposHandler(IntermediateDataProcessor):
             # add gridlines
             ax.grid()
         plt.tight_layout()
-        fig_path = f"{self.current_garpos_survey_dir.results}/{self.current_station_name}_{survey_id}_garpos_residuals.png"
+        fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.station.name}_{survey_id}_garpos_residuals.png"
         if savefig:
             logger.info(f"Saving figure to {fig_path}")
             plt.savefig(
@@ -891,15 +1070,15 @@ class GarposHandler(IntermediateDataProcessor):
             showfig: If True, display the figure, by default True.
         """
         surveys_to_process = []
-        for survey in self.current_campaign_metadata.surveys:
+        for survey in self.station_session.campaign_meta.surveys:
             if survey.id == survey_id or survey_id is None:
                 surveys_to_process.append((survey.id, survey.type.value))
 
-        for survey_id, survey_type in surveys_to_process:
+        for sid, survey_type in surveys_to_process:
             try:
-                self.set_survey(survey_id)
+                self.set_survey(sid)
                 self._plot_ts_results(
-                    survey_id=survey_id,
+                    survey_id=sid,
                     survey_type=survey_type,
                     run_id=run_id,
                     res_filter=res_filter,
@@ -932,9 +1111,6 @@ class GarposHandler(IntermediateDataProcessor):
             showfig: Whether to display the figure.
         """
 
-        # Clear previous plots
-        # plt.clf()
-
         results_dir: Path = (
             self.current_garpos_survey_dir.results if results_dir is None else results_dir
         )
@@ -942,33 +1118,12 @@ class GarposHandler(IntermediateDataProcessor):
         if not run_dir.exists():
             raise FileNotFoundError(f"Run directory {run_dir} does not exist.")
 
-        # Get *-res.dat files
-        data_files = list(run_dir.glob("*-res.dat"))
-        if not data_files:
-            logger.warning(
-                f"No *-res.dat files found in run directory {run_dir}. Attempting to find any .dat files."
-            )
+        try:
+            garpos_results = GarposInput.from_datafile(self._load_results_file(run_dir))
+        except FileNotFoundError as e:
+            logger.warning(str(e))
             return
-        """
-            sort by iteration number if multiple files found
 
-            >>> data_files = [NTH1.2025_A_1126_0-res.dat,NTH1.2025_A_1126_1-res.dat,NTH1.2025_A_1126_2-res.dat]
-            >>> sorted_data_files = sorted(data_files, key=lambda x: int(x.stem.split("_")[-1].split("-")[0]))
-            >>> sorted_data_files
-            [NTH1.2025_A_1126_0-res.dat,NTH1.2025_A_1126_1-res.dat,NTH1.2025_A_1126_2-res.dat]
-
-            """
-        data_files = sorted(data_files, key=lambda x: int(x.stem.split("_")[-1].split("-")[0]))
-        data_file = data_files[-1]
-        logger.info(f"Using data file {data_file} for plotting.")
-
-        garpos_results = GarposInput.from_datafile(data_file)
-
-        """
-            Get the array center position and delta position.
-            Add the delta position to the array center position to get the final position.
-            
-            """
         array_enu = garpos_results.array_center_enu
         array_dpos = garpos_results.delta_center_position
         if array_enu is None or array_dpos is None:
@@ -981,7 +1136,7 @@ class GarposHandler(IntermediateDataProcessor):
 
         results_df_raw = pd.read_csv(garpos_results.shot_data)
         results_df_raw = ObservationData.validate(results_df_raw, lazy=True)
-        results_df_raw["time"] = results_df_raw.ST.apply(lambda x: datetime.fromtimestamp(x, UTC))
+        results_df_raw["time"] = results_df_raw.ST.apply(lambda x: datetime.fromtimestamp(x, tz=UTC))
         df_filter_1 = results_df_raw["ResiRange"].abs() < res_filter
         df_filter_2 = results_df_raw["flag"].eq(False)
         results_df = results_df_raw[df_filter_1 & df_filter_2]
@@ -1017,7 +1172,7 @@ class GarposHandler(IntermediateDataProcessor):
         total_height = (total_rows + extra_rows) * ts_row_height_in
 
         plt.figure(figsize=(20, total_height))
-        title = f"{self.current_station_name}"
+        title = f"{self.station_session.station.name}"
         if survey_type is not None:
             title += f" {survey_type}"
         title += f" Survey {survey_id} Results"

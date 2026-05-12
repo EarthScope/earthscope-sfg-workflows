@@ -25,7 +25,6 @@ from ..data_mgmt.model import AssetEntry, AssetKind
 from earthscope_sfg_tools.datamodels.metadata import Site
 from ..modeling.garpos_tools.schemas import InversionParams
 from .base import (
-    WorkflowBase,
     validate_network_station,
     validate_network_station_campaign,
 )
@@ -70,9 +69,9 @@ pipeline_jobs = list(_SV3_JOBS)
 qc_pipeline_jobs = list(_QC_JOBS)
 
 
-class WorkflowHandler(WorkflowBase):
+class WorkflowHandler:
     """Handles data operations including searching, adding, downloading, and processing.
-    Owns a single :class:`Workspace`. All scope state lives on ``self.workspace``.
+    Owns a single :class:`StationSession`. All scope state lives on ``self.workspace``.
     """
 
     def __init__(
@@ -93,7 +92,7 @@ class WorkflowHandler(WorkflowBase):
                 directory = os.environ.get("MAIN_DIRECTORY", ".")
             workspace = _build_default_workspace(directory)
 
-        super().__init__(workspace)
+        self.workspace: Workspace = workspace
         self.s3_sync_bucket: str | None = s3_sync_bucket
         self.tiledb: TileDBRegistry | None = None
         self.workspace.bootstrap()
@@ -709,40 +708,22 @@ class WorkflowHandler(WorkflowBase):
         )
 
     @validate_network_station
-    def midprocess_sync_station_data_s3(
-        self, overwrite: bool = False, override_metadata_require: bool = True
-    ) -> None:
-        """Uploads intermediate processed data to S3 for the current station.
-        Args:
-            overwrite: If True, overwrites existing data on S3, by default False.
-            override_metadata_require: If True, bypasses the requirement for loaded site metadata, by default False.
-
-        Raises:
-            ValueError: If site metadata is not loaded and ``override_metadata_require`` is False.
-        """
-        dataPostProcessor: IntermediateDataProcessor = self.midprocess_get_processor(
-            self.current_station_metadata,
-            override_metadata_require=override_metadata_require,
-        )
-        dataPostProcessor.midprocess_sync_station_data_s3(overwrite=overwrite)
+    def midprocess_sync_station_data_s3(self, overwrite: bool = False, **_) -> None:
+        """Upload station TileDB arrays to S3."""
+        if self.s3_sync_bucket is None:
+            logger.warning("S3 synchronization skipped: s3_sync_bucket not configured")
+            return
+        self.workspace.configure_remote(self.s3_sync_bucket)
+        self.workspace.push_station_to_remote(overwrite=overwrite)
 
     @validate_network_station_campaign
-    def midprocess_sync_campaign_data_s3(
-        self, overwrite: bool = False, override_metadata_require: bool = True
-    ) -> None:
-        """Uploads intermediate processed data to S3 for the current campaign.
-        Args:
-            overwrite: If True, overwrites existing data on S3, by default False.
-            override_metadata_require: If True, bypasses the requirement for loaded site metadata, by default False.
-
-        Raises:
-            ValueError: If site metadata is not loaded and ``override_metadata_require`` is False.
-        """
-        dataPostProcessor: IntermediateDataProcessor = self.midprocess_get_processor(
-            self.current_station_metadata,
-            override_metadata_require=override_metadata_require,
-        )
-        dataPostProcessor.midprocess_sync_campaign_data_s3(overwrite=overwrite)
+    def midprocess_sync_campaign_data_s3(self, overwrite: bool = False, **_) -> None:
+        """Upload campaign processed files (SVP, RINEX, logs) to S3."""
+        if self.s3_sync_bucket is None:
+            logger.warning("S3 synchronization skipped: s3_sync_bucket not configured")
+            return
+        self.workspace.configure_remote(self.s3_sync_bucket)
+        self.workspace.push_campaign_to_remote(overwrite=overwrite)
 
     @validate_network_station_campaign
     def modeling_get_garpos_handler(self) -> GarposHandler:
@@ -756,11 +737,7 @@ class WorkflowHandler(WorkflowBase):
         if self.current_station_metadata is None:
             raise ValueError("Site metadata not loaded, cannot get GarposHandler")
 
-        gp_handler = GarposHandler(
-            directory=self.directory,
-            station_metadata=self.current_station_metadata,
-            s3_sync_bucket=self.s3_sync_bucket,
-        )
+        gp_handler = GarposHandler(station_session=self.workspace)
         gp_handler.set_network_station_campaign(
             network_id=self.current_network_name,
             station_id=self.current_station_name,

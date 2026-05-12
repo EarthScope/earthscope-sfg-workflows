@@ -1,6 +1,10 @@
 """Backwards-compatibility shim for the former :class:`Workspace` class.
 
-``Workspace`` is now an alias for :class:`CampaignSession`.  All production
+.. deprecated::
+    Import :class:`~earthscope_sfg_workflows.workflows.session.StationSession` directly.
+    This module will be removed in a future release.
+
+``Workspace`` is an alias for :class:`StationSession`.  All production
 code should import from :mod:`.session` directly.  This module is retained
 so that existing ``from .workspace import Workspace`` statements continue to
 work without modification.
@@ -12,8 +16,16 @@ session, since a session requires network/station/campaign at construction).
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
+
+warnings.warn(
+    "earthscope_sfg_workflows.workflows.workspace is deprecated. "
+    "Import StationSession from earthscope_sfg_workflows.workflows.session directly.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from earthscope_sfg_workflows.data_mgmt.ports import (
     ArchiveSourcePort,

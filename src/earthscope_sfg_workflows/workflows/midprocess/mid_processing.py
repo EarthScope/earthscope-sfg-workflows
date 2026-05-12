@@ -7,15 +7,12 @@ from __future__ import annotations
 import datetime
 import json
 import shutil
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from cloudpathlib import CloudPath
 
 from earthscope_sfg_tools.datamodels.metadata import Campaign, Site, Survey
-from earthscope_sfg_tools.rinex_tools import crinex_compress
 from earthscope_sfg_tools.tiledb_integration import (
     TDBIMUPositionArray,
     TDBKinPositionArray,
@@ -25,7 +22,6 @@ from earthscope_sfg_tools.tiledb_integration import (
 from earthscope_sfg_workflows.logging import GarposLogger as logger
 from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
 
-from ...config.env_config import Environment
 from ...config.loadconfigs import (
     GarposSiteConfig,
     get_garpos_site_config,
@@ -44,7 +40,6 @@ from ...modeling.garpos_tools.schemas import GarposFixed, GarposInput
 from ...prefiltering import filter_shotdata
 from ..base import (
     WorkflowBase,
-    validate_network_station,
     validate_network_station_campaign,
 )
 from ..session import StationSession as Workspace, _build_default_workspace
@@ -68,6 +63,14 @@ class IntermediateDataProcessor(WorkflowBase):
         *,
         workspace: Workspace | None = None,
     ) -> None:
+        import warnings
+        warnings.warn(
+            "IntermediateDataProcessor is deprecated and will be removed in a future release. "
+            "Use StationSession directly for survey parsing, or GarposHandler for GARPOS preparation.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         if workspace is None:
             import os
 
@@ -398,174 +401,6 @@ class IntermediateDataProcessor(WorkflowBase):
                 site_config_update, garpos_input
             )
             garpos_input_configured.to_datafile(garpos_layout.obs_file)
-
-    # ------------------------------------------------------------------
-    # S3 sync (uses cloudpathlib directly until the legacy
-    # directorymgmt subpackage is removed).
-    # ------------------------------------------------------------------
-
-    def _s3_root(self) -> CloudPath | None:
-        """Return the configured S3 root as a CloudPath, or None if unset."""
-        bucket = Environment.s3_sync_bucket()
-        if bucket is None:
-            return None
-        if not bucket.startswith("s3://"):
-            bucket = f"s3://{bucket}"
-        return CloudPath(bucket)
-
-    @validate_network_station
-    def midprocess_sync_station_data_s3(self, overwrite: bool = False) -> None:
-        """Upload the active station's TileDB arrays to S3."""
-        s3_root = self._s3_root()
-        if s3_root is None:
-            logger.warning("S3 synchronization skipped: s3_sync_bucket not configured")
-            return
-
-        s3_station = s3_root / self.workspace.network_name / self.workspace.station_name
-        local_tdb = self.workspace.tiledb_layout()
-        s3_tdb = s3_station / "TileDB"
-
-        for tdb_attr, tdb_basename in [
-            ("shotdata", "shotdata.tdb"),
-            ("kin_position", "kin_position.tdb"),
-            ("imu_position", "imu_position.tdb"),
-            ("gnss_obs", "gnss_obs.tdb"),
-        ]:
-            local_array: Path = getattr(local_tdb, tdb_attr)
-            s3_array = s3_tdb / tdb_basename
-            print(f"Syncing {local_array} to {s3_array}")
-            upload_counter = 0
-            for tdb_file in local_array.rglob("*"):
-                if not tdb_file.is_file():
-                    continue
-                relative = tdb_file.relative_to(local_array)
-                s3_file = s3_array / relative
-                try:
-                    if not s3_file.exists() or overwrite:
-                        s3_file.upload_from(tdb_file, force_overwrite_to_cloud=overwrite)
-                        upload_counter += 1
-                except Exception as e:
-                    logger.error(f"Failed to upload {tdb_file} to S3: {e}")
-            print(f"Uploaded {upload_counter} files to {s3_array}")
-
-    @validate_network_station_campaign
-    def midprocess_sync_campaign_data_s3(self, overwrite: bool = False) -> None:
-        """Upload SVP and intermediate RINEX files for the active campaign to S3."""
-        s3_root = self._s3_root()
-        if s3_root is None:
-            logger.warning("S3 synchronization skipped: s3_sync_bucket not configured")
-            return
-
-        s3_campaign = (
-            s3_root
-            / self.workspace.network_name
-            / self.workspace.station_name
-            / self.workspace.campaign_name
-        )
-        campaign = self.workspace.ensure_campaign()
-
-        local_svp = campaign.svp_file
-        s3_svp = s3_campaign / "processed" / "svp.csv"
-        try:
-            if local_svp.exists() and not s3_svp.exists():
-                s3_svp.upload_from(local_svp, force_overwrite_to_cloud=overwrite)
-        except Exception as e:
-            logger.error(f"Failed to upload {local_svp} to S3: {e}")
-
-        local_intermediate = campaign.intermediate
-        s3_rinex_dest_dir = s3_campaign / "processed" / "rinex"
-        station_name = self.workspace.station_name
-
-        def upload_rinex_file(rinex_file: Path) -> None:
-            if ".crx" in rinex_file.suffix:
-                return
-            if not any(ext in rinex_file.suffix for ext in ["S", "d", ".gz"]):
-                old_suffix = rinex_file.suffix
-                new_suffix = old_suffix[:-1] + "d"
-                source = rinex_file.with_suffix(new_suffix + ".gz")
-                if not source.exists():
-                    crinex_compress(rinex_file, source, gzip=True, logger=logger.logger)
-                    assert source.exists(), f"CRINEX compression failed for {rinex_file}"
-            else:
-                source = rinex_file
-            relative = source.relative_to(local_intermediate)
-            s3_file = s3_rinex_dest_dir / relative
-            try:
-                if not s3_file.exists() or overwrite:
-                    s3_file.upload_from(source, force_overwrite_to_cloud=overwrite)
-                    print(f"Uploaded {source} to {s3_file}")
-            except Exception as e:
-                logger.error(f"Failed to upload {source} to S3: {e}")
-
-        if local_intermediate.exists():
-            print(
-                f"Syncing intermediate Rinex files from {local_intermediate} "
-                f"to {s3_rinex_dest_dir}..."
-            )
-            rinex_files = list(local_intermediate.rglob(f"*{station_name}*"))
-            with ThreadPoolExecutor(max_workers=25) as executor:
-                executor.map(upload_rinex_file, rinex_files)
-
-    @validate_network_station_campaign
-    def midprocess_sync_s3(self, overwrite: bool = False) -> None:
-        """Upload station TileDB arrays + per-campaign SVP/log files to S3."""
-        s3_root = self._s3_root()
-        if s3_root is None:
-            logger.warning("S3 synchronization skipped: s3_sync_bucket not configured")
-            return
-
-        s3_station = s3_root / self.workspace.network_name / self.workspace.station_name
-        local_tdb = self.workspace.tiledb_layout()
-        s3_tdb = s3_station / "TileDB"
-
-        for tdb_attr, tdb_basename in [
-            ("shotdata", "shotdata.tdb"),
-            ("kin_position", "kin_position.tdb"),
-            ("imu_position", "imu_position.tdb"),
-            ("gnss_obs", "gnss_obs.tdb"),
-        ]:
-            local_array: Path = getattr(local_tdb, tdb_attr)
-            s3_array = s3_tdb / tdb_basename
-            for tdb_file in local_array.rglob("*"):
-                if not tdb_file.is_file():
-                    continue
-                relative = tdb_file.relative_to(local_array)
-                s3_file = s3_array / relative
-                try:
-                    if not s3_file.exists() or overwrite:
-                        s3_file.upload_from(tdb_file, force_overwrite_to_cloud=overwrite)
-                except Exception as e:
-                    logger.error(f"Failed to upload {tdb_file} to S3: {e}")
-
-        # Sync per-campaign svp + logs
-        for campaign_name in self.workspace.list_campaigns():
-            local_campaign_dir = (
-                self.workspace.root
-                / self.workspace.network_name
-                / self.workspace.station_name
-                / campaign_name
-            )
-            s3_campaign = s3_station / campaign_name
-
-            local_svp = local_campaign_dir / "processed" / "svp.csv"
-            s3_svp = s3_campaign / "processed" / "svp.csv"
-            try:
-                if local_svp.exists() and not s3_svp.exists():
-                    s3_svp.upload_from(local_svp, force_overwrite_to_cloud=overwrite)
-            except Exception as e:
-                logger.error(f"Failed to upload {local_svp} to S3: {e}")
-
-            local_log_dir = local_campaign_dir / "logs"
-            s3_log_dir = s3_campaign / "logs"
-            if local_log_dir.exists():
-                for log_file in local_log_dir.rglob("*"):
-                    if log_file.is_file():
-                        relative = log_file.relative_to(local_log_dir)
-                        s3_log_file = s3_log_dir / relative
-                        try:
-                            s3_log_file.upload_from(log_file, force_overwrite_to_cloud=overwrite)
-                        except Exception as e:
-                            logger.error(f"Failed to upload {log_file} to S3: {e}")
 
     # ------------------------------------------------------------------
     # QC pseudo-survey parsing

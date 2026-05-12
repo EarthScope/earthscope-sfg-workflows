@@ -94,11 +94,103 @@ class FileTypeDetector:
 
 
 class FileManager:
-    """Creates and validates workspace directories on a :class:`FileStore`."""
+    """Creates and validates workspace directories on a :class:`FileStore`.
 
-    def __init__(self, directory_tree: DirectoryTree, file_backend: FileStorePort) -> None:
+    Pass *remote_tree* and *remote_backend* to enable bidirectional sync via
+    :meth:`push_dir`, :meth:`push_file`, and :meth:`pull_dir`.  Both must be
+    provided together; omitting either disables remote operations silently.
+    """
+
+    def __init__(
+        self,
+        directory_tree: DirectoryTree,
+        file_backend: FileStorePort,
+        remote_tree: DirectoryTree | None = None,
+        remote_backend: FileStorePort | None = None,
+    ) -> None:
         self.directory_tree = directory_tree
         self.file_backend = file_backend
+        self._remote_tree = remote_tree
+        self._remote_backend = remote_backend
+
+    @property
+    def has_remote(self) -> bool:
+        """True when both *remote_tree* and *remote_backend* are configured."""
+        return self._remote_tree is not None and self._remote_backend is not None
+
+    def remote_path_for(self, local_path: UPath) -> UPath | None:
+        """Return the theoretical remote path for *local_path*, or ``None``.
+
+        Maps ``local_tree.root / <relative>`` → ``remote_tree.root / <relative>``.
+        Returns ``None`` when no remote is configured or *local_path* is not
+        under the local tree root.
+        """
+        if not self.has_remote:
+            return None
+        try:
+            relative = UPath(local_path).relative_to(self.directory_tree.root)
+        except ValueError:
+            return None
+        return UPath(self._remote_tree.root) / relative
+
+    def push_file(self, local_path: UPath, overwrite: bool = False) -> bool:
+        """Upload a single file to its mirrored remote path.  Returns True if uploaded."""
+        if not self.has_remote:
+            return False
+        local_path = UPath(local_path)
+        remote_path = self.remote_path_for(local_path)
+        if remote_path is None:
+            return False
+        if overwrite or not self._remote_backend.exists(remote_path):
+            self._remote_backend.put_remote(local_path, str(remote_path))
+            return True
+        return False
+
+    def push_dir(self, local_root: UPath, overwrite: bool = False) -> int:
+        """Upload all files under *local_root* to the mirrored remote path.
+
+        Returns the number of files actually uploaded.
+        """
+        if not self.has_remote:
+            return 0
+        local_root = UPath(local_root)
+        remote_root = self.remote_path_for(local_root)
+        if remote_root is None:
+            return 0
+        count = 0
+        for info in self.file_backend.list_files(local_root, recursive=True):
+            local_path = UPath(info.path)
+            remote_path = self.remote_path_for(local_path)
+            if remote_path is None:
+                continue
+            if overwrite or not self._remote_backend.exists(remote_path):
+                self._remote_backend.put_remote(local_path, str(remote_path))
+                count += 1
+        return count
+
+    def pull_dir(self, local_root: UPath, overwrite: bool = False) -> int:
+        """Download all files from the mirrored remote path into *local_root*.
+
+        Returns the number of files actually downloaded.
+        """
+        if not self.has_remote:
+            return 0
+        local_root = UPath(local_root)
+        remote_root = self.remote_path_for(local_root)
+        if remote_root is None:
+            return 0
+        count = 0
+        for info in self._remote_backend.list_files(remote_root, recursive=True):
+            remote_path = UPath(info.path)
+            try:
+                rel = remote_path.relative_to(remote_root)
+            except ValueError:
+                rel = UPath(remote_path.name)
+            local_path = local_root / rel
+            if overwrite or not self.file_backend.exists(local_path):
+                self.file_backend.get_remote(str(remote_path), local_path)
+                count += 1
+        return count
 
     def ensure_workspace(self) -> None:
         """Create the workspace root and Pride directory."""

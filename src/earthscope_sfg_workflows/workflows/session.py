@@ -39,34 +39,39 @@ from earthscope_sfg_workflows.data_mgmt.model import (
     NetworkLayout,
     SFGScope,
     DirectoryTree,
-    GARPOSLayout,
     StationLayout,
     SurveyLayout,
     SurveyLayout,
     TileDBLayout,
 )
 
-from earthscope_sfg_tools.datamodels.metadata import Site as _Site
+from earthscope_sfg_tools.datamodels.metadata import Campaign, Site, Survey
 
+_Site = Site  # alias kept for the .from_json() classmethod call below
+from earthscope_sfg_tools.tiledb_integration import (
+    TDBIMUPositionArray,
+    TDBKinPositionArray,
+    TDBShotDataArray,
+)
+
+from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
+from earthscope_sfg_workflows.data_mgmt.model import DirectoryTree
 from earthscope_sfg_workflows.data_mgmt.ports import (
     ArchiveSourcePort,
     AssetCatalogPort,
     FileStorePort,
 )
 from earthscope_sfg_workflows.data_mgmt.ports import ArchiveNotFoundError
+from earthscope_sfg_workflows.logging import GarposLogger as logger
 from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
 from earthscope_sfg_workflows.workflows.pipelines.config import DFOP00Config, DFOP00Config, NovatelConfig, PositionUpdateConfig, SV3PipelineConfig,RinexConfig
 from earthscope_sfg_workflows.workflows.pipelines.sv3_pipeline import SV3_JOBS, SV3Pipeline
 
 
 if TYPE_CHECKING:  # pragma: no cover
-    from earthscope_sfg_tools.datamodels.metadata import Campaign, Site, Survey
     from earthscope_sfg_tools.tiledb_integration import (
         TDBAcousticArray,
         TDBGNSSObsArray,
-        TDBIMUPositionArray,
-        TDBKinPositionArray,
-        TDBShotDataArray,
     )
 
 _F = TypeVar("_F", bound=Callable)
@@ -106,6 +111,19 @@ def _require_survey(method: _F) -> _F:
 
     return wrapper  # type: ignore[return-value]
 
+def _require_site_metadata(method: _F) -> _F:
+    """Decorator: raise if the session's station metadata is not available."""
+
+    @wraps(method)
+    def wrapper(self: "StationSession", *args, **kwargs):
+        if self.station is None or self.station.metadata is None:
+            raise ValueError(
+                f"{method.__name__} requires station metadata to be available; "
+                "ensure site metadata is loaded successfully"
+            )
+        return method(self, *args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
 
 # ---------------------------------------------------------------------------
 # TileDB handle registry
@@ -158,17 +176,21 @@ class StationSession:
         catalog: AssetCatalogPort,
         file_manager: FileManager,
         archive: ArchiveSourcePort = EarthScopeArchive(),
+        remote_root: str | None = None,
     ) -> None:
 
         self._catalog = catalog
         self._file_manager = file_manager
         self._archive = archive
 
+        if remote_root is not None:
+            self.configure_remote(remote_root)
+
         network_layout: NetworkLayout = self._file_manager.ensure_network(network)
         self.network = ScopeRegistry(name=network, layout=network_layout)
 
         station_layout: StationLayout = self._file_manager.ensure_station(network=network, station=station)
-        station_metadata = self._fetch_site_metadata()
+        station_metadata = self._fetch_site_metadata(network, station)
         self.station = ScopeRegistry(name=station, layout=station_layout, metadata=station_metadata)
 
         # Mutable campaign/survey slots — None until explicitly set.
@@ -191,6 +213,24 @@ class StationSession:
         self._sv3_pipeline = None  # lazy init in sv3_pipeline property
 
     # ------------------------------------------------------------------
+    # Remote configuration
+    # ------------------------------------------------------------------
+
+    def configure_remote(self, remote_root: str | None) -> None:
+        """Point the session's file manager at a remote S3 root for push/pull operations.
+
+        Pass ``None`` to clear the remote configuration.  Calling this with the
+        same bucket multiple times is idempotent.
+        """
+        if remote_root is None:
+            self._file_manager._remote_tree = None
+            self._file_manager._remote_backend = None
+            return
+        bucket = remote_root if remote_root.startswith("s3://") else f"s3://{remote_root}"
+        self._file_manager._remote_tree = DirectoryTree(root=UPath(bucket))
+        self._file_manager._remote_backend = FsspecFileStore(root=bucket)
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
@@ -202,11 +242,11 @@ class StationSession:
         for lower_level in _SCOPE_LEVELS[level_index + 1 :]:
             setattr(self, lower_level, ScopeRegistry(name="", layout=None, metadata=None))
 
-    def _fetch_site_metadata(self) -> "Site | None":
+    def _fetch_site_metadata(self, network: str, station: str) -> "Site | None":
         """Load site metadata: disk first, then EarthScope archive. Persist on fetch."""
 
         write_dest = (
-            self._file_manager.directory_tree.station_dir(self._station_scope) / "site_metadata.json"
+            self._file_manager.directory_tree.station_dir(network=network, station=station) / "site_metadata.json"
         )
 
         if write_dest.exists():
@@ -217,7 +257,7 @@ class StationSession:
 
         try:
             site = self._archive.load_site_metadata(
-                scope=self._station_scope
+                network=network, station=station
             )
             with open(write_dest, "w") as f:
                 json.dump(site.model_dump(mode="json"), f, indent=4)
@@ -286,6 +326,7 @@ class StationSession:
             name=campaign_id, layout=layout,metadata=campaign_meta
         )
 
+    @_require_campaign
     def set_survey(self, survey_id: str) -> None:
         """Set the active survey and materialise its directory."""
         if self.campaign is None:
@@ -302,6 +343,72 @@ class StationSession:
         survey_metadata: Optional[Survey] = self._resolve_survey_in_campaign(survey_id)
         self.survey = ScopeRegistry(
             name=survey_id, layout=layout, metadata=survey_metadata
+        )
+
+    # ------------------------------------------------------------------
+    # Convenience accessors (scope names and metadata)
+    # ------------------------------------------------------------------
+
+    @property
+    def network_name(self) -> str | None:
+        return self.network.name
+
+    @property
+    def station_name(self) -> str | None:
+        return self.station.name
+
+    @property
+    def campaign_name(self) -> str | None:
+        return self.campaign.name
+
+    @property
+    def survey_name(self) -> str | None:
+        return self.survey.name
+
+    @property
+    def site(self) -> "Site | None":
+        return self.station.metadata  # type: ignore[return-value]
+
+    @property
+    def campaign_meta(self) -> "Campaign | None":
+        return self.campaign.metadata  # type: ignore[return-value]
+
+    @property
+    def root(self) -> Path:
+        return Path(self._file_manager.directory_tree.root)
+
+    @property
+    def survey_dir(self) -> Path:
+        """Root directory of the active survey. Requires campaign and survey to be set."""
+        if self.survey.layout is None:
+            raise ValueError("survey_dir requires a survey to be set; call set_survey() first")
+        return Path(self.survey.layout.root)  # type: ignore[arg-type]
+
+    @property
+    def survey_metadata_file(self) -> Path:
+        """Metadata file path for the active survey."""
+        if self.survey.layout is None:
+            raise ValueError("survey_metadata_file requires a survey to be set; call set_survey() first")
+        return Path(self.survey.layout.metadata_file)  # type: ignore[arg-type]
+
+    # ------------------------------------------------------------------
+    # Convenience layout helpers
+    # ------------------------------------------------------------------
+
+    def tiledb_layout(self) -> TileDBLayout:
+        """Return the TileDB layout for the current station."""
+        return self._file_manager.directory_tree.tiledb(
+            network=self.network.name, station=self.station.name
+        )
+
+    def ensure_campaign(self) -> CampaignLayout:
+        """Materialise campaign directories and return the layout."""
+        if self.campaign.name is None:
+            raise ValueError("ensure_campaign requires a campaign to be set; call set_campaign() first")
+        return self._file_manager.ensure_campaign(
+            network=self.network.name,
+            station=self.station.name,
+            campaign=self.campaign.name,
         )
 
     # ------------------------------------------------------------------
@@ -373,5 +480,137 @@ class StationSession:
         except Exception as e:
             logger.error(f"SV3 job '{job}' failed: {e}")
             raise e
-        
-    
+
+    # ------------------------------------------------------------------
+    # Remote sync (push / pull)
+    # ------------------------------------------------------------------
+
+    def push_station_to_remote(self, overwrite: bool = False) -> None:
+        """Upload TileDB arrays for the current station to the remote backend."""
+        if not self._file_manager.has_remote:
+            logger.warning("push_station_to_remote: no remote configured, skipping.")
+            return
+        tiledb = self.tiledb_layout()
+        for path in tiledb.all_paths:
+            count = self._file_manager.push_dir(UPath(path), overwrite=overwrite)
+            logger.info(f"Pushed {count} files from {path}")
+
+    @_require_campaign
+    def push_campaign_to_remote(self, overwrite: bool = False) -> None:
+        """Upload SVP, RINEX, and log files for the active campaign to the remote backend."""
+        if not self._file_manager.has_remote:
+            logger.warning("push_campaign_to_remote: no remote configured, skipping.")
+            return
+        campaign = self.ensure_campaign()
+        self._compress_rinex(UPath(campaign.intermediate))
+        for dir_path in (campaign.processed, campaign.intermediate, campaign.logs):
+            count = self._file_manager.push_dir(UPath(dir_path), overwrite=overwrite)
+            logger.info(f"Pushed {count} files from {dir_path}")
+
+    def pull_from_remote(self, overwrite: bool = False) -> None:
+        """Download TileDB arrays and active campaign files from the remote mirror."""
+        if not self._file_manager.has_remote:
+            logger.warning("pull_from_remote: no remote configured, skipping.")
+            return
+        tiledb = self.tiledb_layout()
+        for path in tiledb.all_paths:
+            count = self._file_manager.pull_dir(UPath(path), overwrite=overwrite)
+            logger.info(f"Pulled {count} files to {path}")
+        if self.campaign.name:
+            campaign = self.ensure_campaign()
+            count = self._file_manager.pull_dir(UPath(campaign.root), overwrite=overwrite)
+            logger.info(f"Pulled {count} campaign files to {campaign.root}")
+
+    def _compress_rinex(self, rinex_dir: UPath) -> None:
+        """Compress any uncompressed RINEX files in *rinex_dir* to CRINEX gz format."""
+        from earthscope_sfg_tools.rinex_tools import crinex_compress
+
+        rinex_dir = UPath(rinex_dir)
+        if not rinex_dir.exists():
+            return
+        station_name = self.station.name
+        for rinex_file in rinex_dir.rglob(f"*{station_name}*"):
+            if not rinex_file.is_file():
+                continue
+            if ".crx" in rinex_file.suffix:
+                continue
+            if any(ext in rinex_file.suffix for ext in ["S", "d", ".gz"]):
+                continue
+            new_suffix = rinex_file.suffix[:-1] + "d"
+            compressed = rinex_file.with_suffix(new_suffix + ".gz")
+            if not compressed.exists():
+                try:
+                    crinex_compress(rinex_file, compressed, gzip=True, logger=logger.logger)
+                except Exception as e:
+                    logger.error(f"Failed to compress {rinex_file}: {e}")
+
+    # ------------------------------------------------------------------
+    # Mid-processing — survey parsing
+    # ------------------------------------------------------------------
+    @_require_site_metadata
+    @_require_campaign
+    def parse_surveys(
+        self,
+        survey_id: str | None = None,
+        override: bool = False,
+        write_intermediate: bool = False,
+    ) -> None:
+        """Parse surveys for the active campaign and write CSVs into survey dirs."""
+        campaign_meta = self.campaign.metadata
+        if campaign_meta is None:
+            raise ValueError("Campaign metadata must be loaded before parse_surveys")
+
+        tiledb = self.tiledb_layout()
+        campaign = self.ensure_campaign()
+
+        shotDataTDB = TDBShotDataArray(tiledb.shotdata)
+
+        with open(campaign.metadata_file, "w") as f:
+            json.dump(campaign_meta.model_dump(mode="json"), f, indent=4)
+
+        surveys_to_process: list[Survey] = [
+            s for s in campaign_meta.surveys if survey_id is None or survey_id == s.id
+        ]
+        if not surveys_to_process:
+            raise ValueError(f"Survey {survey_id} not found in campaign {campaign_meta.name}.")
+
+        for survey in surveys_to_process:
+            self.set_survey(survey_id=survey.id)
+            survey_root = self.survey_dir
+
+            shotdata_file_name = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
+            shotdata_dest = survey_root / shotdata_file_name
+
+            if not shotdata_dest.exists() or shotdata_dest.stat().st_size == 0 or override:
+                df = shotDataTDB.read_df(start=survey.start, end=survey.end)
+                if df.empty:
+                    logger.warning(
+                        f"No shot data found for survey {survey.id} from "
+                        f"{survey.start} to {survey.end}, skipping survey."
+                    )
+                    continue
+                df.to_csv(shotdata_dest)
+
+            if write_intermediate:
+                kin_name = f"{survey.id}_{survey.type.value}_kinpositiondata.csv".replace(" ", "")
+                kin_dest = survey_root / kin_name
+                if not kin_dest.exists() or kin_dest.stat().st_size == 0 or override:
+                    kin_tdb = TDBKinPositionArray(tiledb.kin_position)
+                    kin_df = kin_tdb.read_df(start=survey.start, end=survey.end)
+                    if kin_df.empty:
+                        logger.warning(f"No kinposition data found for survey {survey.id}")
+                    else:
+                        kin_df.to_csv(kin_dest)
+
+                imu_name = f"{survey.id}_{survey.type.value}_imupositiondata.csv".replace(" ", "")
+                imu_dest = survey_root / imu_name
+                if not imu_dest.exists() or imu_dest.stat().st_size == 0 or override:
+                    imu_tdb = TDBIMUPositionArray(tiledb.imu_position)
+                    imu_df = imu_tdb.read_df(start=survey.start, end=survey.end)
+                    if imu_df.empty:
+                        logger.warning(f"No imuposition data found for survey {survey.id}")
+                    else:
+                        imu_df.to_csv(imu_dest)
+
+            with open(self.survey_metadata_file, "w") as f:
+                json.dump(survey.model_dump(mode="json"), f, indent=4)

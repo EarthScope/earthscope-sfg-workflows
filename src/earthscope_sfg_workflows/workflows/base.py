@@ -1,12 +1,17 @@
-"""Minimal :class:`WorkflowBase` — replacement for the legacy ``WorkflowABC``.
-Owns nothing except the :class:`Workspace` and a ``mid_process_workflow``
-flag. All scope state, ports, and data-mgmt access live on the workspace.
+"""Minimal :class:`WorkflowBase` — **deprecated**.
 
-See ``plans/prds/2026-05-05-workflow-base-and-facades.md``.
+.. deprecated::
+    Use :class:`~earthscope_sfg_workflows.workflows.session.StationSession` directly
+    for session state, and :class:`~earthscope_sfg_workflows.workflows.workflow_handler.WorkflowHandler`
+    for orchestration. ``WorkflowBase`` will be removed in a future release.
+
+The :func:`validate_network_station_campaign` and :func:`validate_network_station`
+decorators are still exported from this module for backwards compatibility.
 """
 
 from __future__ import annotations
 
+import warnings
 from abc import ABC
 from collections.abc import Callable
 from functools import wraps
@@ -27,16 +32,22 @@ class HasWorkspace(Protocol):
 
 class WorkflowBase(ABC):
     """Minimal base for all workflow classes.
-    Subclasses receive a single :class:`Workspace`. They reach the data
-    layer only via the four façades (``layout``, ``metadata``, ``assets``,
-    ``ingest``) on it. There is no ``self.asset_catalog``, no
-    ``self.directory_handler``, no ``self.current_*_dir``.
+
+    .. deprecated::
+        Subclass from nothing and hold ``self.workspace: StationSession`` directly.
+        ``WorkflowBase`` will be removed in a future release.
     """
 
     mid_process_workflow: bool = False
 
     def __init__(self, workspace: Workspace) -> None:
         """Bind to a `Workspace`. The workspace owns ports, scope, and metadata."""
+        warnings.warn(
+            "WorkflowBase is deprecated and will be removed in a future release. "
+            "Hold self.workspace: StationSession directly instead of subclassing WorkflowBase.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.workspace = workspace
 
     @property
