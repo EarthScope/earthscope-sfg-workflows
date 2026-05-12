@@ -20,8 +20,9 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Optional, TypeVar
+from typing import TYPE_CHECKING, Callable, Literal, Optional, TypeVar
 
+from pride_ppp import PrideCLIConfig
 from upath import UPath
 
 from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import EarthScopeArchive
@@ -44,11 +45,7 @@ from earthscope_sfg_workflows.data_mgmt.model import (
     SurveyLayout,
     TileDBLayout,
 )
-from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import (
-    FakeArchive,
-    InMemoryAssetStore,
-    InMemoryFileStore,
-)
+
 from earthscope_sfg_tools.datamodels.metadata import Site as _Site
 
 from earthscope_sfg_workflows.data_mgmt.ports import (
@@ -57,6 +54,10 @@ from earthscope_sfg_workflows.data_mgmt.ports import (
     FileStorePort,
 )
 from earthscope_sfg_workflows.data_mgmt.ports import ArchiveNotFoundError
+from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
+from earthscope_sfg_workflows.workflows.pipelines.config import DFOP00Config, DFOP00Config, NovatelConfig, PositionUpdateConfig, SV3PipelineConfig,RinexConfig
+from earthscope_sfg_workflows.workflows.pipelines.sv3_pipeline import SV3_JOBS, SV3Pipeline
+
 
 if TYPE_CHECKING:  # pragma: no cover
     from earthscope_sfg_tools.datamodels.metadata import Campaign, Site, Survey
@@ -70,6 +71,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _F = TypeVar("_F", bound=Callable)
 
+_Config = SV3PipelineConfig | PrideCLIConfig | NovatelConfig | RinexConfig | DFOP00Config | PositionUpdateConfig
 # ---------------------------------------------------------------------------
 # Method-level scope enforcement decorators (for CampaignSession internals)
 # ---------------------------------------------------------------------------
@@ -173,24 +175,25 @@ class StationSession:
         self.campaign: ScopeRegistry = ScopeRegistry()  # dummy initial value; guarded by _require_campaign
         self.survey: ScopeRegistry = ScopeRegistry()  # dummy initial value; guarded by _require_survey
 
+        self.scope = SFGScope(
+            network=self.network,
+            station=self.station,
+            campaign=self.campaign,
+            survey=self.survey,
+        )  
+
         self._ingestor = Ingestor(
             catalog=self._catalog,
             file_manager=self._file_manager,
             archive=self._archive,
         )
 
-    @property
-    def scope(self) -> SFGScope:
-        """Current session scope as a plain dataclass. Campaign and survey may be None."""
-        return SFGScope(
-            network=self.network,
-            station=self.station,
-            campaign=self.campaign,
-            survey=self.survey,
-        )
+        self._sv3_pipeline = None  # lazy init in sv3_pipeline property
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
     def _reset_lower(self, level: str) -> None:
         """Reset mutable scope levels below *level* (e.g. if campaign changes, clear survey)."""
         if level not in _SCOPE_LEVELS:
@@ -300,3 +303,75 @@ class StationSession:
         self.survey = ScopeRegistry(
             name=survey_id, layout=layout, metadata=survey_metadata
         )
+
+    # ------------------------------------------------------------------
+    # Pre-Processing
+    # ------------------------------------------------------------------
+
+    def get_pipeline_sv3(self, config: Optional[SV3PipelineConfig] = None, secondary_config: Optional[_Config] = None) -> SV3Pipeline:
+        """Get a pipeline instance for the current session scope."""
+
+        base_config = SV3PipelineConfig()
+        base_config_updated = base_config.model_copy()
+        # Merge primary config if provided, overwriting defaults. Also check for misspelled keys
+        if config is not None:
+            if isinstance(
+                config,
+                _Config
+            ):
+                config = config.model_dump()
+
+            base_config_updated = validate_and_merge_config(
+                base_class=base_config, override_config=config
+            )
+
+        # Merge secondary config if provided, overwriting primary and defaults. Also check for misspelled keys
+        if secondary_config is not None:
+            if isinstance(
+                secondary_config,
+                _Config
+            ):
+                secondary_config = secondary_config.model_dump()
+            base_config_updated = validate_and_merge_config(
+                base_class=base_config_updated, override_config=secondary_config
+            )
+
+        if self._sv3_pipeline is None:
+            self._sv3_pipeline = SV3Pipeline(
+                catalog=self._catalog,
+                scope=self.scope,
+                config=base_config_updated,
+            )
+        else:
+            # Update config of existing pipeline instance
+            self._sv3_pipeline.config = base_config_updated
+
+        return self._sv3_pipeline
+
+    def run_pipeline_sv3(
+        self,
+        job: Literal[
+            "all",
+            "intermediate",
+            "process_novatel",
+            "build_rinex",
+            "run_pride",
+            "process_kinematic",
+            "process_dfop00",
+            "refine_shotdata",
+            "process_svp",
+        ] = "all",
+        config: Optional[_Config] = None,
+        secondary_config: Optional[_Config] = None,
+    ) -> None:
+        """Run the SV3 pipeline for the current session scope."""
+        assert job in SV3_JOBS, f"Job must be one of {SV3_JOBS.keys()}"
+
+        pipeline = self.get_pipeline_sv3(config=config, secondary_config=secondary_config)
+        try:
+            SV3_JOBS[job](pipeline)
+        except Exception as e:
+            logger.error(f"SV3 job '{job}' failed: {e}")
+            raise e
+        
+    

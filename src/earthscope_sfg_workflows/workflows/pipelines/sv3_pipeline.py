@@ -1,10 +1,13 @@
 # External Imports
 import datetime
 import sys
-from functools import partial
+import threading
+from functools import partial, wraps
 from multiprocessing import Pool
 from pathlib import Path
 import json
+from typing import Callable
+import warnings
 from pride_ppp import kin_to_kin_position_df, PrideProcessor, ProcessingResult,ProcessingMode
 
 from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
@@ -42,6 +45,21 @@ from .exceptions import (
 )
 from .gnss_rinex_base import GnssRinexPipelineBase
 from .shotdata_gnss_refinement import merge_shotdata_kinposition
+
+
+def _pipeline_method(fn):
+    """Decorator that ensures only one pipeline method runs at a time per instance."""
+    @wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        if not self._lock.acquire(blocking=False):
+            raise Exception(
+                f"Pipeline is busy: cannot call '{fn.__name__}' while another method is running."
+            )
+        try:
+            return fn(self, *args, **kwargs)
+        finally:
+            self._lock.release()
+    return wrapper
 
 
 class SV3Pipeline:
@@ -106,12 +124,15 @@ class SV3Pipeline:
         run_pipeline(): Execute the full processing pipeline in sequence.
     """
 
-
     def __init__(
         self,
         catalog: AssetCatalogPort,
-        scope: SFGScope,
+        scope: SFGScope | None = None,
         config: SV3PipelineConfig | None = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
 
     ):
         """Initializes the SV3Pipeline with a workspace and configuration.
@@ -122,24 +143,17 @@ class SV3Pipeline:
             workspace: Pre-constructed workspace. Preferred over ``directory``.
         """
 
+        self._lock = threading.RLock()
         self.config = config if config is not None else SV3PipelineConfig()
+        if scope is None:
+            if network is None or station is None:
+                raise ValueError("Must provide either scope or network/station.")
+            scope = SFGScope.from_ids(network=network, station=station, campaign=campaign)
+
         self.scope: SFGScope = scope
         self.catalog: AssetCatalogPort = catalog
 
-        # Initialize TileDB array objects to None
-        # These will be created when set_network_station_campaign() is called
-        self.shotDataPreTDB: TDBShotDataArray = None  # Preliminary shotdata (before refinement)
-        self.kinPositionTDB: TDBKinPositionArray = None  # High-precision kinematic positions
-        self.imuPositionTDB: TDBIMUPositionArray = None  # IMU positions from Novatel 000
-        self.shotDataFinalTDB: TDBShotDataArray = None  # Final shotdata (after refinement)
-        self.gnssObsTDBURI = None
-        self.gnssObsTDB_secondaryURI = None
-
-  
-
-    def _build_tiledb_arrays(self) -> None:
-        """Initialize TileDB arrays for the current station context."""
-        tiledb:TileDBLayout = self.scope.station.layout.tiledb
+        tiledb: TileDBLayout = self.scope.station.layout.tiledb
         if self.shotDataPreTDB is None:
             self.shotDataPreTDB = TDBShotDataArray(tiledb.shotdata_pre)
 
@@ -157,7 +171,7 @@ class SV3Pipeline:
     def _on_rinex_path(self, path: Path) -> None:
         """Call :func:`rinex_qc` on each generated RINEX file."""
         rinex_qc(path)
-    
+
     @property
     def current_network_name(self) -> str:
         """Active network name; alias for `self.scope.network.name`."""
@@ -167,13 +181,13 @@ class SV3Pipeline:
     def current_campaign_name(self) -> str | None:
         """Active campaign name; alias for `self.scope.campaign.name`."""
         return self.scope.campaign.name
-    
+
     @property
     def current_station_name(self) -> str:
         """Active station name; alias for `self.scope.station.name`."""
         return self.scope.station.name
 
-    @validate_network_station_campaign
+    @_pipeline_method
     def pre_process_novatel(self) -> None:
         """Preprocess Novatel 770 and 000 binary files for the current context.
         Processing steps:
@@ -234,7 +248,7 @@ class SV3Pipeline:
                         message := ProcessLogger.error(f"Error processing Novatel 770 files: {e}")
                     ) is not None:
                         print(message)
-                    sys.exit(1)
+                    
             else:
                 response = f"Novatel 770 Data Already Processed for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
                 ProcessLogger.info(response)
@@ -301,7 +315,7 @@ class SV3Pipeline:
                 f"No Novatel 770 or 000 files found for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}. Cannot proceed with GNSS processing."
             )
 
-    @validate_network_station_campaign
+    @_pipeline_method
     def process_dfop00(self) -> None:
         """Process Sonardyne DFOP00 files to generate preliminary shotdata.
         Steps:
@@ -353,7 +367,7 @@ class SV3Pipeline:
         response = f"Generated {count} ShotData dataframes From {len(dfop00_entries)} DFOP00 Files"
         ProcessLogger.info(response)
 
-    @validate_network_station_campaign
+    @_pipeline_method
     def update_shotdata(self):
         """Refine shotdata with interpolated high-precision kinematic positions."""
         """Refine shotdata with interpolated high-precision kinematic positions.
@@ -400,7 +414,7 @@ class SV3Pipeline:
             )
             self.catalog.add_merge_job(**merge_job)
 
-    @validate_network_station_campaign
+    @_pipeline_method
     def process_svp(self, override: bool = False) -> None:
         """Process CTD and Seabird files to generate sound velocity profiles (SVP).
         Processing order:
@@ -463,7 +477,7 @@ class SV3Pipeline:
                     svp_df.to_csv(svp_df_destination, index=False)
                     seabird_entry.is_processed = True
                     self.catalog.update(seabird_entry)  # mark as processed
-                   
+
                     ProcessLogger.info(
                         f"Processed SVP data from Seabird file {seabird_entry.local_path} and saved to {str(svp_df_destination)}"
                     )
@@ -496,7 +510,7 @@ class SV3Pipeline:
 
         self._rinex_config.settings_path = rinex_metav2
 
-    @validate_network_station_campaign
+    @_pipeline_method
     def get_rinex_files(self) -> None:
         """Generate and catalog daily RINEX files from the GNSS observation TileDB array.
 
@@ -558,9 +572,9 @@ class SV3Pipeline:
 
                 rinex_entries: list[AssetEntry] = []
                 upload_count = 0
-         
+
                 for rinex_path in rinex_paths:
-                    #TODO generate summary qc report and stash it in the directory.
+                    # TODO generate summary qc report and stash it in the directory.
                     self._on_rinex_path(rinex_path)
                     start, end = rinex_get_time_range(rinex_path)
                     entry = AssetEntry(
@@ -612,7 +626,7 @@ class SV3Pipeline:
                 f"Found {len(rinex_entries)} entries."
             )
 
-    @validate_network_station_campaign
+    @_pipeline_method
     def process_rinex(self) -> None:
         """Run PRIDE-PPP on RINEX files to generate KIN and residual files.
 
@@ -664,7 +678,6 @@ class SV3Pipeline:
         )
         rinex_path_map = {e.local_path: e for e in rinex_entries}
         kin_count = res_count = upload_count = 0
-      
 
         for result in tqdm(
             processor.process_batch(
@@ -684,7 +697,7 @@ class SV3Pipeline:
                 kin_count += 1
                 rinex_entry.is_processed = True
                 rinex_entry = self.catalog.update(rinex_entry)  # mark RINEX as processed
-                
+
                 kin_entry = AssetEntry(
                     kind=AssetKind.KIN,
                     network=self.current_network_name,
@@ -724,7 +737,7 @@ class SV3Pipeline:
             f"{len(rinex_entries)} RINEX files, added {upload_count} to catalog"
         )
 
-    @validate_network_station_campaign
+    @_pipeline_method
     def process_kin(self) -> None:
         """Process KIN files to generate kinematic-position dataframes.
 
@@ -777,7 +790,7 @@ class SV3Pipeline:
             f"Generated {processed_count} KinPosition dataframes from {len(kin_entries)} KIN files"
         )
 
-    @validate_network_station_campaign
+    @_pipeline_method
     def run_pipeline(self) -> None:
         """Execute the complete SV3 data processing pipeline in sequence.
         Pipeline steps (in order):
@@ -832,7 +845,7 @@ class SV3Pipeline:
             f"Completed SV3 Processing Pipeline for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
         )
 
-    @validate_network_station_campaign
+    @_pipeline_method
     def run_intermediate_pipeline(self) -> None:
         """Run only the intermediate steps of the SV3 pipeline. This assumes rinex is already downloaded
         Intermediate steps include:
@@ -876,3 +889,16 @@ class SV3Pipeline:
         ProcessLogger.info(
             f"Completed SV3 Intermediate Pipeline for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
         )
+
+
+SV3_JOBS: dict[str, Callable[["SV3Pipeline"], None]] = {
+    "all": lambda p: p.run_pipeline(),
+    "intermediate": lambda p: p.run_intermediate_pipeline(),
+    "process_novatel": lambda p: p.pre_process_novatel(),
+    "build_rinex": lambda p: p.get_rinex_files(),
+    "run_pride": lambda p: p.process_rinex(),
+    "process_kinematic": lambda p: p.process_kin(),
+    "process_dfop00": lambda p: p.process_dfop00(),
+    "refine_shotdata": lambda p: p.update_shotdata(),
+    "process_svp": lambda p: p.process_svp(),
+}

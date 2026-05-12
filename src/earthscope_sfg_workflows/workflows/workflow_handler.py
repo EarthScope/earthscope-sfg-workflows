@@ -403,7 +403,7 @@ class WorkflowHandler(WorkflowBase):
             ...     primary_config={"novatel_config":
             ... ):
         """
-        assert job in _SV3_JOBS, f"Job must be one of {pipeline_jobs}"
+        assert job in _SV3_JOBS, f"Job must be one of {_SV3_JOBS.keys()}"
 
         pipeline: SV3Pipeline = self.preprocess_get_pipeline_sv3(
             primary_config=primary_config, secondary_config=secondary_config
