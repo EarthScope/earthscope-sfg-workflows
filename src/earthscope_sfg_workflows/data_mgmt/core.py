@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import concurrent.futures
 import re
+import tarfile
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
+
+import fsspec
 
 import boto3
 from tqdm.auto import tqdm
@@ -301,6 +304,85 @@ class Ingestor:
                 cataloged += 1
             except Exception as exc:
                 errors.append(f"add failed for {info.path}: {exc}")
+
+        return IngestReport(
+            cataloged=cataloged,
+            skipped=skipped,
+            errors=tuple(errors),
+        )
+
+    # -- tarball ingest (qc pin files) ------------------------------------
+
+    def ingest_qcpin_tarballs(
+        self,
+        scope: SFGScope,
+        tarball_dir: Path | str,
+        *,
+        override: bool = False,
+    ) -> IngestReport:
+        """Discover ``.tar.gz`` tarballs in *tarball_dir*, extract ``.pin``
+        files in-memory, write them to a subdirectory named after each tarball,
+        and register each as an :attr:`AssetKind.QCPIN` entry in the catalog.
+
+        Skips macOS resource-fork files (``._``-prefixed). Uses
+        ``tarfile.open(mode="r:*")`` for Python-3.13 compatibility.
+
+        Args:
+            scope: Active network/station/campaign scope.
+            tarball_dir: Directory containing ``.tar.gz`` archives.
+            override: Re-ingest (overwrite) even if the extracted file already
+                exists on disk.
+        """
+        tarball_dir = Path(tarball_dir)
+        if not tarball_dir.is_dir():
+            return IngestReport(errors=(f"Not a directory: {tarball_dir}",))
+
+        cataloged = 0
+        skipped = 0
+        errors: list[str] = []
+
+        tarballs = sorted(
+            p for p in tarball_dir.glob("*.tar.gz")
+            if not p.name.startswith("._")
+        )
+
+        for tb in tarballs:
+            extract_dir = tarball_dir / tb.name.removesuffix(".tar.gz")
+            try:
+                with fsspec.open(str(tb), "rb") as fo:
+                    with tarfile.open(fileobj=fo, mode="r:*") as tf:
+                        pin_members = [
+                            m for m in tf.getmembers()
+                            if m.isfile() and (self.detect(m.name) is AssetKind.QCPIN)
+                        ]
+                        if not pin_members:
+                            skipped += 1
+                            continue
+                        extract_dir.mkdir(parents=True, exist_ok=True)
+                        for member in pin_members:
+                            pin_name = Path(member.name).name
+                            dest = extract_dir / pin_name
+                            if dest.exists() and not override:
+                                skipped += 1
+                                continue
+                            reader = tf.extractfile(member)
+                            if reader is None:
+                                skipped += 1
+                                continue
+                            dest.write_bytes(reader.read())
+                            asset = AssetEntry(
+                                kind=AssetKind.QCPIN,
+                                scope=scope,
+                                local_path=UPath(dest),
+                                timestamp_created=_now(),
+                            )
+                            try:
+                                self._catalog.add(asset)
+                                cataloged += 1
+                            except Exception as exc:
+                                errors.append(f"add failed for {dest}: {exc}")
+            except Exception as exc:
+                errors.append(f"failed to open tarball {tb}: {exc}")
 
         return IngestReport(
             cataloged=cataloged,
