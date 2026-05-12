@@ -64,8 +64,9 @@ from earthscope_sfg_workflows.data_mgmt.ports import (
 from earthscope_sfg_workflows.data_mgmt.ports import ArchiveNotFoundError
 from earthscope_sfg_workflows.logging import GarposLogger as logger
 from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
-from earthscope_sfg_workflows.workflows.pipelines.config import DFOP00Config, DFOP00Config, NovatelConfig, PositionUpdateConfig, SV3PipelineConfig,RinexConfig
+from earthscope_sfg_workflows.workflows.pipelines.config import DFOP00Config, DFOP00Config, NovatelConfig, PositionUpdateConfig, QCPipelineConfig, SV3PipelineConfig,RinexConfig
 from earthscope_sfg_workflows.workflows.pipelines.sv3_pipeline import SV3_JOBS, SV3Pipeline
+from earthscope_sfg_workflows.workflows.pipelines.qc_pipeline import QC_JOBS, QCPipeline
 
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -210,7 +211,8 @@ class StationSession:
             archive=self._archive,
         )
 
-        self._sv3_pipeline = None  # lazy init in sv3_pipeline property
+        self._sv3_pipeline = None  # lazy init in get_pipeline_sv3
+        self._qc_pipeline = None   # lazy init in get_pipeline_qc
 
     # ------------------------------------------------------------------
     # Remote configuration
@@ -454,6 +456,47 @@ class StationSession:
             self._sv3_pipeline.config = base_config_updated
 
         return self._sv3_pipeline
+
+    def get_pipeline_qc(self, config: Optional[QCPipelineConfig] = None) -> QCPipeline:
+        """Get a QC pipeline instance for the current session scope."""
+        base_config = QCPipelineConfig()
+        base_config_updated = base_config.model_copy()
+        if config is not None:
+            if isinstance(config, QCPipelineConfig):
+                config = config.model_dump()
+            base_config_updated = validate_and_merge_config(
+                base_class=base_config, override_config=config
+            )
+        if self._qc_pipeline is None:
+            self._qc_pipeline = QCPipeline(
+                catalog=self._catalog,
+                scope=self.scope,
+                config=base_config_updated,
+            )
+        else:
+            self._qc_pipeline.config = base_config_updated
+        return self._qc_pipeline
+
+    def run_pipeline_qc(
+        self,
+        job: Literal[
+            "all",
+            "process_qcpin",
+            "build_rinex",
+            "run_pride",
+            "process_kinematic",
+            "refine_shotdata",
+        ] = "all",
+        config: Optional[QCPipelineConfig] = None,
+    ) -> None:
+        """Run the QC pipeline for the current session scope."""
+        assert job in QC_JOBS, f"Job must be one of {list(QC_JOBS.keys())}"
+        pipeline = self.get_pipeline_qc(config=config)
+        try:
+            QC_JOBS[job](pipeline)
+        except Exception as e:
+            logger.error(f"QC job '{job}' failed: {e}")
+            raise e
 
     def run_pipeline_sv3(
         self,
