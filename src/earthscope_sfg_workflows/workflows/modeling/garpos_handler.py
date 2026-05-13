@@ -100,15 +100,7 @@ class GarposHandler:
 
     def ensure_garpos_survey(self) -> GARPOSLayout:
         """Materialise GARPOS survey directories and return the layout."""
-        ss = self.station_session
-        if ss.survey.name is None:
-            raise ValueError("ensure_garpos_survey requires a survey to be set; call set_survey() first")
-        return ss._file_manager.ensure_garpos_survey(
-            network=ss.network.name,
-            station=ss.station.name,
-            campaign=ss.campaign.name,
-            survey=ss.survey.name,
-        )
+        return self.station_session.ensure_garpos_survey()
 
     def _load_results_file(self, run_dir: Path) -> Path:
         """Return the last *-res.dat file in run_dir, sorted by iteration number."""
@@ -695,7 +687,7 @@ class GarposHandler:
         site = self.station_session.site
         if site is not None:
             for campaign in site.campaigns:
-                if campaign.name == self.station_session.campaign.name:
+                if campaign.name == self.station_session.campaign_name:
                     metadata_surveys = campaign.surveys
                     break
 
@@ -801,16 +793,16 @@ class GarposHandler:
             except Exception:
                 logger.warning(f"Error processing {survey_name}")
         fig.suptitle(
-            f"Shotdata Reply Percentages for {self.station_session.station.name} {self.station_session.campaign.name}"
+            f"Shotdata Reply Percentages for {self.station_session.station_name} {self.station_session.campaign_name}"
         )
-        axs[0].set_title(f"{self.station_session.station.name} Transponder 5209")
-        axs[1].set_title(f"{self.station_session.station.name} Transponder 5210")
-        axs[2].set_title(f"{self.station_session.station.name} Transponder 5211")
+        axs[0].set_title(f"{self.station_session.station_name} Transponder 5209")
+        axs[1].set_title(f"{self.station_session.station_name} Transponder 5210")
+        axs[2].set_title(f"{self.station_session.station_name} Transponder 5211")
         fig.tight_layout()
         if showfig:
             plt.show()
 
-        fig_path = f"{self.station_session.ensure_campaign().root}/{self.station_session.station.name}_{self.station_session.campaign.name}_shotdata_replies.png"
+        fig_path = f"{self.station_session.ensure_campaign().root}/{self.station_session.station_name}_{self.station_session.campaign_name}_shotdata_replies.png"
         if savefig:
             logger.info(f"Saving figure to {fig_path}")
             plt.savefig(
@@ -884,7 +876,7 @@ class GarposHandler:
         unique_ids = results_df_raw["MT"].unique()
         # make a plot with 3 subplots showing ResiRange vs time for each unique_id
         fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
-        fig.suptitle(f"Residuals for {self.station_session.station.name} {survey_id} (Run {run_id})")
+        fig.suptitle(f"Residuals for {self.station_session.station_name} {survey_id} (Run {run_id})")
         for i, unique_id in enumerate(unique_ids):
             transponder_df_raw = results_df_raw[results_df_raw["MT"] == unique_id].sort_values(
                 "time"
@@ -917,7 +909,7 @@ class GarposHandler:
         for ax in axs:
             ax.grid()
         plt.tight_layout()
-        fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.station.name}_{survey_id}_flagged_residuals.png"
+        fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.station_name}_{survey_id}_flagged_residuals.png"
         if savefig:
             logger.info(f"Saving figure to {fig_path}")
             plt.savefig(
@@ -1006,7 +998,7 @@ class GarposHandler:
         if subplots:
             # make a plot with 3 subplots showing ResiRange vs time for each unique_id
             fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
-            fig.suptitle(f"Residuals for {self.station_session.station.name} {survey_id} (Run {run_id})")
+            fig.suptitle(f"Residuals for {self.station_session.station_name} {survey_id} (Run {run_id})")
             for i, unique_id in enumerate(unique_ids):
                 transponder_df = results_df[results_df["MT"] == unique_id].sort_values("time")
                 axs[i].scatter(
@@ -1043,7 +1035,7 @@ class GarposHandler:
             # add gridlines
             ax.grid()
         plt.tight_layout()
-        fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.station.name}_{survey_id}_garpos_residuals.png"
+        fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.station_name}_{survey_id}_garpos_residuals.png"
         if savefig:
             logger.info(f"Saving figure to {fig_path}")
             plt.savefig(
@@ -1174,7 +1166,7 @@ class GarposHandler:
         total_height = (total_rows + extra_rows) * ts_row_height_in
 
         plt.figure(figsize=(20, total_height))
-        title = f"{self.station_session.station.name}"
+        title = f"{self.station_session.station_name}"
         if survey_type is not None:
             title += f" {survey_type}"
         title += f" Survey {survey_id} Results"

@@ -219,9 +219,7 @@ class DataHandler(WorkflowBase):
                         pass
             entry = AssetEntry(
                 kind=kind,
-                network=scope.network.name if scope.network else None,
-                station=scope.station.name if scope.station else None,
-                campaign=scope.campaign.name if scope.campaign else None,
+                scope=scope,
                 local_path=file_path,
             )
             if self.workspace.assets.add_or_update(entry) is not None:
@@ -260,9 +258,7 @@ class DataHandler(WorkflowBase):
                 continue
             entry = AssetEntry(
                 kind=kind,
-                network=scope.network.name if scope.network else None,
-                station=scope.station.name if scope.station else None,
-                campaign=scope.campaign.name if scope.campaign else None,
+                scope=scope,
                 remote_path=url,
                 remote_type=remote_type.value,
             )

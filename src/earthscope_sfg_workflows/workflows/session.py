@@ -35,6 +35,7 @@ from earthscope_sfg_workflows.data_mgmt.ports import ArchiveNotFoundError
 from earthscope_sfg_workflows.data_mgmt.model import (
     AssetKind,
     CampaignLayout,
+    GARPOSLayout,
     IngestReport,
     NetworkLayout,
     SFGScope,
@@ -239,12 +240,19 @@ class StationSession:
 
     @property
     def scope(self) -> SFGScope:
-        """Live view of the current network/station/campaign/survey context."""
+        """Live view of the current network/station/campaign/survey context.
+
+        Raises ``ValueError`` if campaign has not been set yet.
+        """
+        if not self.campaign.name:
+            raise ValueError(
+                "scope requires a campaign to be set; call set_campaign() first"
+            )
         return SFGScope(
-            network=self.network,
-            station=self.station,
-            campaign=self.campaign if self.campaign.name else None,
-            survey=self.survey if self.survey.name else None,
+            network=self.network.name,
+            station=self.station.name,
+            campaign=self.campaign.name,
+            survey=self.survey.name if self.survey.name else None,
         )
 
     def _fetch_site_metadata(self, network: str, station: str) -> "Site | None":
@@ -357,16 +365,17 @@ class StationSession:
     # Mutation
     # ------------------------------------------------------------------
 
-    def set_campaign(self, campaign_id: str) -> None:
+    def set_campaign(self, campaign_id: str) -> CampaignLayout:
         """Set the active campaign, clear survey, materialise campaign dirs."""
         self._reset_lower("campaign")  # clear mutable levels below campaign (i.e. survey)
         campaign_meta:Optional[Campaign] = self._resolve_campaign_in_site(campaign_id)
-        layout:Optional[CampaignLayout] = self._file_manager.ensure_campaign(
+        layout:CampaignLayout = self._file_manager.ensure_campaign(
             network=self.network.name, station=self.station.name, campaign=campaign_id
         )
         self.campaign = ScopeRegistry(
             name=campaign_id, layout=layout,metadata=campaign_meta
         )
+        return layout
 
     @_require_campaign
     def set_survey(self, survey_id: str) -> None:
@@ -405,7 +414,7 @@ class StationSession:
 
     @property
     def survey_name(self) -> str | None:
-        return self.survey.name
+        return self.survey.name or None
 
     @property
     def site(self) -> "Site | None":
@@ -454,8 +463,152 @@ class StationSession:
         )
 
     # ------------------------------------------------------------------
-    # Pre-Processing
+    # Facade accessors (expose injected ports under clean names)
     # ------------------------------------------------------------------
+
+    @property
+    def catalog(self) -> AssetCatalogPort:
+        """The asset catalog port for this session."""
+        return self._catalog
+
+    @property
+    def _files(self):
+        """The file store port (used by tests to inspect in-memory state)."""
+        return self._file_manager.file_backend
+
+    @property
+    def ingestor(self) -> Ingestor:
+        """Ingestor bound to the current catalog/files/archive."""
+        return self._ingestor
+
+    @property
+    def network_dir(self) -> Path:
+        """Root directory for this network."""
+        return Path(self._file_manager.directory_tree.network_dir(self.network.name))
+
+    @property
+    def station_dir(self) -> Path:
+        """Root directory for this station."""
+        return Path(self._file_manager.directory_tree.station_dir(
+            network=self.network.name, station=self.station.name
+        ))
+
+    def campaign_layout(self) -> CampaignLayout:
+        """Return the campaign layout. Raises if campaign not set."""
+        if not self.campaign.name:
+            raise ValueError("campaign_layout requires a campaign to be set; call set_campaign() first")
+        return self._file_manager.directory_tree.campaign(
+            network=self.network.name, station=self.station.name, campaign=self.campaign.name
+        )
+
+    def garpos_survey(self) -> "GARPOSLayout":
+        """Return the GARPOS survey layout. Raises if survey not set."""
+        if not self.survey.name:
+            raise ValueError("garpos_survey requires a survey to be set; call set_survey() first")
+        return self._file_manager.directory_tree.garpos(
+            network=self.network.name,
+            station=self.station.name,
+            campaign=self.campaign.name,
+            survey=self.survey.name,
+        )
+
+    def ensure_garpos_survey(self) -> "GARPOSLayout":
+        """Materialise GARPOS survey directories and return the layout."""
+        if not self.survey.name:
+            raise ValueError("ensure_garpos_survey requires a survey to be set; call set_survey() first")
+        return self._file_manager.ensure_garpos_survey(
+            network=self.network.name,
+            station=self.station.name,
+            campaign=self.campaign.name,
+            survey=self.survey.name,
+        )
+
+    def list_campaigns(self) -> list[str]:
+        """Return campaign names seen in the catalog for this network/station."""
+        assets = self._catalog.assets_for(
+            network=self.network.name,
+            station=self.station.name,
+        )
+        seen: dict[str, None] = {}
+        for a in assets:
+            if a.scope.campaign:
+                seen[a.scope.campaign] = None
+        return list(seen.keys())
+
+    def load_site_metadata(self, site: object) -> None:
+        """Load pre-fetched site metadata into this session (test helper)."""
+        self.station = ScopeRegistry(
+            name=self.station.name,
+            layout=self.station.layout,
+            metadata=site,
+        )
+
+    # ------------------------------------------------------------------
+    # Test factory
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def for_test(
+        cls,
+        network: str,
+        station: str,
+        *,
+        root: str | Path | None = None,
+        campaign: str | None = None,
+        survey: str | None = None,
+        catalog: AssetCatalogPort | None = None,
+        archive: ArchiveSourcePort | None = None,
+    ) -> "StationSession":
+        """Build a ``StationSession`` backed by in-memory adapters (no disk/network).
+
+        Suitable for unit tests. Optional *campaign* / *survey* set the
+        corresponding slots after construction.
+        """
+        from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
+            FakeArchive,
+            InMemoryAssetStore,
+            InMemoryFileStore,
+        )
+        from earthscope_sfg_workflows.data_mgmt.core import FileManager
+        from earthscope_sfg_workflows.data_mgmt.model import DirectoryTree
+
+        root_path = Path(root) if root else Path("/ws")
+        in_catalog = catalog or InMemoryAssetStore()
+        in_files = InMemoryFileStore()
+        in_archive = archive or FakeArchive()
+        file_manager = FileManager(DirectoryTree(root=root_path), in_files)
+
+        # Bypass the real __init__ network/station materialisation side effects
+        # by calling __new__ and wiring manually.
+        self = cls.__new__(cls)
+        object.__setattr__(self, "_catalog", in_catalog)
+        object.__setattr__(self, "_file_manager", file_manager)
+        object.__setattr__(self, "_archive", in_archive)
+
+        network_layout = file_manager.ensure_network(network)
+        object.__setattr__(self, "network", ScopeRegistry(name=network, layout=network_layout))
+
+        station_layout = file_manager.ensure_station(network=network, station=station)
+        object.__setattr__(self, "station", ScopeRegistry(name=station, layout=station_layout))
+
+        object.__setattr__(self, "campaign", ScopeRegistry())
+        object.__setattr__(self, "survey", ScopeRegistry())
+        object.__setattr__(self, "_sv3_pipeline", None)
+        object.__setattr__(self, "_qc_pipeline", None)
+        object.__setattr__(
+            self,
+            "_ingestor",
+            Ingestor(catalog=in_catalog, file_manager=file_manager, archive=in_archive),
+        )
+
+        if campaign is not None:
+            self.set_campaign(campaign)
+        if survey is not None:
+            self.set_survey(survey)
+
+        return self
+
+
 
     def get_pipeline_sv3(self, config: Optional[SV3PipelineConfig] = None, secondary_config: Optional[_Config] = None) -> SV3Pipeline:
         """Get a pipeline instance for the current session scope."""

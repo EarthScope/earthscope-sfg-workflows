@@ -18,8 +18,7 @@ from typing import Literal, Optional
 from pride_ppp.specifications.cli import PrideCLIConfig
 from upath import UPath
 
-from earthscope_sfg_workflows.data_mgmt.core import FileManager
-from earthscope_sfg_workflows.data_mgmt.model import AssetKind, DirectoryTree
+from earthscope_sfg_workflows.data_mgmt.model import AssetKind
 from earthscope_sfg_workflows.logging import ProcessLogger as logger
 from earthscope_sfg_workflows.logging import change_all_logger_dirs
 
@@ -43,7 +42,7 @@ from .pipelines.config import (
 from .pipelines.qc_pipeline import QC_JOBS, QCPipeline
 from .pipelines.sv3_pipeline import SV3_JOBS, SV3Pipeline
 from .session import StationSession
-from .workspace import _build_ports
+from .workspace import Workspace
 
 # Expose job-key lists for external introspection.
 pipeline_jobs = list(SV3_JOBS)
@@ -101,43 +100,34 @@ class WorkflowHandler:
         directory: Path | str | None = None,
         s3_sync_bucket: str | None = None,
         *,
-        workspace=None,  # accepted for call-site compatibility
+        workspace: Workspace | None = None,
     ) -> None:
-        del workspace  # sessions are always built from directory + ports
         if directory is None:
             directory = os.environ.get("MAIN_DIRECTORY", ".")
-        self._directory = Path(directory)
-        self.s3_sync_bucket = s3_sync_bucket
-
-        self._ports = _build_ports(self._directory)
-        # Single FileManager shared by all sessions — it is workspace-rooted and
-        # stateless except for the optional remote backend, which is workspace-wide.
-        self._file_manager = FileManager(
-            directory_tree=DirectoryTree(root=UPath(self._ports.root)),
-            file_backend=self._ports.files,
+        self._workspace: Workspace = workspace or Workspace(
+            root_dir=directory,
+            s3_sync_bucket=s3_sync_bucket,
         )
-        # Registry: (network, station) -> StationSession
-        self._sessions: dict[tuple[str, str], StationSession] = {}
         self._garpos_handlers: dict[tuple[str, str], GarposHandler] = {}
-        self._active: StationSession | None = None
+
+    @property
+    def _directory(self) -> Path:
+        return self._workspace.root
+
+    @property
+    def s3_sync_bucket(self) -> str | None:
+        return self._workspace.s3_sync_bucket
+
+    @property
+    def _active(self) -> StationSession | None:
+        return self._workspace._active
 
     # ------------------------------------------------------------------
     # Session registry
     # ------------------------------------------------------------------
 
     def _get_or_build_session(self, network: str, station: str) -> StationSession:
-        """Return the cached session for *(network, station)*, building it on first use."""
-        key = (network, station)
-        if key not in self._sessions:
-            self._sessions[key] = StationSession(
-                network=network,
-                station=station,
-                catalog=self._ports.catalog,
-                file_manager=self._file_manager,
-                archive=self._ports.archive,
-                remote_root=self.s3_sync_bucket,
-            )
-        return self._sessions[key]
+        return self._workspace._get_or_build_session(network, station)
 
     @property
     def _session(self) -> StationSession:
@@ -179,25 +169,14 @@ class WorkflowHandler:
         station_id: str | None = None,
         campaign_id: str | None = None,
     ) -> None:
-        """Activate a network/station context, optionally setting a campaign.
-
-        If the ``(network, station)`` pair has been seen before the existing
-        session is reused; otherwise a new one is built.  Campaign state is
-        updated only when *campaign_id* differs from the session's current
-        campaign, avoiding redundant directory materialisation.
-        """
+        """Activate a network/station context, optionally setting a campaign."""
         if station_id is None:
             return
-        session = self._get_or_build_session(network_id, station_id)
-        if campaign_id is not None and campaign_id != session.campaign_name:
-            session.set_campaign(campaign_id)
-            if session.campaign.layout is not None:
-                change_all_logger_dirs(session.campaign.layout.logs)
-                os.environ["LOG_FILE_PATH"] = str(session.campaign.layout.logs)
-            logger.info(
-                f"Active context: {network_id} / {station_id} / {campaign_id}"
-            )
-        self._active = session
+        session = self._workspace.set_active(network_id, station_id, campaign_id)
+        if campaign_id is not None and session.campaign.layout is not None:
+            change_all_logger_dirs(session.campaign.layout.logs)
+            os.environ["LOG_FILE_PATH"] = str(session.campaign.layout.logs)
+            logger.info(f"Active context: {network_id} / {station_id} / {campaign_id}")
 
     def list_campaign_directories(self) -> list[Path]:
         """List campaign subdirectories for the current station."""

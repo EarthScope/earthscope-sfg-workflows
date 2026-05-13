@@ -370,3 +370,82 @@ class TestWorkflowBase:
         assert not hasattr(wf, "catalog")
         assert not hasattr(wf, "files")
         assert not hasattr(wf, "archive")
+
+
+# ---------------------------------------------------------------------------
+# Workspace class
+# ---------------------------------------------------------------------------
+
+from earthscope_sfg_workflows.workflows.workspace import Workspace as RealWorkspace  # noqa: E402
+
+
+class TestRealWorkspace:
+    def _ws(self, **kw):
+        return RealWorkspace.for_test(**kw)
+
+    def test_for_test_has_root(self):
+        ws = self._ws(root="/data")
+        assert ws.root == Path("/data")
+
+    def test_session_raises_without_active(self):
+        ws = self._ws()
+        with pytest.raises(RuntimeError, match="No active session"):
+            _ = ws.session
+
+    def test_set_active_returns_session(self):
+        ws = self._ws()
+        sess = ws.set_active("NET", "STA")
+        assert sess.network_name == "NET"
+        assert sess.station_name == "STA"
+        assert ws.session is sess
+
+    def test_set_active_sets_campaign(self):
+        ws = self._ws()
+        sess = ws.set_active("NET", "STA", campaign="2026_A")
+        assert sess.campaign_name == "2026_A"
+
+    def test_get_session_does_not_change_active(self):
+        ws = self._ws()
+        ws.set_active("NET", "STA")
+        ws.get_session("NET2", "STA2")
+        assert ws.session.network_name == "NET"
+
+    def test_sessions_are_cached(self):
+        ws = self._ws()
+        s1 = ws.set_active("NET", "STA")
+        s2 = ws.get_session("NET", "STA")
+        assert s1 is s2
+
+    def test_list_networks_empty(self):
+        ws = self._ws()
+        assert ws.list_networks() == []
+
+    def test_list_campaigns_via_distinct_values(self):
+        from earthscope_sfg_workflows.data_mgmt.adapters.memory import InMemoryAssetStore
+        from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind, SFGScope
+
+        cat = InMemoryAssetStore()
+        cat.add(AssetEntry(scope=SFGScope("NET", "STA", "2025_A"), kind=AssetKind.NOVATEL, local_path=Path("/f1")))
+        cat.add(AssetEntry(scope=SFGScope("NET", "STA", "2026_B"), kind=AssetKind.NOVATEL, local_path=Path("/f2")))
+        ws = self._ws(catalog=cat)
+        campaigns = ws.list_campaigns("NET", "STA")
+        assert campaigns == ["2025_A", "2026_B"]
+
+    def test_list_stations_filters_by_network(self):
+        from earthscope_sfg_workflows.data_mgmt.adapters.memory import InMemoryAssetStore
+        from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind, SFGScope
+
+        cat = InMemoryAssetStore()
+        cat.add(AssetEntry(scope=SFGScope("NET1", "STA1", "C"), kind=AssetKind.NOVATEL, local_path=Path("/a")))
+        cat.add(AssetEntry(scope=SFGScope("NET2", "STA2", "C"), kind=AssetKind.NOVATEL, local_path=Path("/b")))
+        ws = self._ws(catalog=cat)
+        assert ws.list_stations("NET1") == ["STA1"]
+        assert ws.list_stations("NET2") == ["STA2"]
+
+    def test_injected_ports_are_used(self):
+        from earthscope_sfg_workflows.data_mgmt.adapters.memory import InMemoryAssetStore
+
+        cat = InMemoryAssetStore()
+        ws = self._ws(catalog=cat)
+        assert ws.catalog is cat
+

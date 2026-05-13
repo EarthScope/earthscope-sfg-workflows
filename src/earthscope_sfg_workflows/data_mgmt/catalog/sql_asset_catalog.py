@@ -66,12 +66,15 @@ class MergeJobs(Base):
 
 
 def _row_to_entry(row: Assets) -> AssetEntry:
+    from ..model import SFGScope
     return AssetEntry(
         id=row.id,
         kind=AssetKind(row.type),
-        network=row.network,
-        station=row.station,
-        campaign=row.campaign,
+        scope=SFGScope(
+            network=row.network or "",
+            station=row.station or "",
+            campaign=row.campaign,
+        ),
         local_path=Path(row.local_path) if row.local_path else None,
         remote_path=row.remote_path,
         remote_type=row.remote_type,
@@ -85,9 +88,9 @@ def _row_to_entry(row: Assets) -> AssetEntry:
 
 def _entry_to_kwargs(asset: AssetEntry) -> dict:
     return {
-        "network": asset.network,
-        "station": asset.station,
-        "campaign": asset.campaign,
+        "network": asset.scope.network,
+        "station": asset.scope.station,
+        "campaign": asset.scope.campaign,
         "type": asset.kind.value,
         "local_path": str(asset.local_path) if asset.local_path else None,
         "remote_path": asset.remote_path,
@@ -190,16 +193,21 @@ class AssetCatalog:
 
     def assets_for(
         self,
+        scope: "SFGScope | None" = None,
+        kind: AssetKind | None = None,
+        *,
         network: str | None = None,
         station: str | None = None,
         campaign: str | None = None,
-        kind: AssetKind | None = None,
     ) -> list[AssetEntry]:
-        """Return assets in `scope`, optionally filtered by `kind`, ordered by id."""
+        """Return assets in ``scope``, optionally filtered by ``kind``, ordered by id."""
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        camp = scope.campaign if scope is not None else campaign
         stmt = select(Assets).where(
-            Assets.network == network,
-            Assets.station == station,
-            Assets.campaign == campaign,
+            Assets.network == net,
+            Assets.station == sta,
+            Assets.campaign == camp,
         )
         if kind is not None:
             stmt = stmt.where(Assets.type == kind.value)
@@ -209,20 +217,25 @@ class AssetCatalog:
 
     def assets_to_process(
         self,
-        network: str ,
-        station: str ,
-        campaign: str ,
-        kind: AssetKind ,
+        scope: "SFGScope | None" = None,
+        kind: AssetKind | None = None,
         override: bool = False,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
     ) -> list[AssetEntry]:
-        """Return unprocessed assets in `scope` with `parent_kind` (if given)."""
+        """Return unprocessed assets in ``scope`` filtered by ``kind``."""
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        camp = scope.campaign if scope is not None else campaign
         if override:
-            return self.assets_for(network, station, campaign, kind)
-        
+            return self.assets_for(network=net, station=sta, campaign=camp, kind=kind)
+
         stmt = select(Assets).where(
-            Assets.network == network,
-            Assets.station == station,
-            Assets.campaign == campaign,
+            Assets.network == net,
+            Assets.station == sta,
+            Assets.campaign == camp,
             Assets.is_processed.is_(False),
         )
         if kind is not None:
@@ -230,19 +243,24 @@ class AssetCatalog:
         with self._Session() as session:
             rows = session.execute(stmt.order_by(Assets.id)).scalars().all()
             return [_row_to_entry(r) for r in rows]
-        
+
     def delete(
         self,
+        scope: "SFGScope | None" = None,
+        kind: AssetKind | None = None,
+        *,
         network: str | None = None,
         station: str | None = None,
         campaign: str | None = None,
-        kind: AssetKind | None = None,
     ) -> int:
-        """Delete assets in `scope` (optionally filtered by `kind`); return count."""
+        """Delete assets matching the scope (and optional kind). Return count."""
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        camp = scope.campaign if scope is not None else campaign
         stmt = delete(Assets).where(
-            Assets.network == network,
-            Assets.station == station,
-            Assets.campaign == campaign,
+            Assets.network == net,
+            Assets.station == sta,
+            Assets.campaign == camp,
         )
         if kind is not None:
             stmt = stmt.where(Assets.type == kind.value)
@@ -257,18 +275,23 @@ class AssetCatalog:
 
     def count_by_kind(
         self,
+        scope: "SFGScope | None" = None,
+        *,
         network: str | None = None,
         station: str | None = None,
         campaign: str | None = None,
     ) -> dict[AssetKind, int]:
         """Return a per-`AssetKind` row count for assets in the specified scope."""
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        camp = scope.campaign if scope is not None else campaign
         with self._Session() as session:
             rows = (
                 session.execute(
                     select(Assets.type).where(
-                        Assets.network == network,
-                        Assets.station == station,
-                        Assets.campaign == campaign,
+                        Assets.network == net,
+                        Assets.station == sta,
+                        Assets.campaign == camp,
                     )
                 )
                 .scalars()
@@ -282,6 +305,27 @@ class AssetCatalog:
                 # Unknown legacy type values — skip rather than crash callers.
                 continue
         return dict(counts)
+
+    def distinct_values(self, field: str, **filters: str | None) -> list[str]:
+        """Return sorted distinct non-null values of *field* matching *filters*."""
+        _col_map = {
+            "network": Assets.network,
+            "station": Assets.station,
+            "campaign": Assets.campaign,
+        }
+        if field not in _col_map:
+            raise ValueError(f"Unsupported field for distinct_values: {field!r}")
+        col = _col_map[field]
+        stmt = select(col).where(col.isnot(None))
+        for k, v in filters.items():
+            if k not in _col_map:
+                raise ValueError(f"Unsupported filter key: {k!r}")
+            if v is not None:
+                stmt = stmt.where(_col_map[k] == v)
+        stmt = stmt.distinct()
+        with self._Session() as session:
+            rows = session.execute(stmt).scalars().all()
+        return sorted(r for r in rows if r)
 
     def close(self) -> None:
         """Dispose of the underlying SQLAlchemy `Engine`."""

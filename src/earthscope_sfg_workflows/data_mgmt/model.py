@@ -64,14 +64,23 @@ class ScopeRegistry:
     layout: NetworkLayout |CampaignLayout | SurveyLayout | None
     metadata: Site | Campaign | Survey | None
 
-@dataclass
+@dataclass(frozen=True)
 class SFGScope:
-    """Identifier for a network/station/campaign[/survey] context."""
+    """Frozen identifier for a network/station/campaign[/survey] context."""
 
-    network: ScopeRegistry
-    station: ScopeRegistry
-    campaign: ScopeRegistry | None
-    survey: ScopeRegistry | None = None
+    network: str
+    station: str
+    campaign: str | None = None
+    survey: str | None = None
+
+    @property
+    def tuple(self) -> tuple[str, str, str | None, str | None]:
+        """Tuple form for quick equality checks."""
+        return (self.network, self.station, self.campaign, self.survey)
+
+    def with_survey(self, survey: str) -> "SFGScope":
+        """Return a new scope with ``survey`` set."""
+        return replace(self, survey=survey)
 
     @classmethod
     def from_ids(
@@ -81,12 +90,12 @@ class SFGScope:
         campaign_name: str | None = None,
         survey_name: str | None = None,
     ) -> "SFGScope":
-        """Helper to construct a scope with just names. Layout and metadata are left None."""
+        """Constructor alias kept for backward compatibility."""
         return cls(
-            network=ScopeRegistry(name=network_name, layout=None, metadata=None),
-            station=ScopeRegistry(name=station_name, layout=None, metadata=None),
-            campaign=ScopeRegistry(name=campaign_name, layout=None, metadata=None) if campaign_name else None,
-            survey=ScopeRegistry(name=survey_name, layout=None, metadata=None) if survey_name else None,
+            network=network_name,
+            station=station_name,
+            campaign=campaign_name,
+            survey=survey_name,
         )
 
 # ---------------------------------------------------------------------------
@@ -99,9 +108,7 @@ class AssetEntry:
     """A single asset in the catalog. Pure data, no I/O methods."""
 
     kind: AssetKind
-    network: str | None = None
-    station: str | None = None
-    campaign: str | None = None
+    scope: SFGScope
     id: int | None = None
     local_path: UPath | None = None
     remote_path: str | None = None
@@ -358,38 +365,128 @@ class DirectoryTree:
     def network_dir(self, network: str) -> UPath:
         return self.root / network
 
-    def station_dir(self,*, network:str, station:str) -> UPath:
-        return self.network_dir(network) / station
+    def station_dir(
+        self,
+        scope: "SFGScope | None" = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+    ) -> UPath:
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        if net is None or sta is None:
+            raise ValueError("Provide scope or (network, station)")
+        return self.network_dir(net) / sta
 
-    def campaign_dir(self,*, network:str, station:str, campaign:str) -> UPath:
-        return self.station_dir(network=network, station=station) / campaign
+    def campaign_dir(
+        self,
+        scope: "SFGScope | None" = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+    ) -> UPath:
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        camp = scope.campaign if scope is not None else campaign
+        if net is None or sta is None or camp is None:
+            raise ValueError("Provide scope with campaign or (network, station, campaign)")
+        return self.station_dir(network=net, station=sta) / camp
 
-    def survey_dir(self,*, network:str, station:str, campaign:str, survey:str) -> UPath:
-        if survey is None:
+    def survey_dir(
+        self,
+        scope: "SFGScope | None" = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+        survey: str | None = None,
+    ) -> UPath:
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        camp = scope.campaign if scope is not None else campaign
+        surv = scope.survey if scope is not None else survey
+        if surv is None:
             raise ValueError("survey must be set to compute survey_dir")
-        return self.campaign_dir(network=network, station=station, campaign=campaign) / survey
+        return self.campaign_dir(network=net, station=sta, campaign=camp) / surv
 
     def network(self, network: str) -> NetworkLayout:
         return NetworkLayout(root=self.network_dir(network))
-    
-    def station(self,*, network:str, station:str) -> StationLayout:
+
+    def station(
+        self,
+        scope: "SFGScope | None" = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+    ) -> StationLayout:
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        if net is None or sta is None:
+            raise ValueError("Provide scope or (network, station)")
         return StationLayout(
-            root=self.station_dir(network=network, station=station),
-            metadata=self.station_dir(network=network, station=station) / "site_metadata.json",
-            tiledb=self.tiledb(network=network, station=station),
+            root=self.station_dir(network=net, station=sta),
+            metadata=self.station_dir(network=net, station=sta) / "site_metadata.json",
+            tiledb=self.tiledb(network=net, station=sta),
         )
-    
-    def tiledb(self,*, network:str, station:str) -> TileDBLayout:
-        return TileDBLayout.for_station(self.station_dir(network=network, station=station))
 
-    def campaign(self, *,network:str, station:str, campaign:str) -> CampaignLayout:
-        return CampaignLayout.for_campaign(self.campaign_dir(network=network, station=station, campaign=campaign))
+    def tiledb(
+        self,
+        scope: "SFGScope | None" = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+    ) -> TileDBLayout:
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        if net is None or sta is None:
+            raise ValueError("Provide scope or (network, station)")
+        return TileDBLayout.for_station(self.station_dir(network=net, station=sta))
 
-    def survey(self, *,network:str, station:str, campaign:str, survey:str) -> SurveyLayout:
-        return SurveyLayout.for_survey(self.survey_dir(network=network, station=station, campaign=campaign, survey=survey))
+    def campaign(
+        self,
+        scope: "SFGScope | None" = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+    ) -> CampaignLayout:
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        camp = scope.campaign if scope is not None else campaign
+        if net is None or sta is None or camp is None:
+            raise ValueError("Provide scope with campaign or (network, station, campaign)")
+        return CampaignLayout.for_campaign(self.campaign_dir(network=net, station=sta, campaign=camp))
 
-    def garpos(self, *,network:str, station:str, campaign:str, survey:str) -> GARPOSLayout:
-        return GARPOSLayout.for_survey(self.survey_dir(network=network, station=station, campaign=campaign, survey=survey))
+    def survey(
+        self,
+        scope: "SFGScope | None" = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+        survey: str | None = None,
+    ) -> SurveyLayout:
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        camp = scope.campaign if scope is not None else campaign
+        surv = scope.survey if scope is not None else survey
+        return SurveyLayout.for_survey(self.survey_dir(network=net, station=sta, campaign=camp, survey=surv))
+
+    def garpos(
+        self,
+        scope: "SFGScope | None" = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+        survey: str | None = None,
+    ) -> GARPOSLayout:
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        camp = scope.campaign if scope is not None else campaign
+        surv = scope.survey if scope is not None else survey
+        return GARPOSLayout.for_survey(self.survey_dir(network=net, station=sta, campaign=camp, survey=surv))
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +506,14 @@ class IngestReport:
     @property
     def ok(self) -> bool:
         return not self.errors
+
+    def __add__(self, other: "IngestReport") -> "IngestReport":
+        return IngestReport(
+            cataloged=self.cataloged + other.cataloged,
+            downloaded=self.downloaded + other.downloaded,
+            skipped=self.skipped + other.skipped,
+            errors=self.errors + other.errors,
+        )
 
 
 @dataclass(frozen=True, slots=True)

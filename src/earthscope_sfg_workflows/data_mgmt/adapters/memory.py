@@ -62,15 +62,29 @@ class InMemoryAssetStore:
 
     def assets_for(
         self,
-        scope: SFGScope,
-        kind: AssetKind | None = None,
-    ) -> list[AssetEntry]:
+        scope: "SFGScope | None" = None,
+        kind: "AssetKind | None" = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+    ) -> list["AssetEntry"]:
         """Return assets within `scope`, optionally filtered by `kind`."""
         with self._lock:
             out: list[AssetEntry] = []
             for a in self._rows.values():
-                if a.scope.tuple != scope.tuple:
-                    continue
+                if scope is not None:
+                    # Exact tuple match when a full scope is given
+                    if a.scope.tuple != scope.tuple:
+                        continue
+                else:
+                    # Partial match using keyword filters
+                    if network is not None and a.scope.network != network:
+                        continue
+                    if station is not None and a.scope.station != station:
+                        continue
+                    if campaign is not None and a.scope.campaign != campaign:
+                        continue
                 if kind is not None and a.kind != kind:
                     continue
                 out.append(a)
@@ -101,6 +115,34 @@ class InMemoryAssetStore:
                 if a.scope.tuple == scope.tuple:
                     counts[a.kind] += 1
             return dict(counts)
+
+    def distinct_values(self, field: str, **filters: str | None) -> list[str]:
+        """Return sorted distinct non-null values of *field* matching *filters*."""
+        _getters = {
+            "network": lambda a: a.scope.network,
+            "station": lambda a: a.scope.station,
+            "campaign": lambda a: a.scope.campaign,
+        }
+        _filters = {
+            "network": lambda a, v: a.scope.network == v,
+            "station": lambda a, v: a.scope.station == v,
+            "campaign": lambda a, v: a.scope.campaign == v,
+        }
+        if field not in _getters:
+            raise ValueError(f"Unsupported field: {field!r}")
+        seen: set[str] = set()
+        with self._lock:
+            for a in self._rows.values():
+                if any(
+                    v is not None and not _filters[k](a, v)
+                    for k, v in filters.items()
+                    if k in _filters
+                ):
+                    continue
+                val = _getters[field](a)
+                if val:
+                    seen.add(val)
+        return sorted(seen)
 
     def delete_by_id(self, asset_id: int) -> bool:
         """Delete a single asset by id; return True iff the row existed."""

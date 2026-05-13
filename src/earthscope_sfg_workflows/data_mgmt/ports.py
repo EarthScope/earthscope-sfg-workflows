@@ -99,6 +99,14 @@ class AssetCatalogPort(Protocol):
         """Aggregate count of assets per kind in ``scope``."""
         ...
 
+    def distinct_values(self, field: str, **filters: str | None) -> list[str]:
+        """Return sorted distinct non-null values of *field* matching *filters*.
+
+        Supported fields: ``\"network\"``, ``\"station\"``, ``\"campaign\"``.
+        Supported filter keys: ``network``, ``station``, ``campaign``.
+        """
+        ...
+
     # -- merge job tracking (carried over from legacy MergeJobs table) ----
 
     def add_merge_job(

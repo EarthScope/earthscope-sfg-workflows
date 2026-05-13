@@ -1,112 +1,218 @@
-"""Backwards-compatibility shim for the former :class:`Workspace` class.
-
-.. deprecated::
-    Import :class:`~earthscope_sfg_workflows.workflows.session.StationSession` directly.
-    This module will be removed in a future release.
-
-``Workspace`` is an alias for :class:`StationSession`.  All production
-code should import from :mod:`.session` directly.  This module is retained
-so that existing ``from .workspace import Workspace`` statements continue to
-work without modification.
-
-``_build_default_workspace`` now returns a :class:`_Ports` bundle (not a
-session, since a session requires network/station/campaign at construction).
-"""
+"""Workspace — multi-session orchestration object."""
 
 from __future__ import annotations
 
 import os
-import warnings
-from dataclasses import dataclass
 from pathlib import Path
-
-warnings.warn(
-    "earthscope_sfg_workflows.workflows.workspace is deprecated. "
-    "Import StationSession from earthscope_sfg_workflows.workflows.session directly.",
-    DeprecationWarning,
-    stacklevel=2,
-)
+from typing import TYPE_CHECKING
 
 from earthscope_sfg_workflows.data_mgmt.ports import (
     ArchiveSourcePort,
     AssetCatalogPort,
     FileStorePort,
 )
+from .session import StationSession
 
-from .session import StationSession, TileDBRegistry  # noqa: F401  (re-export)
+if TYPE_CHECKING:
+    from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
+
+
+class Workspace:
+    """Multi-session orchestration object.
+
+    Owns the three infrastructure ports (catalog, files, archive) and manages
+    a pool of :class:`StationSession` instances keyed by ``(network, station)``.
+    Call :meth:`set_active` to make a session active; :attr:`session` returns it.
+    """
+
+    def __init__(
+        self,
+        root_dir: Path | str | None = None,
+        *,
+        s3_sync_bucket: str | None = None,
+        catalog: AssetCatalogPort | None = None,
+        files: FileStorePort | None = None,
+        archive: ArchiveSourcePort | None = None,
+    ) -> None:
+        # Resolve root directory
+        if root_dir is not None:
+            self._root = Path(root_dir)
+        elif os.environ.get("MAIN_DIRECTORY_GEOLAB"):
+            self._root = Path(os.environ["MAIN_DIRECTORY_GEOLAB"])
+        elif os.environ.get("MAIN_DIRECTORY"):
+            self._root = Path(os.environ["MAIN_DIRECTORY"])
+        else:
+            self._root = Path(".")
+
+        # Resolve remote bucket
+        if s3_sync_bucket is not None:
+            self._s3_sync_bucket: str | None = s3_sync_bucket
+        else:
+            raw = os.environ.get("S3_SYNC_BUCKET")
+            if raw:
+                self._s3_sync_bucket = raw if raw.startswith("s3://") else f"s3://{raw}"
+            else:
+                self._s3_sync_bucket = None
+
+        # Build production ports when not injected
+        if catalog is None or files is None or archive is None:
+            _p = _build_ports(self._root)
+            self._catalog: AssetCatalogPort = catalog or _p.catalog
+            self._files: FileStorePort = files or _p.files
+            self._archive: ArchiveSourcePort = archive or _p.archive
+        else:
+            self._catalog = catalog
+            self._files = files
+            self._archive = archive
+
+        self._sessions: dict[tuple[str, str], StationSession] = {}
+        self._active: StationSession | None = None
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def root(self) -> Path:
+        return self._root
+
+    @property
+    def s3_sync_bucket(self) -> str | None:
+        return self._s3_sync_bucket
+
+    @property
+    def catalog(self) -> AssetCatalogPort:
+        return self._catalog
+
+    @property
+    def files(self) -> FileStorePort:
+        return self._files
+
+    @property
+    def archive(self) -> ArchiveSourcePort:
+        return self._archive
+
+    @property
+    def session(self) -> StationSession:
+        """Active session. Raises ``RuntimeError`` if :meth:`set_active` has not been called."""
+        if self._active is None:
+            raise RuntimeError("No active session. Call set_active() first.")
+        return self._active
+
+    # ------------------------------------------------------------------
+    # Session management
+    # ------------------------------------------------------------------
+
+    def set_active(
+        self,
+        network: str,
+        station: str,
+        campaign: str | None = None,
+    ) -> StationSession:
+        """Get-or-create the session for *(network, station)* and make it active."""
+        sess = self._get_or_build_session(network, station)
+        if campaign is not None and sess.campaign_name != campaign:
+            sess.set_campaign(campaign)
+        self._active = sess
+        return sess
+
+    def get_session(self, network: str, station: str) -> StationSession:
+        """Return the session for *(network, station)* without changing :attr:`session`."""
+        return self._get_or_build_session(network, station)
+
+    def _get_or_build_session(self, network: str, station: str) -> StationSession:
+        key = (network, station)
+        if key not in self._sessions:
+            from earthscope_sfg_workflows.data_mgmt.core import FileManager
+            from earthscope_sfg_workflows.data_mgmt.model import DirectoryTree
+
+            file_manager = FileManager(DirectoryTree(root=self._root), self._files)
+            self._sessions[key] = StationSession(
+                network,
+                station,
+                catalog=self._catalog,
+                file_manager=file_manager,
+                archive=self._archive,
+                remote_root=self._s3_sync_bucket,
+            )
+        return self._sessions[key]
+
+    # ------------------------------------------------------------------
+    # Catalog queries
+    # ------------------------------------------------------------------
+
+    def list_networks(self) -> list[str]:
+        return self._catalog.distinct_values("network")
+
+    def list_stations(self, network: str) -> list[str]:
+        return self._catalog.distinct_values("station", network=network)
+
+    def list_campaigns(self, network: str, station: str) -> list[str]:
+        return self._catalog.distinct_values("campaign", network=network, station=station)
+
+    def query_assets(
+        self,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        kind: "AssetKind | None" = None,
+    ) -> "list[AssetEntry]":
+        return self._catalog.assets_for(network=network, station=station, kind=kind)
+
+    # ------------------------------------------------------------------
+    # Test factory
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def for_test(
+        cls,
+        *,
+        root: str | Path | None = None,
+        catalog: AssetCatalogPort | None = None,
+        files: FileStorePort | None = None,
+        archive: ArchiveSourcePort | None = None,
+    ) -> "Workspace":
+        """Build a ``Workspace`` backed by in-memory adapters (no disk/network)."""
+        from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
+            FakeArchive,
+            InMemoryAssetStore,
+            InMemoryFileStore,
+        )
+
+        return cls(
+            root_dir=root or Path("/ws"),
+            catalog=catalog or InMemoryAssetStore(),
+            files=files or InMemoryFileStore(),
+            archive=archive or FakeArchive(),
+        )
+
 
 # ---------------------------------------------------------------------------
-# Type alias — "Workspace" is now just a CampaignSession.
+# Internal helpers
 # ---------------------------------------------------------------------------
 
-Workspace = StationSession
+def _build_ports(directory: Path | str):
+    from dataclasses import dataclass
 
-# ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
-
-
-def _to_asset_kind(t: object):
-    """Translate a user-facing AssetType enum/str to :class:`~earthscope_sfg_workflows.data_mgmt.model.AssetKind`."""
-    from earthscope_sfg_workflows.config.file_config import AssetType
-    from earthscope_sfg_workflows.data_mgmt.model import AssetKind
-
-    if isinstance(t, AssetType):
-        return AssetKind(t.value)
-    return AssetKind(str(t).lower())
-
-
-# ---------------------------------------------------------------------------
-# Ports bundle (replaces old Workspace as the pre-session container)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class _Ports:
-    """Lightweight container holding the three injected ports and root dir."""
-
-    root: Path
-    catalog: AssetCatalogPort
-    files: FileStorePort
-    archive: ArchiveSourcePort
-
-
-def _build_ports(directory: "Path | str") -> _Ports:
-    """Construct the production set of port adapters for *directory*."""
-    from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import (
-        LocalFileStore,
-        S3FileStore,
-    )
+    from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import LocalFileStore
     from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import EarthScopeArchive
     from earthscope_sfg_workflows.data_mgmt.catalog.sql_asset_catalog import AssetCatalog
 
-    is_s3 = str(directory).startswith("s3://")
-    if is_s3:
-        files: FileStorePort = S3FileStore()
-        catalog_db = Path(os.environ.get("MAIN_DIRECTORY", ".")) / "catalog.sqlite"
-        root: Path = Path(str(directory))
-    else:
-        files = LocalFileStore(root=directory)
-        root = Path(directory)
-        root.mkdir(parents=True, exist_ok=True)
-        catalog_db = root / "catalog.sqlite"
+    @dataclass
+    class _P:
+        root: Path
+        catalog: AssetCatalogPort
+        files: FileStorePort
+        archive: ArchiveSourcePort
 
-    catalog = AssetCatalog.sqlite(catalog_db)
-    archive = EarthScopeArchive()
-    return _Ports(root=root, catalog=catalog, files=files, archive=archive)
-
-
-def _build_default_workspace(directory: "Path | str") -> _Ports:
-    """Legacy name for :func:`_build_ports`.  Returns a :class:`_Ports` bundle."""
-    return _build_ports(directory)
+    root = Path(directory)
+    root.mkdir(parents=True, exist_ok=True)
+    return _P(
+        root=root,
+        catalog=AssetCatalog.sqlite(root / "catalog.sqlite"),
+        files=LocalFileStore(root=root),
+        archive=EarthScopeArchive(),
+    )
 
 
-__all__ = [
-    "StationSession",
-    "TileDBRegistry",
-    "Workspace",
-    "_Ports",
-    "_build_default_workspace",
-    "_build_ports",
-    "_to_asset_kind",
-]
+__all__ = ["Workspace", "StationSession"]

@@ -214,25 +214,65 @@ class FileManager:
             self.file_backend.mkdir(path)
         return station_layout
 
-    def ensure_campaign(self,*,network:str,station:str,campaign:str) -> CampaignLayout:
+    def ensure_campaign(
+        self,
+        scope: "SFGScope | None" = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+    ) -> CampaignLayout:
         """Materialize the campaign directory tree (top-down); return the layout."""
-        self.file_backend.mkdir(self.directory_tree.network_dir(network=network))
-        self.file_backend.mkdir(self.directory_tree.station_dir(network=network, station=station))
-        layout = self.directory_tree.campaign(network=network, station=station, campaign=campaign)
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        camp = scope.campaign if scope is not None else campaign
+        self.file_backend.mkdir(self.directory_tree.network_dir(network=net))
+        self.file_backend.mkdir(self.directory_tree.station_dir(network=net, station=sta))
+        layout = self.directory_tree.campaign(network=net, station=sta, campaign=camp)
         for path in layout.standard_dirs:
             self.file_backend.mkdir(path)
         return layout
 
-    def ensure_survey(self,*,network:str,station:str,campaign:str,survey:str) -> SurveyLayout:
+    def ensure_survey(
+        self,
+        scope: "SFGScope | None" = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+        survey: str | None = None,
+    ) -> SurveyLayout:
         """Materialize the survey directory; return the layout."""
-        survey_layout:SurveyLayout = self.directory_tree.survey(network=network, station=station, campaign=campaign, survey=survey)
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        camp = scope.campaign if scope is not None else campaign
+        surv = scope.survey if scope is not None else survey
+        survey_layout: SurveyLayout = self.directory_tree.survey(
+            network=net, station=sta, campaign=camp, survey=surv
+        )
         for path in survey_layout.standard_dirs:
             self.file_backend.mkdir(path)
-        return self.directory_tree.survey(network=network, station=station, campaign=campaign, survey=survey)
-    
-    def ensure_garpos_survey(self,*,network:str,station:str,campaign:str,survey:str) -> GARPOSLayout:
+        return self.directory_tree.survey(network=net, station=sta, campaign=camp, survey=surv)
+
+    def ensure_garpos_survey(
+        self,
+        scope: "SFGScope | None" = None,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+        survey: str | None = None,
+    ) -> GARPOSLayout:
         """Materialize the GARPOS survey directory tree; requires ``scope.survey``."""
-        layout = self.directory_tree.garpos(network=network, station=station, campaign=campaign, survey=survey)
+        net = scope.network if scope is not None else network
+        sta = scope.station if scope is not None else station
+        camp = scope.campaign if scope is not None else campaign
+        surv = scope.survey if scope is not None else survey
+        if surv is None:
+            raise ValueError("survey is required for ensure_garpos_survey")
+        layout = self.directory_tree.garpos(
+            network=net, station=sta, campaign=camp, survey=surv
+        )
         for path in layout.standard_dirs:
             self.file_backend.mkdir(path)
         return layout
@@ -259,19 +299,22 @@ class Ingestor:
         file_manager: FileManager,
         archive: ArchiveSourcePort,
         patterns: Iterable[tuple[re.Pattern[str], AssetKind]] | None = None,
-
+        *,
+        detector: FileTypeDetector | None = None,
     ) -> None:
         self._catalog = catalog
         self._file_manager = file_manager
         self._archive = archive
-        self._patterns = tuple(patterns if patterns is not None else DEFAULT_PATTERNS)
+        if detector is not None:
+            self._detector = detector
+        elif patterns is not None:
+            self._detector = FileTypeDetector(patterns)
+        else:
+            self._detector = FileTypeDetector()
 
     def detect(self, filename: str) -> AssetKind | None:
         """Return the first matching kind, or ``None`` if no pattern matches."""
-        for pattern, kind in self._patterns:
-            if pattern.search(filename):
-                return kind
-        return None
+        return self._detector.detect(filename)
 
     # -- local ingest ------------------------------------------------------
 
@@ -299,9 +342,7 @@ class Ingestor:
 
             asset = AssetEntry(
                 kind=kind,
-                network=scope.network.name if scope.network else None,
-                station=scope.station.name if scope.station else None,
-                campaign=scope.campaign.name if scope.campaign else None,
+                scope=scope,
                 local_path=info.path,
                 timestamp_created=_now(),
             )
@@ -378,9 +419,7 @@ class Ingestor:
                             dest.write_bytes(reader.read())
                             asset = AssetEntry(
                                 kind=AssetKind.QCPIN,
-                                network=scope.network.name if scope.network else None,
-                                station=scope.station.name if scope.station else None,
-                                campaign=scope.campaign.name if scope.campaign else None,
+                                scope=scope,
                                 local_path=UPath(dest),
                                 timestamp_created=_now(),
                             )
@@ -422,9 +461,7 @@ class Ingestor:
                 continue
             asset = AssetEntry(
                 kind=kind,
-                network=scope.network.name if scope.network else None,
-                station=scope.station.name if scope.station else None,
-                campaign=scope.campaign.name if scope.campaign else None,
+                scope=scope,
                 remote_path=af.url,
                 remote_type="http",
                 timestamp_created=_now(),
@@ -445,7 +482,9 @@ class Ingestor:
 
     def discover_campaign(self, scope: SFGScope) -> IngestReport:
         """Discover the canonical EarthScope campaign URLs and catalog them."""
-        from .archives.earthscope._archive_urls import canonical_campaign_urls
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import (
+            canonical_campaign_urls,
+        )
 
         cataloged = 0
         skipped = 0
@@ -465,7 +504,9 @@ class Ingestor:
 
     def list_archive_urls(self, scope: SFGScope) -> list[str]:
         """Enumerate every archive file URL for ``scope`` without writing to the catalog."""
-        from .archives.earthscope._archive_urls import list_campaign_archive_urls
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import (
+            list_campaign_archive_urls,
+        )
 
         return list_campaign_archive_urls(self._archive, scope)
 
