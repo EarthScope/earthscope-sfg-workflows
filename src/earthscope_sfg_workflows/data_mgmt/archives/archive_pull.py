@@ -10,13 +10,13 @@ from earthscope_cli.login import login as es_login
 from earthscope_sdk import EarthScopeClient
 from earthscope_sdk.config.settings import SdkSettings
 
+from earthscope_sfg_workflows.data_mgmt.core import FileTypeDetector
 from earthscope_sfg_workflows.data_mgmt.ports import ArchiveAuthError
 from earthscope_sfg_workflows.logging import ProcessLogger as logger
 from earthscope_sfg_tools.datamodels.metadata import Site, Vessel, import_site, import_vessel
 from ..model import AssetKind, SFGScope
 
-
-from .datadiscovery import get_file_type_remote
+_detector = FileTypeDetector()
 
 ssl._create_default_https_context = ssl._create_stdlib_context
 
@@ -429,7 +429,7 @@ def list_file_counts_by_type(file_list: list, url: str | None = None, show_logs=
     """
     file_dict = defaultdict(list)
     for file in file_list:
-        file_type: AssetKind = get_file_type_remote(file)
+        file_type: AssetKind = _detector.detect(Path(file).name)
 
         if file_type is not None:
             file_dict[file_type.value].append(file)

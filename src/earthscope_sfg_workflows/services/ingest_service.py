@@ -40,9 +40,10 @@ class IngestService:
         """
         effective_override = self.override if override is None else override
         if tarball_dir is None:
-            if self._s.campaign.layout is None:
+            layout = self._s.active_campaign_layout
+            if layout is None:
                 raise ValueError("qcpin_tarballs requires a campaign with a layout")
-            tarball_dir = Path(self._s.campaign.layout.qc)
+            tarball_dir = Path(layout.qc)
         return self._s._ingestor.ingest_qcpin_tarballs(self._s.scope, tarball_dir, override=effective_override)
 
     def discover_remote(self) -> "IngestReport":
@@ -61,7 +62,8 @@ class IngestService:
         *override* defaults to the value set at construction when not passed.
         """
         effective_override = self.override if override is None else override
-        dest_dir = self._s.campaign.layout.raw if self._s.campaign.layout else None
+        layout = self._s.active_campaign_layout
+        dest_dir = layout.raw if layout else None
         return self._s._ingestor.download(
             self._s.scope,
             kinds=kinds,

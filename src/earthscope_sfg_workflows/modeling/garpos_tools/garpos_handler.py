@@ -30,16 +30,16 @@ from ...config.loadconfigs import (  # noqa: E402
     get_survey_filter_config,
 )
 from ...data_mgmt.model import GARPOSLayout  # noqa: E402
-from ...modeling.garpos_tools.data_prep import (  # noqa: E402
+from .data_prep import (  # noqa: E402
     GP_Transponders_from_benchmarks,
     apply_survey_config,
     get_array_dpos_center,
     prepare_garpos_input_from_survey,
     prepare_shotdata_for_garpos,
 )
-from ...modeling.garpos_tools.functions import CoordTransformer, process_garpos_results  # noqa: E402
-from ...modeling.garpos_tools.load_utils import get_drive_garpos, get_lib_paths  # noqa: E402
-from ...modeling.garpos_tools.schemas import (  # noqa: E402
+from .functions import CoordTransformer, process_garpos_results  # noqa: E402
+from .load_utils import get_drive_garpos, get_lib_paths  # noqa: E402
+from .schemas import (  # noqa: E402
     GarposFixed,
     GarposInput,
     InversionParams,
@@ -48,7 +48,7 @@ from ...modeling.garpos_tools.schemas import (  # noqa: E402
 from ...prefiltering import filter_shotdata  # noqa: E402
 from earthscope_sfg_workflows.logging import GarposLogger as logger  # noqa: E402
 from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config  # noqa: E402
-from ..session import StationSession  # noqa: E402
+from earthscope_sfg_workflows.workflows.session import StationSession  # noqa: E402
 
 colors = [
     "blue",

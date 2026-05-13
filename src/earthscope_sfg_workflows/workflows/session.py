@@ -16,43 +16,32 @@ from __future__ import annotations
 
 import json
 import warnings
-from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Literal, Optional, TypeVar
+from typing import TYPE_CHECKING, Callable, Optional, TypeVar
 
-from pride_ppp import PrideCLIConfig
 from upath import UPath
 
 from earthscope_sfg_workflows.data_mgmt.core import (
     FileManager,
     Ingestor,
-    LayoutInspector,
 )
 from earthscope_sfg_workflows.data_mgmt.ports import ArchiveNotFoundError
 from earthscope_sfg_workflows.data_mgmt.model import (
-    AssetKind,
     CampaignLayout,
     GARPOSLayout,
-    IngestReport,
     NetworkLayout,
     SFGScope,
     DirectoryTree,
     StationLayout,
     SurveyLayout,
-    SurveyLayout,
     TileDBLayout,
 )
 
-from earthscope_sfg_tools.datamodels.metadata import Campaign, Site, Survey
+from earthscope_sfg_tools.datamodels.metadata import Campaign, Site
 
 _Site = Site  # alias kept for the .from_json() classmethod call below
-from earthscope_sfg_tools.tiledb_integration import (
-    TDBIMUPositionArray,
-    TDBKinPositionArray,
-    TDBShotDataArray,
-)
 
 from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
 from earthscope_sfg_workflows.data_mgmt.model import DirectoryTree
@@ -63,10 +52,6 @@ from earthscope_sfg_workflows.data_mgmt.ports import (
 )
 from earthscope_sfg_workflows.data_mgmt.ports import ArchiveNotFoundError
 from earthscope_sfg_workflows.logging import GarposLogger as logger
-from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
-from earthscope_sfg_workflows.workflows.pipelines.config import DFOP00Config, DFOP00Config, NovatelConfig, PositionUpdateConfig, QCPipelineConfig, SV3PipelineConfig,RinexConfig
-from earthscope_sfg_workflows.workflows.pipelines.sv3_pipeline import SV3_JOBS, SV3Pipeline
-from earthscope_sfg_workflows.workflows.pipelines.qc_pipeline import QC_JOBS, QCPipeline
 
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -74,10 +59,12 @@ if TYPE_CHECKING:  # pragma: no cover
         TDBAcousticArray,
         TDBGNSSObsArray,
     )
+    from earthscope_sfg_workflows.services.ingest_service import IngestService
+    from earthscope_sfg_workflows.services.pipeline_service import PipelineService
+    from earthscope_sfg_workflows.services.sync_service import SyncService
 
 _F = TypeVar("_F", bound=Callable)
 
-_Config = SV3PipelineConfig | PrideCLIConfig | NovatelConfig | RinexConfig | DFOP00Config | PositionUpdateConfig
 # ---------------------------------------------------------------------------
 # Method-level scope enforcement decorators (for CampaignSession internals)
 # ---------------------------------------------------------------------------
@@ -195,8 +182,10 @@ class StationSession:
             archive=self._archive,
         )
 
-        self._sv3_pipeline = None  # lazy init in get_pipeline_sv3
-        self._qc_pipeline = None   # lazy init in get_pipeline_qc
+        # Lazy-initialised service instances.
+        self._ingest_service = None
+        self._pipeline_service = None
+        self._sync_service = None
 
     # ------------------------------------------------------------------
     # Remote configuration
@@ -283,61 +272,6 @@ class StationSession:
         except AttributeError:
             pass
         return None
-
-    @_require_campaign
-    def ingest_local(self,source_dir:UPath) -> None:
-        """Ingest files from a local directory into the session's asset catalog."""
-        report: IngestReport = self._ingestor.ingest_local(self.scope, source_dir)
-        logger.info(f"Ingested {report.cataloged} assets from {source_dir} with {report.errors} errors")
-
-    @_require_campaign
-    def ingest_qcpin_tarballs(
-        self,
-        tarball_dir: Path | None = None,
-        *,
-        override: bool = False,
-    ) -> None:
-        """Extract ``.pin`` files from ``.tar.gz`` tarballs and catalog them as QCPIN assets.
-
-        Defaults to the campaign's ``qc/`` directory when *tarball_dir* is not given.
-        """
-        if tarball_dir is None:
-            if self._campaign_layout is None:
-                raise ValueError("ingest_qcpin_tarballs requires a campaign with a layout")
-            tarball_dir = Path(self._campaign_layout.qc)
-        report: IngestReport = self._ingestor.ingest_qcpin_tarballs(
-            self.scope, tarball_dir, override=override
-        )
-        logger.info(
-            f"Ingested {report.cataloged} QCPIN assets from tarballs in {tarball_dir}"
-            f" ({report.skipped} skipped, {len(report.errors)} errors)"
-        )
-
-    @_require_campaign
-    def discover_remote(self) -> None:
-        """Discover assets in the archive for the current scope and add to catalog."""
-        report: IngestReport = self._ingestor.discover_archive(self.scope)
-        logger.info(f"Discovered {report.cataloged} assets in archive for scope {self.scope} with {report.errors} errors")
-
-    @_require_campaign
-    def download_remote(
-        self,
-        kinds: list[AssetKind] | None = None,
-        override: bool = False,
-        rinex_1hz: bool = False,
-    ) -> None:
-        """Download assets from the archive for the current scope to local storage.
-
-        Args:
-            kinds: Restrict downloads to these asset kinds. ``None`` downloads all.
-            override: Re-download even when a local file already exists.
-            rinex_1hz: When ``True``, keep only 1-Hz RINEX files.
-        """
-        dest_dir = self._campaign_layout.raw
-        report: IngestReport = self._ingestor.download(
-            self.scope, kinds=kinds, dest_dir=dest_dir, override=override, rinex_1hz=rinex_1hz
-        )
-        logger.info(f"Downloaded {report.downloaded} files (skipped {report.skipped})")
 
     # ------------------------------------------------------------------
     # Mutation
@@ -494,6 +428,39 @@ class StationSession:
         """Load pre-fetched site metadata into this session (test helper)."""
         self._site = site  # type: ignore[assignment]
 
+    @property
+    def active_campaign_layout(self) -> "CampaignLayout | None":
+        """The :class:`CampaignLayout` for the currently active campaign, or ``None``."""
+        return self._campaign_layout
+
+    # ------------------------------------------------------------------
+    # Service properties (lazy-initialised)
+    # ------------------------------------------------------------------
+
+    @property
+    def ingest(self) -> "IngestService":
+        """Ingest operations scoped to this session."""
+        from earthscope_sfg_workflows.services.ingest_service import IngestService
+        if self._ingest_service is None:
+            self._ingest_service = IngestService(self)
+        return self._ingest_service
+
+    @property
+    def pipeline(self) -> "PipelineService":
+        """Pipeline construction and execution scoped to this session."""
+        from earthscope_sfg_workflows.services.pipeline_service import PipelineService
+        if self._pipeline_service is None:
+            self._pipeline_service = PipelineService(self)
+        return self._pipeline_service
+
+    @property
+    def sync(self) -> "SyncService":
+        """Remote sync operations scoped to this session."""
+        from earthscope_sfg_workflows.services.sync_service import SyncService
+        if self._sync_service is None:
+            self._sync_service = SyncService(self)
+        return self._sync_service
+
     # ------------------------------------------------------------------
     # Test factory
     # ------------------------------------------------------------------
@@ -546,8 +513,9 @@ class StationSession:
         object.__setattr__(self, "_campaign_layout", None)
         object.__setattr__(self, "_survey_layout", None)
         object.__setattr__(self, "_campaign_meta", None)
-        object.__setattr__(self, "_sv3_pipeline", None)
-        object.__setattr__(self, "_qc_pipeline", None)
+        object.__setattr__(self, "_ingest_service", None)
+        object.__setattr__(self, "_pipeline_service", None)
+        object.__setattr__(self, "_sync_service", None)
         object.__setattr__(
             self,
             "_ingestor",
@@ -560,255 +528,3 @@ class StationSession:
             self.set_survey(survey)
 
         return self
-
-
-
-    def get_pipeline_sv3(self, config: Optional[SV3PipelineConfig] = None, secondary_config: Optional[_Config] = None) -> SV3Pipeline:
-        """Get a pipeline instance for the current session scope."""
-
-        base_config = SV3PipelineConfig()
-        base_config_updated = base_config.model_copy()
-        # Merge primary config if provided, overwriting defaults. Also check for misspelled keys
-        if config is not None:
-            if isinstance(
-                config,
-                _Config
-            ):
-                config = config.model_dump()
-
-            base_config_updated = validate_and_merge_config(
-                base_class=base_config, override_config=config
-            )
-
-        # Merge secondary config if provided, overwriting primary and defaults. Also check for misspelled keys
-        if secondary_config is not None:
-            if isinstance(
-                secondary_config,
-                _Config
-            ):
-                secondary_config = secondary_config.model_dump()
-            base_config_updated = validate_and_merge_config(
-                base_class=base_config_updated, override_config=secondary_config
-            )
-
-        if self._sv3_pipeline is None:
-            self._sv3_pipeline = SV3Pipeline(
-                catalog=self._catalog,
-                scope=self.scope,
-                config=base_config_updated,
-            )
-        else:
-            # Update config of existing pipeline instance
-            self._sv3_pipeline.config = base_config_updated
-
-        return self._sv3_pipeline
-
-    def get_pipeline_qc(self, config: Optional[QCPipelineConfig] = None, secondary_config: Optional[_Config] = None) -> QCPipeline:
-        """Get a QC pipeline instance for the current session scope."""
-        base_config = QCPipelineConfig()
-        base_config_updated = base_config.model_copy()
-        if config is not None:
-            if isinstance(config, QCPipelineConfig):
-                config = config.model_dump()
-            base_config_updated = validate_and_merge_config(
-                base_class=base_config, override_config=config
-            )
-        if secondary_config is not None:
-            if isinstance(
-                secondary_config,
-                _Config
-            ):
-                secondary_config = secondary_config.model_dump()
-            base_config_updated = validate_and_merge_config(
-                base_class=base_config_updated, override_config=secondary_config
-            )
-        if self._qc_pipeline is None:
-            self._qc_pipeline = QCPipeline(
-                catalog=self._catalog,
-                scope=self.scope,
-                config=base_config_updated,
-            )
-        else:
-            self._qc_pipeline.config = base_config_updated
-        return self._qc_pipeline
-
-    def run_pipeline_qc(
-        self,
-        job: Literal[
-            "all",
-            "process_qcpin",
-            "build_rinex",
-            "run_pride",
-            "process_kinematic",
-            "refine_shotdata",
-        ] = "all",
-        config: Optional[QCPipelineConfig] = None,
-    ) -> None:
-        """Run the QC pipeline for the current session scope."""
-        assert job in QC_JOBS, f"Job must be one of {list(QC_JOBS.keys())}"
-        pipeline = self.get_pipeline_qc(config=config)
-        try:
-            QC_JOBS[job](pipeline)
-        except Exception as e:
-            logger.error(f"QC job '{job}' failed: {e}")
-            raise e
-
-    def run_pipeline_sv3(
-        self,
-        job: Literal[
-            "all",
-            "intermediate",
-            "process_novatel",
-            "build_rinex",
-            "run_pride",
-            "process_kinematic",
-            "process_dfop00",
-            "refine_shotdata",
-            "process_svp",
-        ] = "all",
-        config: Optional[_Config] = None,
-        secondary_config: Optional[_Config] = None,
-    ) -> None:
-        """Run the SV3 pipeline for the current session scope."""
-        assert job in SV3_JOBS, f"Job must be one of {SV3_JOBS.keys()}"
-
-        pipeline = self.get_pipeline_sv3(config=config, secondary_config=secondary_config)
-        try:
-            SV3_JOBS[job](pipeline)
-        except Exception as e:
-            logger.error(f"SV3 job '{job}' failed: {e}")
-            raise e
-
-    # ------------------------------------------------------------------
-    # Remote sync (push / pull)
-    # ------------------------------------------------------------------
-
-    def push_station_to_remote(self, overwrite: bool = False) -> None:
-        """Upload TileDB arrays for the current station to the remote backend."""
-        if not self._file_manager.has_remote:
-            logger.warning("push_station_to_remote: no remote configured, skipping.")
-            return
-        tiledb = self.tiledb_layout()
-        for path in tiledb.all_paths:
-            count = self._file_manager.push_dir(UPath(path), overwrite=overwrite)
-            logger.info(f"Pushed {count} files from {path}")
-
-    @_require_campaign
-    def push_campaign_to_remote(self, overwrite: bool = False) -> None:
-        """Upload SVP, RINEX, and log files for the active campaign to the remote backend."""
-        if not self._file_manager.has_remote:
-            logger.warning("push_campaign_to_remote: no remote configured, skipping.")
-            return
-        campaign = self.ensure_campaign()
-        self._compress_rinex(UPath(campaign.intermediate))
-        for dir_path in (campaign.processed, campaign.intermediate, campaign.logs):
-            count = self._file_manager.push_dir(UPath(dir_path), overwrite=overwrite)
-            logger.info(f"Pushed {count} files from {dir_path}")
-
-    def pull_from_remote(self, overwrite: bool = False) -> None:
-        """Download TileDB arrays and active campaign files from the remote mirror."""
-        if not self._file_manager.has_remote:
-            logger.warning("pull_from_remote: no remote configured, skipping.")
-            return
-        tiledb = self.tiledb_layout()
-        for path in tiledb.all_paths:
-            count = self._file_manager.pull_dir(UPath(path), overwrite=overwrite)
-            logger.info(f"Pulled {count} files to {path}")
-        if self._scope.campaign:
-            campaign = self.ensure_campaign()
-            count = self._file_manager.pull_dir(UPath(campaign.root), overwrite=overwrite)
-            logger.info(f"Pulled {count} campaign files to {campaign.root}")
-
-    def _compress_rinex(self, rinex_dir: UPath) -> None:
-        """Compress any uncompressed RINEX files in *rinex_dir* to CRINEX gz format."""
-        from earthscope_sfg_tools.rinex_tools import crinex_compress
-
-        rinex_dir = UPath(rinex_dir)
-        if not rinex_dir.exists():
-            return
-        station_name = self._scope.station
-        for rinex_file in rinex_dir.rglob(f"*{station_name}*"):
-            if not rinex_file.is_file():
-                continue
-            if ".crx" in rinex_file.suffix:
-                continue
-            if any(ext in rinex_file.suffix for ext in ["S", "d", ".gz"]):
-                continue
-            new_suffix = rinex_file.suffix[:-1] + "d"
-            compressed = rinex_file.with_suffix(new_suffix + ".gz")
-            if not compressed.exists():
-                try:
-                    crinex_compress(rinex_file, compressed, gzip=True, logger=logger.logger)
-                except Exception as e:
-                    logger.error(f"Failed to compress {rinex_file}: {e}")
-
-    # ------------------------------------------------------------------
-    # Mid-processing — survey parsing
-    # ------------------------------------------------------------------
-    @_require_site_metadata
-    @_require_campaign
-    def parse_surveys(
-        self,
-        survey_id: str | None = None,
-        override: bool = False,
-        write_intermediate: bool = False,
-    ) -> None:
-        """Parse surveys for the active campaign and write CSVs into survey dirs."""
-        campaign_meta = self._campaign_meta
-        if campaign_meta is None:
-            raise ValueError("Campaign metadata must be loaded before parse_surveys")
-
-        tiledb = self.tiledb_layout()
-        campaign = self.ensure_campaign()
-
-        shotDataTDB = TDBShotDataArray(tiledb.shotdata)
-
-        with open(campaign.metadata_file, "w") as f:
-            json.dump(campaign_meta.model_dump(mode="json"), f, indent=4)
-
-        surveys_to_process: list[Survey] = [
-            s for s in campaign_meta.surveys if survey_id is None or survey_id == s.id
-        ]
-        if not surveys_to_process:
-            raise ValueError(f"Survey {survey_id} not found in campaign {campaign_meta.name}.")
-
-        for survey in surveys_to_process:
-            self.set_survey(survey_id=survey.id)
-            survey_root = self.survey_dir
-
-            shotdata_file_name = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
-            shotdata_dest = survey_root / shotdata_file_name
-
-            if not shotdata_dest.exists() or shotdata_dest.stat().st_size == 0 or override:
-                df = shotDataTDB.read_df(start=survey.start, end=survey.end)
-                if df.empty:
-                    logger.warning(
-                        f"No shot data found for survey {survey.id} from "
-                        f"{survey.start} to {survey.end}, skipping survey."
-                    )
-                    continue
-                df.to_csv(shotdata_dest)
-
-            if write_intermediate:
-                kin_name = f"{survey.id}_{survey.type.value}_kinpositiondata.csv".replace(" ", "")
-                kin_dest = survey_root / kin_name
-                if not kin_dest.exists() or kin_dest.stat().st_size == 0 or override:
-                    kin_tdb = TDBKinPositionArray(tiledb.kin_position)
-                    kin_df = kin_tdb.read_df(start=survey.start, end=survey.end)
-                    if kin_df.empty:
-                        logger.warning(f"No kinposition data found for survey {survey.id}")
-                    else:
-                        kin_df.to_csv(kin_dest)
-
-                imu_name = f"{survey.id}_{survey.type.value}_imupositiondata.csv".replace(" ", "")
-                imu_dest = survey_root / imu_name
-                if not imu_dest.exists() or imu_dest.stat().st_size == 0 or override:
-                    imu_tdb = TDBIMUPositionArray(tiledb.imu_position)
-                    imu_df = imu_tdb.read_df(start=survey.start, end=survey.end)
-                    if imu_df.empty:
-                        logger.warning(f"No imuposition data found for survey {survey.id}")
-                    else:
-                        imu_df.to_csv(imu_dest)
-
-            with open(self.survey_metadata_file, "w") as f:
-                json.dump(survey.model_dump(mode="json"), f, indent=4)

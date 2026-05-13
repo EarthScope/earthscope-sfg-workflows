@@ -28,9 +28,9 @@ from earthscope_sfg_tools.tiledb_integration import (
 )
 from earthscope_sfg_workflows.logging import ProcessLogger
 
-from ...data_mgmt.model import AssetEntry, AssetKind, SFGScope, TileDBLayout
-from ...data_mgmt.ports import AssetCatalogPort
-from ...data_mgmt.utils import get_merge_signature_shotdata
+from ..data_mgmt.model import AssetEntry, AssetKind, SFGScope, TileDBLayout
+from ..data_mgmt.ports import AssetCatalogPort
+from ..data_mgmt.utils import get_merge_signature_shotdata
 from .config import PrideConfig, QCPipelineConfig, RinexConfig
 from .exceptions import (
     NoKinFound,

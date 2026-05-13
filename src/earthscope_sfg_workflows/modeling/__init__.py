@@ -1,1 +1,1 @@
-"""Modeling helpers and adapters (GARPOS, sfgdstf)."""
+"""Modeling helpers and run management (GARPOS)."""

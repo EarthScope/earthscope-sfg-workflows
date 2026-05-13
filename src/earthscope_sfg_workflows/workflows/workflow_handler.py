@@ -29,8 +29,8 @@ from ..config.file_config import (
 )
 from earthscope_sfg_tools.datamodels.metadata import Site
 from ..modeling.garpos_tools.schemas import InversionParams
-from .modeling.garpos_handler import GarposHandler
-from .pipelines.config import (
+from ..modeling.garpos_tools.garpos_handler import GarposHandler
+from ..pipelines.config import (
     DFOP00Config,
     NovatelConfig,
     PositionUpdateConfig,
@@ -39,8 +39,8 @@ from .pipelines.config import (
     RinexConfig,
     SV3PipelineConfig,
 )
-from .pipelines.qc_pipeline import QC_JOBS, QCPipeline
-from .pipelines.sv3_pipeline import SV3_JOBS, SV3Pipeline
+from ..pipelines.qc_pipeline import QC_JOBS, QCPipeline
+from ..pipelines.sv3_pipeline import SV3_JOBS, SV3Pipeline
 from .session import StationSession
 from .workspace import Workspace
 
@@ -174,8 +174,8 @@ class WorkflowHandler:
             return
         session = self._workspace.set_active(network_id, station_id, campaign_id)
         if campaign_id is not None and session._campaign_layout is not None:
-            change_all_logger_dirs(session.campaign.layout.logs)
-            os.environ["LOG_FILE_PATH"] = str(session.campaign.layout.logs)
+            change_all_logger_dirs(session._campaign_layout.logs)
+            os.environ["LOG_FILE_PATH"] = str(session._campaign_layout.logs)
             logger.info(f"Active context: {network_id} / {station_id} / {campaign_id}")
 
     def list_campaign_directories(self) -> list[Path]:
@@ -194,7 +194,7 @@ class WorkflowHandler:
 
     def ingest_add_local_data(self, directory_path: Path) -> None:
         """Scan *directory_path* and catalog discovered files for the active campaign."""
-        self._session.ingest_local(source_dir=UPath(directory_path))
+        self._session.ingest.local(source_dir=UPath(directory_path))
 
     def ingest_qcpin_tarballs(
         self,
@@ -206,9 +206,8 @@ class WorkflowHandler:
 
         Defaults to the active campaign's ``qc/`` directory when *tarball_dir* is not given.
         """
-        self._session.ingest_qcpin_tarballs(tarball_dir=tarball_dir, override=override)
+        self._session.ingest.qcpin_tarballs(tarball_dir=tarball_dir, override=override)
 
-  
     def download_data(
         self,
         file_types: "list[AssetType] | list[str] | str | None" = DEFAULT_FILE_TYPES_TO_DOWNLOAD,
@@ -219,7 +218,7 @@ class WorkflowHandler:
 
         *file_types* filters by asset kind; pass ``None`` to download all kinds.
         """
-        self._session.download_remote(
+        self._session.ingest.download_remote(
             kinds=_to_kinds(file_types),
             override=override,
             rinex_1hz=rinex_1Hz,
@@ -236,7 +235,7 @@ class WorkflowHandler:
         secondary_config: _SV3Config = None,
     ) -> SV3Pipeline:
         """Return a configured :class:`SV3Pipeline` for the active session."""
-        return self._session.get_pipeline_sv3(
+        return self._session.pipeline.get_sv3(
             config=primary_config, secondary_config=secondary_config
         )
 
@@ -258,7 +257,7 @@ class WorkflowHandler:
     ) -> None:
         """Run the SV3 pipeline *job* for the active session."""
         assert job in SV3_JOBS, f"Job must be one of {list(SV3_JOBS)}"
-        self._session.run_pipeline_sv3(
+        self._session.pipeline.run_sv3(
             job=job,
             config=primary_config,
             secondary_config=secondary_config,
@@ -274,7 +273,7 @@ class WorkflowHandler:
         secondary_config: _QCConfig = None,
     ) -> QCPipeline:
         """Return a configured :class:`QCPipeline` for the active session."""
-        return self._session.get_pipeline_qc(config=primary_config)
+        return self._session.pipeline.get_qc(config=primary_config)
 
     def preprocess_run_pipeline_qc(
         self,
@@ -291,11 +290,11 @@ class WorkflowHandler:
     ) -> None:
         """Run the QC pipeline *job* for the active session."""
         assert job in QC_JOBS, f"Job must be one of {list(QC_JOBS)}"
-        self._session.run_pipeline_qc(job=job, config=primary_config)
+        self._session.pipeline.run_qc(job=job, config=primary_config)
 
     def qc_get_pipeline(self, config: Optional[QCPipelineConfig] = None) -> QCPipeline:
         """Return a configured :class:`QCPipeline` (alias for :meth:`preprocess_get_pipeline_qc`)."""
-        return self._session.get_pipeline_qc(config=config)
+        return self._session.pipeline.get_qc(config=config)
 
     # ------------------------------------------------------------------
     # Mid-processing
@@ -311,7 +310,7 @@ class WorkflowHandler:
         """Parse surveys for the active campaign and write shot-data CSVs."""
         if self.s3_sync_bucket is not None:
             self.sync_from_s3(overwrite=override)
-        self._session.parse_surveys(
+        self._session.pipeline.parse_surveys(
             survey_id=survey_id,
             override=override,
             write_intermediate=write_intermediate,
@@ -327,7 +326,7 @@ class WorkflowHandler:
     ) -> None:
         """Parse surveys then prepare GARPOS shot-data for the active campaign."""
   
-        self._session.parse_surveys(
+        self._session.pipeline.parse_surveys(
             survey_id=survey_id,
             override=override_survey_parsing,
             write_intermediate=write_intermediate,
@@ -360,17 +359,17 @@ class WorkflowHandler:
     def midprocess_sync_station_data_s3(self, overwrite: bool = False, **_) -> None:
         """Upload station TileDB arrays to S3."""
         if self._ensure_remote():
-            self._session.push_station_to_remote(overwrite=overwrite)
+            self._session.sync.push_station(overwrite=overwrite)
 
     def midprocess_sync_campaign_data_s3(self, overwrite: bool = False, **_) -> None:
         """Upload campaign processed files (SVP, RINEX, logs) to S3."""
         if self._ensure_remote():
-            self._session.push_campaign_to_remote(overwrite=overwrite)
+            self._session.sync.push_campaign(overwrite=overwrite)
 
     def sync_from_s3(self, overwrite: bool = False) -> None:
         """Mirror data from the remote S3 prefix into the local workspace."""
         self._ensure_remote(require=True)
-        self._session.pull_from_remote(overwrite=overwrite)
+        self._session.sync.pull(overwrite=overwrite)
 
     # ------------------------------------------------------------------
     # Modeling — GARPOS
@@ -468,10 +467,10 @@ class WorkflowHandler:
         pre_process_config: Optional[QCPipelineConfig] = None,
     ) -> None:
         """Run the full QC pipeline then GARPOS modeling end-to-end."""
-        self._session.run_pipeline_qc(config=pre_process_config)
+        self._session.pipeline.run_qc(config=pre_process_config)
 
         handler = self.modeling_get_garpos_handler()
-        qc_pipeline = self._session.get_pipeline_qc()
+        qc_pipeline = self._session.pipeline.get_qc()
         gp_dir_list = handler.parse_surveys_qc(
             override=False, shotdata_uri=qc_pipeline.qcShotDataFinalTDB.uri
         )

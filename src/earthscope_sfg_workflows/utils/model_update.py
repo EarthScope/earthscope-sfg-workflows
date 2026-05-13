@@ -135,7 +135,7 @@ if __name__ == "__main__":
     import os
 
     os.environ["DYLD_LIBRARY_PATH"] = os.environ.get("CONDA_PREFIX", "") + "/lib"
-    from earthscope_sfg_workflows.workflows.pipelines.config import SV3PipelineConfig
+    from earthscope_sfg_workflows.pipelines.config import SV3PipelineConfig
 
     # Validate keys and collect errors
     primary_config_true = {
