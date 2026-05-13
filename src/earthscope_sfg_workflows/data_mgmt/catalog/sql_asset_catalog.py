@@ -163,6 +163,15 @@ class AssetCatalog:
             result = session.execute(stmt)
             return result.rowcount > 0
 
+    def mark_processed_bulk(self, asset_ids: list[int]) -> int:
+        """Mark multiple assets as processed by id. Returns count of updated rows."""
+        if not asset_ids:
+            return 0
+        with self._Session.begin() as session:
+            stmt = update(Assets).where(Assets.id.in_(asset_ids)).values(is_processed=True)
+            result = session.execute(stmt)
+            return result.rowcount
+
     def by_id(self, asset_id: int) -> AssetEntry | None:
         """Return the asset with `asset_id`, or None if absent."""
         with self._Session() as session:

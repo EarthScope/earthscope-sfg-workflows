@@ -63,6 +63,10 @@ class AssetCatalogPort(Protocol):
         """Update an existing row by ``asset.id``. Return True if a row changed."""
         ...
 
+    def mark_processed_bulk(self, asset_ids: list[int]) -> int:
+        """Mark multiple assets as processed by id. Returns count of updated rows."""
+        ...
+
     def by_id(self, asset_id: int) -> AssetEntry | None:
         """Look up an asset by primary key. Return ``None`` if missing."""
         ...

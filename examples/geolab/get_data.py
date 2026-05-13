@@ -64,5 +64,5 @@ for station in STATIONS:
         campaign_id=CAMPAIGN,
     )
     workflow.midprocess_prep_garpos(
-        custom_filters=FILTER_CONFIG, override=False, write_intermediate=False
+        custom_filters=FILTER_CONFIG, override_garpos_prep=False, write_intermediate=False
     )

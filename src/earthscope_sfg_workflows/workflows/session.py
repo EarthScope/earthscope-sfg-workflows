@@ -497,7 +497,7 @@ class StationSession:
 
         return self._sv3_pipeline
 
-    def get_pipeline_qc(self, config: Optional[QCPipelineConfig] = None) -> QCPipeline:
+    def get_pipeline_qc(self, config: Optional[QCPipelineConfig] = None, secondary_config: Optional[_Config] = None) -> QCPipeline:
         """Get a QC pipeline instance for the current session scope."""
         base_config = QCPipelineConfig()
         base_config_updated = base_config.model_copy()
@@ -506,6 +506,15 @@ class StationSession:
                 config = config.model_dump()
             base_config_updated = validate_and_merge_config(
                 base_class=base_config, override_config=config
+            )
+        if secondary_config is not None:
+            if isinstance(
+                secondary_config,
+                _Config
+            ):
+                secondary_config = secondary_config.model_dump()
+            base_config_updated = validate_and_merge_config(
+                base_class=base_config_updated, override_config=secondary_config
             )
         if self._qc_pipeline is None:
             self._qc_pipeline = QCPipeline(

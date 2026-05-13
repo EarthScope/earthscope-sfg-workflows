@@ -79,7 +79,7 @@ def run_manifest(manifest_object):
         )
         wfh.midprocess_prep_garpos(
             custom_filters=(config.filter_config.model_dump() if config.filter_config else None),
-            override=config.override,
+            override_garpos_prep=config.override,
             override_survey_parsing=False,
             survey_id=None,
             write_intermediate=False,

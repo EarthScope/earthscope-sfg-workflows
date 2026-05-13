@@ -46,6 +46,7 @@ class AssetKind(str, Enum):
     ATDOFFSET = "atdoffset"
     SVP = "svp"
     SHOTDATA = "shotdata"
+    SHOTDATAPRE = "shotdata_pre"
     IMUPOSITION = "imuposition"
     KINRESIDUALS = "kinresiduals"
     GNSSOBSTDB = "GNSSOBSTDB"

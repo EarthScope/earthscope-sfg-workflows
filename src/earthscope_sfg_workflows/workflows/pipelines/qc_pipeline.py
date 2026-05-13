@@ -2,6 +2,7 @@
 import concurrent.futures
 import datetime
 import json
+import os
 import sys
 import threading
 from collections import deque
@@ -23,7 +24,7 @@ from earthscope_sfg_tools.tiledb_integration import (
     TDBGNSSObsArray,
     TDBKinPositionArray,
     TDBShotDataArray,
-    tile2rinex,
+    tdb2rnx,
 )
 from earthscope_sfg_workflows.logging import ProcessLogger
 
@@ -57,15 +58,18 @@ def _pipeline_method(fn):
 
 def process_single_qcpin(
     entry: AssetEntry,
-    shotdata_tdb: TDBShotDataArray,
+    shotdata_df_queue: deque,
     rangea_string_queue: deque,
     processed_asset_queue: deque,
 ) -> bool:
     try:
         df = qcjson_to_shotdata(entry.local_path, ProcessLogger.logger)
         rangea_strings: list[str] = extract_rangea_strings_from_qcpin(entry.local_path)
+        if df is None or df.empty:
+            ProcessLogger.warning(f"No valid shotdata parsed from {entry.local_path}, skipping write")
+            return False
         entry = replace(entry, is_processed=True)
-        shotdata_tdb.write_df(df)
+        shotdata_df_queue.append(df)
         rangea_string_queue.extend(rangea_strings)
         processed_asset_queue.append(entry)
         return True
@@ -77,40 +81,26 @@ def process_single_qcpin(
 def rangea_string_epoch(
     gnss_obs_tdb: TDBGNSSObsArray,
     rangea_string_queue: deque,
-    processed_asset_queue: deque,
-    catalog: AssetCatalogPort,
-    entries_to_process: int,
     stop_event: threading.Event,
 ) -> None:
+    """Background thread: flush RANGEA string batches to the GNSS obs TileDB array."""
     import time as _time
 
     SLEEP_TIME_SECONDS = 10
-    total_processed = 0
     sleep_time = SLEEP_TIME_SECONDS
     while not stop_event.is_set():
         _time.sleep(sleep_time)
-        with threading.Lock():
-            rangea_string_list = list(rangea_string_queue)
-            rangea_string_queue.clear()
-        if rangea_string_list:
-            print(
-                f"Processing {len(rangea_string_list)} RANGEA strings. "
-                f"Total processed: {total_processed}/{entries_to_process}"
-            )
-            gnss_obs_tdb.write_rangea_strings(rangea_string_list, verbose=False)
-            print(
-                f"Finished processing batch of RANGEA strings. "
-                f"Total processed: {total_processed}/{entries_to_process}"
-            )
         start_time = _time.time()
-        while processed_asset_queue:
-            entry = processed_asset_queue.popleft()
-            catalog.update(entry)
-            total_processed += 1
-            if total_processed >= entries_to_process:
-                return
+        rangea_string_list = list(rangea_string_queue)
+        rangea_string_queue.clear()
+        if rangea_string_list:
+            gnss_obs_tdb.write_rangea_strings(rangea_string_list, verbose=False)
         elapsed_time = _time.time() - start_time
         sleep_time = max(0, SLEEP_TIME_SECONDS - elapsed_time)
+    # Drain any remaining strings after stop signal
+    final_batch = list(rangea_string_queue)
+    if final_batch:
+        gnss_obs_tdb.write_rangea_strings(final_batch, verbose=False)
 
 
 class QCPipeline:
@@ -185,9 +175,13 @@ class QCPipeline:
 
         tiledb: TileDBLayout = self.scope.station.layout.tiledb
         self.qcShotDataPreTDB = TDBShotDataArray(tiledb.qc_shotdata_pre)
+        self.qcShotDataPreTDB.consolidate()
         self.qcKinPositionTDB = TDBKinPositionArray(tiledb.qc_kin_position)
+        self.qcKinPositionTDB.consolidate()
         self.qcShotDataFinalTDB = TDBShotDataArray(tiledb.qc_shotdata)
+        self.qcShotDataFinalTDB.consolidate()
         self.qcGnssObsTDB = TDBGNSSObsArray(tiledb.qc_gnss_obs)
+        self.qcGnssObsTDB.consolidate()
 
     # ------------------------------------------------------------------
     # Scope accessors
@@ -252,27 +246,23 @@ class QCPipeline:
             ProcessLogger.error(msg)
             raise NoQCPinFound(msg)
 
+        import pandas as pd
+
         ProcessLogger.info(f"Found {len(qcpin_entries)} QCPIN Files")
         count = 0
+        shotdata_df_queue: deque = deque()
         rangea_string_queue: deque = deque()
         processed_asset_queue: deque = deque()
         process_func_partial = partial(
             process_single_qcpin,
-            shotdata_tdb=self.qcShotDataPreTDB,
+            shotdata_df_queue=shotdata_df_queue,
             rangea_string_queue=rangea_string_queue,
             processed_asset_queue=processed_asset_queue,
         )
         stop_event = threading.Event()
         second_step = threading.Thread(
             target=rangea_string_epoch,
-            args=(
-                self.qcGnssObsTDB,
-                rangea_string_queue,
-                processed_asset_queue,
-                self.catalog,
-                len(qcpin_entries),
-                stop_event,
-            ),
+            args=(self.qcGnssObsTDB, rangea_string_queue, stop_event),
         )
         second_step.start()
         with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
@@ -285,18 +275,42 @@ class QCPipeline:
                 if future.result():
                     count += 1
 
-        if not rangea_string_queue and not processed_asset_queue:
-            stop_event.set()
-        second_step.join(timeout=10)
+        stop_event.set()
+        second_step.join()
 
-        ProcessLogger.info(f"Processed {count} out of {len(qcpin_entries)} QCPIN Files")
+        # Batch-write all collected shotdata DataFrames in chunks to minimise
+        # TileDB fragment count (one write per chunk instead of one per file).
+        _BATCH_SIZE = 500
+        batch: list = []
+        writes = 0
+        for df in shotdata_df_queue:
+            batch.append(df)
+            if len(batch) >= _BATCH_SIZE:
+                self.qcShotDataPreTDB.write_df(pd.concat(batch, ignore_index=True))
+                batch = []
+                writes += 1
+        if batch:
+            self.qcShotDataPreTDB.write_df(pd.concat(batch, ignore_index=True))
+            writes += 1
+
+        # Bulk-mark all successfully processed entries in the main thread.
+        processed_ids = [e.id for e in processed_asset_queue if e.id is not None]
+        marked = self.catalog.mark_processed_bulk(processed_ids)
+        ProcessLogger.info(
+            f"Processed {count} out of {len(qcpin_entries)} QCPIN Files "
+            f"({marked} catalog entries marked, {writes} TileDB writes)"
+        )
+
+        # Consolidate fragments accumulated during batch writes.
+        ProcessLogger.info("Consolidating qc_shotdata_pre TileDB array...")
+        self.qcShotDataPreTDB.consolidate()
 
     @_pipeline_method
     def get_rinex_files(self) -> None:
         """Generate and catalog daily RINEX files from the QC GNSS observation TileDB array.
 
         Raises:
-            NoRinexBuilt: If ``tile2rinex`` produces no files.
+            NoRinexBuilt: If ``tdb2rnx`` produces no files.
         """
         rinex_cfg: RinexConfig = self.config.rinex_config
         rinex_dest = self.scope.campaign.layout.rinex
@@ -329,14 +343,33 @@ class QCPipeline:
 
         if rinex_cfg.override or not self.catalog.is_merge_complete(**merge_signature):
             try:
-                rinex_paths: list[Path] = tile2rinex(
-                    gnss_obs_tdb=gnss_uri,
-                    settings=rinex_cfg.settings_path,
-                    writedir=rinex_dest,
-                    time_interval=rinex_cfg.time_interval,
-                    processing_year=year,
-                    modulo_millis=rinex_cfg.modulo_millis,
-                )
+                self._build_rinex_meta()
+
+                # tdb2rnx writes RINEX files to CWD; run from rinex_dest.
+                # Remove any pre-existing .??o files so the post-run glob is clean.
+                rinex_dest.mkdir(parents=True, exist_ok=True)
+                for _stale in rinex_dest.glob("*.??o"):
+                    _stale.unlink()
+                old_cwd = Path.cwd()
+                try:
+                    os.chdir(rinex_dest)
+                    result = tdb2rnx(
+                        tdb_path=str(gnss_uri),
+                        settings_file=str(rinex_cfg.settings_path),
+                        time_interval=rinex_cfg.time_interval,
+                        processing_year=year,
+                        modulo_millis=rinex_cfg.modulo_millis,
+                        logger=ProcessLogger.logger,
+                    )
+                finally:
+                    os.chdir(old_cwd)
+
+                if result.returncode != 0:
+                    raise NoRinexBuilt(
+                        f"tdb2rnx exited with code {result.returncode}"
+                    )
+
+                rinex_paths = sorted(rinex_dest.glob("*.??o"))
 
                 if not rinex_paths:
                     ProcessLogger.warning(
@@ -379,10 +412,6 @@ class QCPipeline:
             except NoRinexBuilt:
                 raise
 
-            except NotImplementedError as e:
-                ProcessLogger.warning(f"tile2rinex not yet available: {e}")
-                raise NoRinexBuilt("tile2rinex is not yet implemented") from e
-
             except Exception as e:
                 if (message := ProcessLogger.error(f"Error generating QC RINEX files: {e}")) is not None:
                     print(message)
@@ -418,6 +447,7 @@ class QCPipeline:
 
         intermediate_dir = self.scope.campaign.layout.intermediate
         pride_dir = intermediate_dir / "pride"
+        pride_dir.mkdir(parents=True, exist_ok=True)
 
         rinex_entries: list[AssetEntry] = self.catalog.assets_to_process(
             network=self.current_network_name,
@@ -536,9 +566,14 @@ class QCPipeline:
             try:
                 df = kin_to_kin_position_df(entry.local_path)
                 if df is not None:
+                    # PRIDE outputs 0-360 longitudes; schema requires -180 to 180.
+                    if "longitude" in df.columns:
+                        df["longitude"] = df["longitude"].where(
+                            df["longitude"] <= 180, df["longitude"] - 360
+                        )
+                    self.qcKinPositionTDB.write_df(df)
                     processed_count += 1
                     self.catalog.update(replace(entry, is_processed=True))
-                    self.qcKinPositionTDB.write_df(df)
             except Exception as e:
                 ProcessLogger.error(f"Error processing {entry.local_path}: {e}")
 

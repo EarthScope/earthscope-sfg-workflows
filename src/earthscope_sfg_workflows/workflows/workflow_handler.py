@@ -148,10 +148,6 @@ class WorkflowHandler:
             )
         return self._active
 
-    @property
-    def workspace(self) -> StationSession | None:
-        """The active :class:`StationSession` (backwards-compat alias)."""
-        return self._active
 
     # ------------------------------------------------------------------
     # Scope management
@@ -233,26 +229,7 @@ class WorkflowHandler:
         """
         self._session.ingest_qcpin_tarballs(tarball_dir=tarball_dir, override=override)
 
-    def ingest_catalog_archive_data(self) -> None:
-        """Populate the catalog with remote archive paths for the active campaign."""
-        self._session.discover_remote()
-
-    def ingest_download_archive_data(
-        self,
-        file_types: "list[AssetType] | list[str] | None" = DEFAULT_FILE_TYPES_TO_DOWNLOAD,
-        rinex_1Hz: bool = False,
-    ) -> None:
-        """Download cataloged archive files for the active campaign."""
-        self.download_data(file_types=file_types, rinex_1Hz=rinex_1Hz)
-
-    def ingest_download_intermediate_archive_data(
-        self,
-        file_types: "list[AssetType] | list[str] | None" = DEFAULT_INTERMEDIATE_FILE_TYPES_TO_DOWNLOAD,
-        rinex_1Hz: bool = False,
-    ) -> None:
-        """Download intermediate-processing files from the archive."""
-        self.ingest_download_archive_data(file_types=file_types, rinex_1Hz=rinex_1Hz)
-
+  
     def download_data(
         self,
         file_types: "list[AssetType] | list[str] | str | None" = DEFAULT_FILE_TYPES_TO_DOWNLOAD,
@@ -269,25 +246,6 @@ class WorkflowHandler:
             rinex_1hz=rinex_1Hz,
         )
 
-    def get_site_metadata(
-        self,
-        site_metadata: "Site | Path | str | None" = None,
-    ) -> "Site | None":
-        """Return site metadata for the active station, optionally from a file."""
-        if isinstance(site_metadata, (str, Path)):
-            return Site.from_json(site_metadata)
-        if site_metadata is not None:
-            return site_metadata
-        site = self._session.site
-        if site is None:
-            msg = (
-                f"No site metadata found for "
-                f"{self.current_network_name} {self.current_station_name}. "
-                "Some functionality may be limited."
-            )
-            warnings.warn(msg)
-            logger.warning(msg)
-        return site
 
     # ------------------------------------------------------------------
     # Pre-Processing — SV3 pipeline
@@ -361,20 +319,6 @@ class WorkflowHandler:
         return self._session.get_pipeline_qc(config=config)
 
     # ------------------------------------------------------------------
-    # Site metadata helper
-    # ------------------------------------------------------------------
-
-    def midprocess_get_sitemeta(self, site_metadata: "Site | str | None" = None) -> Site:
-        """Return site metadata, loading from file or the active session as needed."""
-        if isinstance(site_metadata, (str, Path)):
-            return Site.from_json(site_metadata)
-        if isinstance(site_metadata, Site):
-            return site_metadata
-        if self._session.site is not None:
-            return self._session.site
-        raise ValueError("Site metadata not loaded or provided, cannot proceed")
-
-    # ------------------------------------------------------------------
     # Mid-processing
     # ------------------------------------------------------------------
 
@@ -396,16 +340,14 @@ class WorkflowHandler:
 
     def midprocess_prep_garpos(
         self,
-        site_metadata: "Site | str | None" = None,
         survey_id: str | None = None,
         custom_filters: dict | None = None,
-        override: bool = False,
+        override_garpos_prep: bool = False,
         override_survey_parsing: bool = False,
         write_intermediate: bool = False,
     ) -> None:
         """Parse surveys then prepare GARPOS shot-data for the active campaign."""
-        if self.s3_sync_bucket is not None:
-            self.sync_from_s3(overwrite=override_survey_parsing)
+  
         self._session.parse_surveys(
             survey_id=survey_id,
             override=override_survey_parsing,
@@ -414,7 +356,7 @@ class WorkflowHandler:
         self.modeling_get_garpos_handler().prepare_shotdata_garpos(
             survey_id=survey_id,
             custom_filters=custom_filters,
-            overwrite=override,
+            overwrite=override_garpos_prep,
         )
 
     # ------------------------------------------------------------------
@@ -483,7 +425,6 @@ class WorkflowHandler:
 
     def modeling_plot_shotdata_replies_per_transponder(
         self,
-        survey_id: str | None = None,
         save_fig: bool = True,
         show_fig: bool = False,
     ) -> None:

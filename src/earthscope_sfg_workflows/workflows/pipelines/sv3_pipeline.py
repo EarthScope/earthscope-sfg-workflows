@@ -1,14 +1,68 @@
 # External Imports
+import dataclasses
 import datetime
+import multiprocessing
+import os
 import sys
 import threading
 from functools import partial, wraps
-from multiprocessing import Pool
 from pathlib import Path
 import json
 from typing import Callable
 import warnings
-from pride_ppp import kin_to_kin_position_df, PrideProcessor, ProcessingResult,ProcessingMode
+from pride_ppp import kin_to_kin_position_df, PrideProcessor, ProcessingResult, ProcessingMode, rinex_get_time_range
+from pride_ppp.specifications.config import PRIDEPPPFileConfig as _PRIDEPPPFileConfig
+from pride_ppp.factories.processor import PrideProcessor as _PrideProcessorCls
+
+# pride_ppp <= current version omits `ISB model` from generated config_files;
+# pdp3 >= 3.2.7 requires it.  Patch write_config_file to inject the line.
+_pride_write_config_orig = _PRIDEPPPFileConfig.write_config_file
+
+def _pride_write_config_patched(self, filepath):
+    _pride_write_config_orig(self, filepath)
+    p = Path(filepath)
+    text = p.read_text()
+    if "ISB model" not in text:
+        patched = []
+        for line in text.splitlines():
+            patched.append(line)
+            if line.startswith("RCK model"):
+                patched.append(
+                    "ISB model              = Default"
+                    "                 ! GNSS receiver inter-system biases to be processed"
+                )
+        p.write_text("\n".join(patched) + "\n")
+
+_PRIDEPPPFileConfig.write_config_file = _pride_write_config_patched
+
+# pride_ppp _validate_kinfile uses `if kin_df` on a DataFrame — raises ValueError.
+# Patch to use `is not None` check instead.
+def _pride_validate_kinfile_patched(_self, kin_path, override=False):
+    if not override:
+        if not kin_path.exists():
+            return False
+        kin_df = kin_to_kin_position_df(kin_path)
+        if kin_df is not None and not kin_df.empty:
+            return True
+    return False
+
+_PrideProcessorCls._validate_kinfile = _pride_validate_kinfile_patched
+
+# TBDArray.write_df passes the DataFrame directly to tiledb.from_pandas, but
+# tiledb requires the sparse dimension ('time') to be the pandas index, not a
+# plain column.  The DataFrame returned by kin_to_kin_position_df has time as
+# a plain column.  Patch write_df to set it as the index after validation.
+from earthscope_sfg_tools.tiledb_integration.arrays import TBDArray as _TBDArray
+import tiledb as _tiledb
+
+def _tbd_write_df_patched(self, df, validate: bool = True):
+    if validate:
+        df = self.dataframe_schema.validate(df, lazy=True)
+    if "time" in df.columns:
+        df = df.set_index("time")
+    _tiledb.from_pandas(str(self.uri), df, mode="append")
+
+_TBDArray.write_df = _tbd_write_df_patched
 
 from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
 from earthscope_sfg_workflows.logging import ProcessLogger
@@ -19,6 +73,7 @@ from earthscope_sfg_tools.seafloor_site_tools.soundspeed_operations import (
     CTD_to_svp_v2,
     seabird_to_soundvelocity,
 )
+from earthscope_sfg_tools.novatel_tools.utils import get_metadata, get_metadatav2
 from earthscope_sfg_tools.sonardyne_tools import sv3_operations as sv3_ops
 from earthscope_sfg_tools.tiledb_integration import (
     TDBIMUPositionArray,
@@ -26,7 +81,7 @@ from earthscope_sfg_tools.tiledb_integration import (
     TDBShotDataArray,
 )
 from tqdm.auto import tqdm
-from earthscope_sfg_tools.tiledb_integration import TDBKinPositionArray, tile2rinex
+from earthscope_sfg_tools.tiledb_integration import tdb2rnx
 
 # Local imports
 from ...data_mgmt.model import AssetEntry, AssetKind, SFGScope, TileDBLayout
@@ -42,7 +97,6 @@ from .exceptions import (
     NoRinexFound,
     NoSVPFound,
 )
-from .gnss_rinex_base import GnssRinexPipelineBase
 from .shotdata_gnss_refinement import merge_shotdata_kinposition
 
 
@@ -154,17 +208,23 @@ class SV3Pipeline:
 
         tiledb: TileDBLayout = self.scope.station.layout.tiledb
         self.shotDataPreTDB = TDBShotDataArray(tiledb.shotdata_pre)
+        self.shotDataPreTDB.consolidate()
         self.kinPositionTDB = TDBKinPositionArray(tiledb.kin_position)
+        self.kinPositionTDB.consolidate()
         self.imuPositionTDB = TDBIMUPositionArray(tiledb.imu_position)
+        self.imuPositionTDB.consolidate()
         self.shotDataFinalTDB = TDBShotDataArray(tiledb.shotdata)
+        self.shotDataFinalTDB.consolidate()
 
         # Store GNSS URIs for later use
         self.gnssObsTDBURI = tiledb.gnss_obs
         self.gnssObsTDB_secondaryURI = tiledb.gnss_obs_secondary
 
     def _on_rinex_path(self, path: Path) -> None:
-        """Call :func:`rinex_qc` on each generated RINEX file."""
-        rinex_qc(path)
+        try:
+            rinex_qc(path)
+        except NotImplementedError:
+            ProcessLogger.debug("rinex_qc not yet implemented, skipping per-file QC")
 
     @property
     def current_network_name(self) -> str:
@@ -313,34 +373,48 @@ class SV3Pipeline:
     def process_dfop00(self) -> None:
         """Process Sonardyne DFOP00 files to generate preliminary shotdata.
         Steps:
-        1. Retrieves DFOP00 files needing processing
-        2. Converts each file to shotdata dataframe (acoustic ping-reply
-           sequences)
-        3. Writes dataframes to preliminary shotdata TileDB array
-        4. Marks files as processed in asset catalog
+        1. Retrieves all DFOP00 files for the current context
+        2. Skips if a merge job already records this set as processed
+        3. Converts each file to shotdata dataframe (acoustic ping-reply sequences)
+        4. Writes dataframes to preliminary shotdata TileDB array
+        5. Records a merge job and marks files as processed in asset catalog
 
         Uses multiprocessing for efficient parallel processing.
         """
 
-        # 1. Get the DFOP00 files to process
-        dfop00_entries: list[AssetEntry] = self.catalog.assets_to_process(
+        # 1. Get all catalogued DFOP00 files (not just unprocessed ones).
+        dfop00_entries: list[AssetEntry] = self.catalog.assets_for(
             network=self.scope.network.name,
             station=self.scope.station.name,
             campaign=self.scope.campaign.name,
             kind=AssetKind.DFOP00,
-            override=self.config.dfop00_config.override,
         )
         if not dfop00_entries:
             response = f"No DFOP00 Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
             ProcessLogger.error(response)
             raise NoDFOP00Found(response)
 
-        response = f"Found {len(dfop00_entries)} DFOP00 Files to Process"
-        ProcessLogger.info(response)
-        count = 0
+        merge_signature = {
+            "parent_type": AssetKind.DFOP00.value,
+            "child_type": AssetKind.SHOTDATAPRE.value,
+            "parent_ids": [x.id for x in dfop00_entries],
+        }
 
-        # 2. Process DFOP00 files to generate shotdata dataframes
-        with Pool() as pool:
+        # 2. Skip if all files have already been merged into shotdata (idempotency).
+        if not self.config.dfop00_config.override and self.catalog.is_merge_complete(**merge_signature):
+            ProcessLogger.info(
+                f"DFOP00 data already merged for {self.current_network_name} "
+                f"{self.current_station_name} {self.current_campaign_name}, skipping."
+            )
+            return
+
+        ProcessLogger.info(f"Found {len(dfop00_entries)} DFOP00 Files to Process")
+        count = 0
+        processed_ids: list[int] = []
+
+        # 3–4. Process files and write to TileDB.
+        _ctx = multiprocessing.get_context("fork")
+        with _ctx.Pool() as pool:
             _dfop00_to_shotdata = partial(sv3_ops.dfop00_to_shotdata, logger=ProcessLogger.logger)
             results = pool.imap(_dfop00_to_shotdata, [x.local_path for x in dfop00_entries])
             for shotdata_df, dfo_entry in tqdm(
@@ -349,17 +423,22 @@ class SV3Pipeline:
                 desc="Processing DFOP00 Files",
             ):
                 if shotdata_df is not None and not shotdata_df.empty:
-                    self.shotDataPreTDB.write_df(shotdata_df)  # write to pre-shotdata
+                    self.shotDataPreTDB.write_df(shotdata_df)
                     count += 1
-                    dfo_entry.is_processed = True
-
-                    self.catalog.update(dfo_entry)  # mark as processed
+                    if dfo_entry.id is not None:
+                        processed_ids.append(dfo_entry.id)
                     ProcessLogger.debug(f" Processed {dfo_entry.local_path}")
                 else:
                     ProcessLogger.error(f"Failed to Process {dfo_entry.local_path}")
 
-        response = f"Generated {count} ShotData dataframes From {len(dfop00_entries)} DFOP00 Files"
-        ProcessLogger.info(response)
+        # 5. Record the merge job and mark individual entries as processed.
+        if count > 0:
+            self.catalog.add_merge_job(**merge_signature)
+            self.catalog.mark_processed_bulk(processed_ids)
+
+        ProcessLogger.info(
+            f"Generated {count} ShotData dataframes From {len(dfop00_entries)} DFOP00 Files"
+        )
 
     @_pipeline_method
     def update_shotdata(self):
@@ -450,7 +529,7 @@ class SV3Pipeline:
                     svp_df = function(ctd_entry.local_path)
                     if not svp_df.empty:
                         svp_df.to_csv(svp_df_destination, index=False)
-                        ctd_entry.is_processed = True
+                        ctd_entry = dataclasses.replace(ctd_entry, is_processed=True)
                         self.catalog.update(ctd_entry)  # mark as processed
                         ProcessLogger.info(
                             f"Processed SVP data from CTD file {ctd_entry.local_path} to dataframe with {function.__name__}"
@@ -469,7 +548,7 @@ class SV3Pipeline:
                 svp_df = seabird_to_soundvelocity(seabird_entry.local_path, ProcessLogger.logger)
                 if not svp_df.empty:
                     svp_df.to_csv(svp_df_destination, index=False)
-                    seabird_entry.is_processed = True
+                    seabird_entry = dataclasses.replace(seabird_entry, is_processed=True)
                     self.catalog.update(seabird_entry)  # mark as processed
 
                     ProcessLogger.info(
@@ -502,7 +581,7 @@ class SV3Pipeline:
             with open(rinex_metav1, "w") as f:
                 json.dump(get_metadata(site=self.current_station_name), f)
 
-        self._rinex_config.settings_path = rinex_metav2
+        self.config.rinex_config.settings_path = rinex_metav2
 
     @_pipeline_method
     def get_rinex_files(self) -> None:
@@ -514,8 +593,9 @@ class SV3Pipeline:
         for per-file QC; no-op by default).
 
         Raises:
-            NoRinexBuilt: If ``tile2rinex`` produces no files.
+            NoRinexBuilt: If ``tdb2rnx`` produces no files.
         """
+        self._build_rinex_meta()
         rinex_cfg:RinexConfig = self.config.rinex_config
         rinex_dest = self.scope.campaign.layout.rinex
 
@@ -548,14 +628,31 @@ class SV3Pipeline:
             **merge_signature
         ):
             try:
-                rinex_paths: list[Path] = tile2rinex(
-                    gnss_obs_tdb=gnss_uri,
-                    settings=rinex_cfg.settings_path,
-                    writedir=rinex_dest,
-                    time_interval=rinex_cfg.time_interval,
-                    processing_year=year,
-                    modulo_millis=rinex_cfg.modulo_millis,
-                )
+                # tdb2rnx writes RINEX files to CWD; run from rinex_dest.
+                # Remove any pre-existing .??o files so the post-run glob is clean.
+                rinex_dest.mkdir(parents=True, exist_ok=True)
+                for _stale in rinex_dest.glob("*.??o"):
+                    _stale.unlink()
+                old_cwd = Path.cwd()
+                try:
+                    os.chdir(rinex_dest)
+                    result = tdb2rnx(
+                        tdb_path=str(gnss_uri),
+                        settings_file=str(rinex_cfg.settings_path),
+                        time_interval=rinex_cfg.time_interval,
+                        processing_year=year,
+                        modulo_millis=rinex_cfg.modulo_millis,
+                        logger=ProcessLogger.logger,
+                    )
+                finally:
+                    os.chdir(old_cwd)
+
+                if result.returncode != 0:
+                    raise NoRinexBuilt(
+                        f"tdb2rnx exited with code {result.returncode}"
+                    )
+
+                rinex_paths = sorted(rinex_dest.glob("*.??o"))
 
                 if not rinex_paths:
                     ProcessLogger.warning(
@@ -601,8 +698,8 @@ class SV3Pipeline:
                 raise
 
             except NotImplementedError as e:
-                ProcessLogger.warning(f"tile2rinex not yet available: {e}")
-                raise NoRinexBuilt("tile2rinex is not yet implemented") from e
+                ProcessLogger.warning(f"tdb2rnx not yet available: {e}")
+                raise NoRinexBuilt("tdb2rnx is not yet implemented") from e
 
             except Exception as e:
                 if (
@@ -648,6 +745,7 @@ class SV3Pipeline:
 
         pride_dir = self.scope.campaign.layout.intermediate / "pride"
         intermediate_dir = self.scope.campaign.layout.intermediate
+        pride_dir.mkdir(parents=True, exist_ok=True)
 
         rinex_entries: list[AssetEntry] = self.catalog.assets_to_process(
             network=self.current_network_name,
@@ -693,8 +791,8 @@ class SV3Pipeline:
             rinex_entry = rinex_path_map.get(result.rinex_path)
             if result.kin_path is not None:
                 kin_count += 1
-                rinex_entry.is_processed = True
-                rinex_entry = self.catalog.update(rinex_entry)  # mark RINEX as processed
+                rinex_entry = dataclasses.replace(rinex_entry, is_processed=True)
+                self.catalog.update(rinex_entry)  # mark RINEX as processed
 
                 kin_entry = AssetEntry(
                     kind=AssetKind.KIN,
@@ -777,10 +875,14 @@ class SV3Pipeline:
             try:
                 df = kin_to_kin_position_df(entry.local_path)
                 if df is not None:
-                    processed_count += 1
-                    entry.is_processed = True
-                    self.catalog.update(entry)
+                    # PRIDE outputs 0-360 longitudes; schema requires -180 to 180.
+                    if "longitude" in df.columns:
+                        df["longitude"] = df["longitude"].where(
+                            df["longitude"] <= 180, df["longitude"] - 360
+                        )
                     self.kinPositionTDB.write_df(df)
+                    processed_count += 1
+                    self.catalog.update(dataclasses.replace(entry, is_processed=True))
             except Exception as e:
                 ProcessLogger.error(f"Error processing {entry.local_path}: {e}")
 
