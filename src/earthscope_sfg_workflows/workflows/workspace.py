@@ -111,7 +111,7 @@ class Workspace:
     ) -> StationSession:
         """Get-or-create the session for *(network, station)* and make it active."""
         sess = self._get_or_build_session(network, station)
-        if campaign is not None and sess.campaign_name != campaign:
+        if campaign is not None and sess.scope.campaign != campaign:
             sess.set_campaign(campaign)
         self._active = sess
         return sess
@@ -194,7 +194,7 @@ class Workspace:
 def _build_ports(directory: Path | str):
     from dataclasses import dataclass
 
-    from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import LocalFileStore
+    from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
     from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import EarthScopeArchive
     from earthscope_sfg_workflows.data_mgmt.catalog.sql_asset_catalog import AssetCatalog
 
@@ -210,7 +210,7 @@ def _build_ports(directory: Path | str):
     return _P(
         root=root,
         catalog=AssetCatalog.sqlite(root / "catalog.sqlite"),
-        files=LocalFileStore(root=root),
+        files=FsspecFileStore(root=str(root)),
         archive=EarthScopeArchive(),
     )
 

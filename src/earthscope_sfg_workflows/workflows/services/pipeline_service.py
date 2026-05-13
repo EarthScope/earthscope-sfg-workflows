@@ -10,14 +10,25 @@ if TYPE_CHECKING:
 
 
 class PipelineService:
-    """Pipeline construction and execution scoped to a :class:`StationSession`."""
+    """Pipeline construction and execution scoped to a :class:`StationSession`.
 
-    def __init__(self, session: "StationSession") -> None:
+    *config* is stored at construction and used as the default for all pipeline
+    calls.  Pass ``config=`` per-call to override for a single invocation.
+    """
+
+    def __init__(self, session: "StationSession", config=None) -> None:
         self._s = session
+        self.config = config
 
     def get_sv3(self, config=None, secondary_config=None) -> "SV3Pipeline":
-        """Return an ``SV3Pipeline`` for the current scope."""
-        return self._s.get_pipeline_sv3(config=config, secondary_config=secondary_config)
+        """Return an ``SV3Pipeline`` for the current scope.
+
+        *config* defaults to the value set at construction when not passed.
+        """
+        return self._s.get_pipeline_sv3(
+            config=config if config is not None else self.config,
+            secondary_config=secondary_config,
+        )
 
     def run_sv3(
         self,
@@ -29,8 +40,15 @@ class PipelineService:
         config=None,
         secondary_config=None,
     ) -> None:
-        """Run an ``SV3Pipeline`` job for the current scope."""
-        self._s.run_pipeline_sv3(job=job, config=config, secondary_config=secondary_config)
+        """Run an ``SV3Pipeline`` job for the current scope.
+
+        *config* defaults to the value set at construction when not passed.
+        """
+        self._s.run_pipeline_sv3(
+            job=job,
+            config=config if config is not None else self.config,
+            secondary_config=secondary_config,
+        )
 
     def get_qc(self, config=None, secondary_config=None) -> "QCPipeline":
         """Return a ``QCPipeline`` for the current scope."""

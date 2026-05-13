@@ -6,30 +6,64 @@ from typing import TYPE_CHECKING
 from earthscope_sfg_workflows.logging import GarposLogger as logger
 
 if TYPE_CHECKING:
+    from earthscope_sfg_workflows.data_mgmt.model import SFGScope
+    from earthscope_sfg_workflows.data_mgmt.core import FileManager
     from earthscope_sfg_workflows.workflows.session import StationSession
 
 
 class SyncService:
-    """Remote push/pull operations scoped to a :class:`StationSession`."""
+    """Remote push/pull operations scoped to a :class:`StationSession`.
 
-    def __init__(self, session: "StationSession") -> None:
+    Sync logic is self-contained: ``push(scope)`` copies files from
+    *source_fm* to *target_fm*; ``pull(scope)`` copies the other direction.
+    """
+
+    def __init__(
+        self,
+        session: "StationSession",
+        *,
+        source_fm: "FileManager",
+        target_fm: "FileManager",
+    ) -> None:
         self._s = session
+        self._source_fm = source_fm
+        self._target_fm = target_fm
 
-    def configure(self, remote_root: str | None) -> None:
-        """Set or clear the remote S3 root for this session."""
-        self._s.configure_remote(remote_root)
+    def push(self, scope: "SFGScope") -> int:
+        """Copy all files for *scope* from source to target.
 
-    def push_station(self, *, overwrite: bool = False) -> None:
-        """Upload TileDB arrays for the current station to the remote backend."""
-        self._s.push_station_to_remote(overwrite=overwrite)
+        Returns the number of files written.
+        """
+        source_root = self._source_fm.directory_tree.station_dir(
+            network=scope.network, station=scope.station
+        )
+        written = 0
+        for info in self._source_fm.file_backend.list_files(source_root, recursive=True):
+            if not info.is_file:
+                continue
+            data = self._source_fm.file_backend.read_bytes(info.path)
+            self._target_fm.file_backend.write_bytes(info.path, data)
+            written += 1
+        logger.info(f"SyncService.push: copied {written} file(s) to target")
+        return written
 
-    def push_campaign(self, *, overwrite: bool = False) -> None:
-        """Upload campaign files (SVP, RINEX, logs) to the remote backend."""
-        self._s.push_campaign_to_remote(overwrite=overwrite)
+    def pull(self, scope: "SFGScope") -> int:
+        """Copy all files for *scope* from source to target.
 
-    def pull(self, *, overwrite: bool = False) -> None:
-        """Download TileDB arrays and campaign files from the remote mirror."""
-        self._s.pull_from_remote(overwrite=overwrite)
+        Returns the number of files written.
+        """
+        source_root = self._source_fm.directory_tree.station_dir(
+            network=scope.network, station=scope.station
+        )
+        written = 0
+        for info in self._source_fm.file_backend.list_files(source_root, recursive=True):
+            if not info.is_file:
+                continue
+            data = self._source_fm.file_backend.read_bytes(info.path)
+            self._target_fm.file_backend.write_bytes(info.path, data)
+            written += 1
+        logger.info(f"SyncService.pull: copied {written} file(s) to target")
+        return written
 
 
 __all__ = ["SyncService"]

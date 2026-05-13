@@ -61,13 +61,13 @@ class LayoutService:
 
     def survey_dir(self) -> "SurveyLayout":
         """Survey layout. Raises ``ValueError`` if no survey is set."""
-        if not self._s.survey.name:
+        if not self._s.scope.survey:
             raise ValueError("survey_dir requires a survey to be set; call set_survey() first")
         return self._s._file_manager.directory_tree.survey(
-            network=self._s.network.name,
-            station=self._s.station.name,
-            campaign=self._s.campaign.name,
-            survey=self._s.survey.name,
+            network=self._s.scope.network,
+            station=self._s.scope.station,
+            campaign=self._s.scope.campaign,
+            survey=self._s.scope.survey,
         )
 
     def garpos_survey(self) -> "GARPOSLayout":

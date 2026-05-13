@@ -73,7 +73,7 @@ class GarposHandler:
     Attributes:
         station_session: Active session providing scope, paths, and metadata.
         garpos_fixed: Fixed/inversion parameters passed to the GARPOS solver.
-        coordTransformer: ENU coordinate transformer derived from the site array centre.
+        _coord_transformer: ENU coordinate transformer derived from the site array centre.
         current_garpos_survey_dir: Layout for the most recently activated survey.
     """
 
@@ -90,13 +90,13 @@ class GarposHandler:
         self.current_garpos_survey_dir: GARPOSLayout | None = None
         site = station_session.site
         if site is not None:
-            self.coordTransformer: CoordTransformer | None = CoordTransformer(
+            self._coord_transformer: CoordTransformer | None = CoordTransformer(
                 latitude=site.arrayCenter.latitude,
                 longitude=site.arrayCenter.longitude,
                 elevation=-float(site.localGeoidHeight),
             )
         else:
-            self.coordTransformer = None
+            self._coord_transformer = None
 
     def ensure_garpos_survey(self) -> GARPOSLayout:
         """Materialise GARPOS survey directories and return the layout."""
@@ -283,11 +283,11 @@ class GarposHandler:
             shot_data_filtered.to_csv(filtered_path)
 
         gp_transponders = GP_Transponders_from_benchmarks(
-            coord_transformer=self.coordTransformer,
+            coord_transformer=self._coord_transformer,
             survey=survey,
             site=site,
         )
-        array_dpos_center = get_array_dpos_center(self.coordTransformer, gp_transponders)
+        array_dpos_center = get_array_dpos_center(self._coord_transformer, gp_transponders)
 
         rectified_path = garpos_layout.root / f"{filtered_path.stem}_rectified.csv"
         if rectified_path.exists():
@@ -297,7 +297,7 @@ class GarposHandler:
 
         if shot_data_rectified.empty or overwrite:
             shot_data_rectified = prepare_shotdata_for_garpos(
-                coord_transformer=self.coordTransformer,
+                coord_transformer=self._coord_transformer,
                 shodata_out_path=rectified_path,
                 shot_data=shot_data_filtered,
                 GPtransponders=gp_transponders,
@@ -344,7 +344,7 @@ class GarposHandler:
             logger.warning("No shotdata dates found to generate pseudo-surveys.")
             return pseudo_surveys
 
-        campaign_name = self.station_session.campaign_name
+        campaign_name = self.station_session.scope.campaign
         if campaign_name is None:
             return pseudo_surveys
         current_year = int(campaign_name.split("_")[0])
@@ -426,12 +426,12 @@ class GarposHandler:
 
             if not rectified_path.exists() or override:
                 gp_transponders = GP_Transponders_from_benchmarks(
-                    coord_transformer=self.coordTransformer,
+                    coord_transformer=self._coord_transformer,
                     survey=survey,
                     site=site,
                     is_qc=True,
                 )
-                array_dpos_center = get_array_dpos_center(self.coordTransformer, gp_transponders)
+                array_dpos_center = get_array_dpos_center(self._coord_transformer, gp_transponders)
 
                 if rectified_path.exists():
                     shotdata_rectified = pd.read_csv(rectified_path)
@@ -440,7 +440,7 @@ class GarposHandler:
 
                 if shotdata_rectified.empty or override:
                     shotdata_rectified = prepare_shotdata_for_garpos(
-                        coord_transformer=self.coordTransformer,
+                        coord_transformer=self._coord_transformer,
                         shodata_out_path=rectified_path,
                         shot_data=df,
                         GPtransponders=gp_transponders,
@@ -687,7 +687,7 @@ class GarposHandler:
         site = self.station_session.site
         if site is not None:
             for campaign in site.campaigns:
-                if campaign.name == self.station_session.campaign_name:
+                if campaign.name == self.station_session.scope.campaign:
                     metadata_surveys = campaign.surveys
                     break
 
@@ -793,16 +793,16 @@ class GarposHandler:
             except Exception:
                 logger.warning(f"Error processing {survey_name}")
         fig.suptitle(
-            f"Shotdata Reply Percentages for {self.station_session.station_name} {self.station_session.campaign_name}"
+            f"Shotdata Reply Percentages for {self.station_session.scope.station} {self.station_session.scope.campaign}"
         )
-        axs[0].set_title(f"{self.station_session.station_name} Transponder 5209")
-        axs[1].set_title(f"{self.station_session.station_name} Transponder 5210")
-        axs[2].set_title(f"{self.station_session.station_name} Transponder 5211")
+        axs[0].set_title(f"{self.station_session.scope.station} Transponder 5209")
+        axs[1].set_title(f"{self.station_session.scope.station} Transponder 5210")
+        axs[2].set_title(f"{self.station_session.scope.station} Transponder 5211")
         fig.tight_layout()
         if showfig:
             plt.show()
 
-        fig_path = f"{self.station_session.ensure_campaign().root}/{self.station_session.station_name}_{self.station_session.campaign_name}_shotdata_replies.png"
+        fig_path = f"{self.station_session.ensure_campaign().root}/{self.station_session.scope.station}_{self.station_session.scope.campaign}_shotdata_replies.png"
         if savefig:
             logger.info(f"Saving figure to {fig_path}")
             plt.savefig(

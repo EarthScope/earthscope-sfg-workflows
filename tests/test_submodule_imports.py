@@ -28,8 +28,6 @@ SUBMODULES = [
     "earthscope_sfg_workflows.modeling.garpos_tools.plotting",
     "earthscope_sfg_workflows.modeling.garpos_tools.schemas",
     "earthscope_sfg_workflows.workflows",
-    "earthscope_sfg_workflows.workflows.midprocess.mid_processing",
-    "earthscope_sfg_workflows.workflows.midprocess.utils",
     "earthscope_sfg_workflows.workflows.modeling.garpos_handler",
     "earthscope_sfg_workflows.workflows.pipelines.config",
     "earthscope_sfg_workflows.workflows.pipelines.exceptions",

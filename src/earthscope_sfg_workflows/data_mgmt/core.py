@@ -62,6 +62,7 @@ DEFAULT_PATTERNS: tuple[tuple[re.Pattern[str], AssetKind], ...] = (
     (re.compile(r"seabird", re.IGNORECASE), AssetKind.SEABIRD),
     (re.compile(r"\.res$"), AssetKind.KINRESIDUALS),
     (re.compile(r"bcoffload", re.IGNORECASE), AssetKind.BCOFFLOAD),
+    (re.compile(r"\.sta$", re.IGNORECASE), AssetKind.QCSTA),
 )
 
 
@@ -400,7 +401,7 @@ class Ingestor:
                     with tarfile.open(fileobj=fo, mode="r:*") as tf:
                         pin_members = [
                             m for m in tf.getmembers()
-                            if m.isfile() and (self.detect(m.name) is AssetKind.QCPIN)
+                            if m.isfile() and (self.detect(m.name) in [AssetKind.QCPIN,AssetKind.QCSTA])
                         ]
                         if not pin_members:
                             skipped += 1
@@ -417,6 +418,7 @@ class Ingestor:
                                 skipped += 1
                                 continue
                             dest.write_bytes(reader.read())
+                            #TODO - use sta and qcpin kinds separately
                             asset = AssetEntry(
                                 kind=AssetKind.QCPIN,
                                 scope=scope,

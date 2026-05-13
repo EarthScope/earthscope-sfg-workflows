@@ -86,7 +86,6 @@ from earthscope_sfg_tools.tiledb_integration import tdb2rnx
 # Local imports
 from ...data_mgmt.model import AssetEntry, AssetKind, SFGScope, TileDBLayout
 from ...data_mgmt.utils import get_merge_signature_shotdata
-from ..base import validate_network_station_campaign
 from .config import PrideConfig, RinexConfig, SV3PipelineConfig
 from .exceptions import (
     NoDFOP00Found,

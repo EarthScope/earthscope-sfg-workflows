@@ -3,7 +3,7 @@
 Production adapters:
 - :class:`EarthScopeArchive` — EarthScope SDK archive source
 - :class:`AssetCatalog` — SQLite-backed asset catalog
-- :class:`LocalFileStore` — local filesystem store
+- :class:`FsspecFileStore` — unified local and S3 filesystem store
 
 Test / in-memory adapters are re-exported from ``test_adapters``.
 """
@@ -15,11 +15,13 @@ from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
 )
 from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import EarthScopeArchive
 from earthscope_sfg_workflows.data_mgmt.catalog.sql_asset_catalog import AssetCatalog
+from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
 
 __all__ = [
     "AssetCatalog",
     "EarthScopeArchive",
     "FakeArchive",
+    "FsspecFileStore",
     "InMemoryAssetStore",
     "InMemoryFileStore",
 ]

@@ -41,8 +41,13 @@ class Environment:
 
     @classmethod
     def s3_sync_bucket(cls) -> str | None:
-        """Returns the S3 sync bucket name, if configured."""
-        return "s3://" + cls._s3_sync_bucket
+        """Returns the S3 sync bucket URL (always prefixed with ``s3://``), or ``None``."""
+        if cls._s3_sync_bucket is None:
+            return None
+        raw = cls._s3_sync_bucket
+        if raw.startswith("s3://"):
+            return raw
+        return "s3://" + raw
 
     @classmethod
     def main_directory_GEOLAB(cls) -> str | None:
@@ -57,10 +62,8 @@ class Environment:
         This method checks for WORKING_ENVIRONMENT, S3_SYNC_BUCKET, and
         MAIN_DIRECTORY_GEOLAB and sets the class-level attributes accordingly.
 
-        Raises:
-            ValueError: If the environment is set to GEOLAB but the required
-                        directory is not specified, or if an unknown environment
-                        is specified.
+        Safe to call multiple times; missing or unrecognised values produce a
+        warning rather than raising, making the method idempotent.
         """
         env_str = os.environ.get(WORKING_ENVIRONMENT_KEY, "LOCAL").upper()
 
@@ -71,15 +74,20 @@ class Environment:
                 cls._working_environment = WorkingEnvironment.GEOLAB
                 md_geolab = os.environ.get(MAIN_DIRECTORY_GEOLAB_KEY)
                 if md_geolab is None:
-                    raise ValueError(
-                        f"{MAIN_DIRECTORY_GEOLAB_KEY} environment variable must be set in GEOLAB environment."
+                    warnings.warn(
+                        f"{MAIN_DIRECTORY_GEOLAB_KEY} environment variable is not set "
+                        "for GEOLAB environment.",
+                        stacklevel=2,
                     )
-                cls._main_directory_GEOLAB = md_geolab
+                else:
+                    cls._main_directory_GEOLAB = md_geolab
             case _:
-                raise ValueError(
-                    f"Unknown WORKING_ENVIRONMENT: {env_str}. "
-                    "Valid options are 'LOCAL' or 'GEOLAB'."
+                warnings.warn(
+                    f"Unknown WORKING_ENVIRONMENT: {env_str!r}. "
+                    "Valid options are 'LOCAL' or 'GEOLAB'. Defaulting to LOCAL.",
+                    stacklevel=2,
                 )
+                cls._working_environment = WorkingEnvironment.LOCAL
 
         s3_sync_bucket_str = os.environ.get(S3_SYNC_BUCKET_KEY)
         if s3_sync_bucket_str is None:

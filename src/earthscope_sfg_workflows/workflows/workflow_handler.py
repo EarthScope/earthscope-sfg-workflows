@@ -145,19 +145,19 @@ class WorkflowHandler:
 
     @property
     def current_network_name(self) -> str | None:
-        return self._active.network_name if self._active else None
+        return self._active.scope.network if self._active else None
 
     @property
     def current_station_name(self) -> str | None:
-        return self._active.station_name if self._active else None
+        return self._active.scope.station if self._active else None
 
     @property
     def current_campaign_name(self) -> str | None:
-        return self._active.campaign_name if self._active else None
+        return self._active.scope.campaign if self._active else None
 
     @property
     def current_survey_name(self) -> str | None:
-        return self._active.survey_name if self._active else None
+        return self._active.scope.survey if self._active else None
 
     @property
     def current_station_metadata(self) -> "Site | None":
@@ -173,7 +173,7 @@ class WorkflowHandler:
         if station_id is None:
             return
         session = self._workspace.set_active(network_id, station_id, campaign_id)
-        if campaign_id is not None and session.campaign.layout is not None:
+        if campaign_id is not None and session._campaign_layout is not None:
             change_all_logger_dirs(session.campaign.layout.logs)
             os.environ["LOG_FILE_PATH"] = str(session.campaign.layout.logs)
             logger.info(f"Active context: {network_id} / {station_id} / {campaign_id}")
@@ -380,7 +380,7 @@ class WorkflowHandler:
         """Return the cached :class:`GarposHandler` for the active session, building it on first use."""
         if self._session.site is None:
             raise ValueError("Site metadata not loaded; cannot get GarposHandler")
-        key = (self._session.network_name, self._session.station_name)
+        key = (self._session.scope.network, self._session.scope.station)
         if key not in self._garpos_handlers:
             self._garpos_handlers[key] = GarposHandler(station_session=self._session)
         return self._garpos_handlers[key]

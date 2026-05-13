@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Callable, Literal, Optional, TypeVar
 from pride_ppp import PrideCLIConfig
 from upath import UPath
 
-from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import EarthScopeArchive
 from earthscope_sfg_workflows.data_mgmt.core import (
     FileManager,
     Ingestor,
@@ -89,7 +88,7 @@ def _require_campaign(method: _F) -> _F:
 
     @wraps(method)
     def wrapper(self: "StationSession", *args, **kwargs):
-        if self.campaign is None:
+        if self._scope.campaign is None:
             raise ValueError(
                 f"{method.__name__} requires a campaign to be set; "
                 "call set_campaign() first"
@@ -104,7 +103,7 @@ def _require_survey(method: _F) -> _F:
 
     @wraps(method)
     def wrapper(self: "StationSession", *args, **kwargs):
-        if self.survey is None:
+        if self._scope.survey is None:
             raise ValueError(
                 f"{method.__name__} requires a survey to be set; "
                 "call set_survey() first"
@@ -118,7 +117,7 @@ def _require_site_metadata(method: _F) -> _F:
 
     @wraps(method)
     def wrapper(self: "StationSession", *args, **kwargs):
-        if self.station is None or self.station.metadata is None:
+        if self._site is None:
             raise ValueError(
                 f"{method.__name__} requires station metadata to be available; "
                 "ensure site metadata is loaded successfully"
@@ -141,15 +140,6 @@ class TileDBRegistry:
     shotdata_pre: "TDBShotDataArray"
     gnss_obs: "TDBGNSSObsArray"
     gnss_obs_secondary: "TDBGNSSObsArray"
-
-
-@dataclass
-class ScopeRegistry:
-    name: str | None = None
-    layout: StationLayout | CampaignLayout | SurveyLayout | None = None
-    metadata: Site | Campaign | Survey | None = None
-
-_SCOPE_LEVELS = ["network", "station", "campaign", "survey"]
 
 # ---------------------------------------------------------------------------
 # CampaignSession
@@ -177,7 +167,7 @@ class StationSession:
         *,
         catalog: AssetCatalogPort,
         file_manager: FileManager,
-        archive: ArchiveSourcePort = EarthScopeArchive(),
+        archive: ArchiveSourcePort,
         remote_root: str | None = None,
     ) -> None:
 
@@ -188,16 +178,16 @@ class StationSession:
         if remote_root is not None:
             self.configure_remote(remote_root)
 
-        network_layout: NetworkLayout = self._file_manager.ensure_network(network)
-        self.network = ScopeRegistry(name=network, layout=network_layout)
+        self._scope = SFGScope(network=network, station=station)
 
-        station_layout: StationLayout = self._file_manager.ensure_station(network=network, station=station)
-        station_metadata = self._fetch_site_metadata(network, station)
-        self.station = ScopeRegistry(name=station, layout=station_layout, metadata=station_metadata)
+        self._network_layout: NetworkLayout = self._file_manager.ensure_network(network)
+        self._station_layout: StationLayout = self._file_manager.ensure_station(network=network, station=station)
+        self._site: "Site | None" = self._fetch_site_metadata(network, station)
 
         # Mutable campaign/survey slots — None until explicitly set.
-        self.campaign: ScopeRegistry = ScopeRegistry()  # dummy initial value; guarded by _require_campaign
-        self.survey: ScopeRegistry = ScopeRegistry()  # dummy initial value; guarded by _require_survey
+        self._campaign_layout: "CampaignLayout | None" = None
+        self._survey_layout: "SurveyLayout | None" = None
+        self._campaign_meta: "Campaign | None" = None
 
         self._ingestor = Ingestor(
             catalog=self._catalog,
@@ -232,28 +222,16 @@ class StationSession:
 
     def _reset_lower(self, level: str) -> None:
         """Reset mutable scope levels below *level* (e.g. if campaign changes, clear survey)."""
-        if level not in _SCOPE_LEVELS:
-            raise ValueError(f"Invalid scope level {level!r}; must be one of {_SCOPE_LEVELS}")
-        level_index = _SCOPE_LEVELS.index(level)
-        for lower_level in _SCOPE_LEVELS[level_index + 1 :]:
-            setattr(self, lower_level, ScopeRegistry(name="", layout=None, metadata=None))
+        if level == "campaign":
+            self._scope.survey = None
+            self._survey_layout = None
+        elif level == "survey":
+            pass  # nothing below survey
 
     @property
     def scope(self) -> SFGScope:
-        """Live view of the current network/station/campaign/survey context.
-
-        Raises ``ValueError`` if campaign has not been set yet.
-        """
-        if not self.campaign.name:
-            raise ValueError(
-                "scope requires a campaign to be set; call set_campaign() first"
-            )
-        return SFGScope(
-            network=self.network.name,
-            station=self.station.name,
-            campaign=self.campaign.name,
-            survey=self.survey.name if self.survey.name else None,
-        )
+        """Live view of the current network/station/campaign/survey context."""
+        return self._scope
 
     def _fetch_site_metadata(self, network: str, station: str) -> "Site | None":
         """Load site metadata: disk first, then EarthScope archive. Persist on fetch."""
@@ -284,10 +262,10 @@ class StationSession:
 
     def _resolve_campaign_in_site(self, campaign_id: str) -> "Campaign | None":
         """Find the campaign object in site metadata matching ``campaign_id``."""
-        if self.station is None or self.station.metadata is None:
+        if self._site is None:
             return None
         try:
-            for c in self.station.metadata.campaigns:
+            for c in self._site.campaigns:
                 if c.name == campaign_id:
                     return c
         except AttributeError:
@@ -296,10 +274,10 @@ class StationSession:
 
     def _resolve_survey_in_campaign(self, survey_id: str) -> "Survey | None":
         """Find the survey object in campaign metadata matching ``survey_id``."""
-        if self.campaign is None or self.campaign.metadata is None:
+        if self._campaign_meta is None:
             return None
         try:
-            for s in self.campaign.metadata.surveys:
+            for s in self._campaign_meta.surveys:
                 if s.id == survey_id:
                     return s
         except AttributeError:
@@ -324,9 +302,9 @@ class StationSession:
         Defaults to the campaign's ``qc/`` directory when *tarball_dir* is not given.
         """
         if tarball_dir is None:
-            if self.campaign.layout is None:
+            if self._campaign_layout is None:
                 raise ValueError("ingest_qcpin_tarballs requires a campaign with a layout")
-            tarball_dir = Path(self.campaign.layout.qc)
+            tarball_dir = Path(self._campaign_layout.qc)
         report: IngestReport = self._ingestor.ingest_qcpin_tarballs(
             self.scope, tarball_dir, override=override
         )
@@ -355,7 +333,7 @@ class StationSession:
             override: Re-download even when a local file already exists.
             rinex_1hz: When ``True``, keep only 1-Hz RINEX files.
         """
-        dest_dir = self.campaign.layout.raw
+        dest_dir = self._campaign_layout.raw
         report: IngestReport = self._ingestor.download(
             self.scope, kinds=kinds, dest_dir=dest_dir, override=override, rinex_1hz=rinex_1hz
         )
@@ -368,61 +346,38 @@ class StationSession:
     def set_campaign(self, campaign_id: str) -> CampaignLayout:
         """Set the active campaign, clear survey, materialise campaign dirs."""
         self._reset_lower("campaign")  # clear mutable levels below campaign (i.e. survey)
-        campaign_meta:Optional[Campaign] = self._resolve_campaign_in_site(campaign_id)
-        layout:CampaignLayout = self._file_manager.ensure_campaign(
-            network=self.network.name, station=self.station.name, campaign=campaign_id
+        self._campaign_meta = self._resolve_campaign_in_site(campaign_id)
+        layout: CampaignLayout = self._file_manager.ensure_campaign(
+            network=self._scope.network, station=self._scope.station, campaign=campaign_id
         )
-        self.campaign = ScopeRegistry(
-            name=campaign_id, layout=layout,metadata=campaign_meta
-        )
+        self._scope.campaign = campaign_id
+        self._campaign_layout = layout
         return layout
 
     @_require_campaign
     def set_survey(self, survey_id: str) -> None:
         """Set the active survey and materialise its directory."""
-        if self.campaign is None:
-            raise ValueError(
-                "A campaign must be set before setting a survey; "
-                "call set_campaign() first"
-            )
-        layout: Optional[SurveyLayout] =  self._file_manager.ensure_survey(
-            network=self.network.name,
-            station=self.station.name,
-            campaign=self.campaign.name,
+        layout: Optional[SurveyLayout] = self._file_manager.ensure_survey(
+            network=self._scope.network,
+            station=self._scope.station,
+            campaign=self._scope.campaign,
             survey=survey_id,
         )
-        survey_metadata: Optional[Survey] = self._resolve_survey_in_campaign(survey_id)
-        self.survey = ScopeRegistry(
-            name=survey_id, layout=layout, metadata=survey_metadata
-        )
+        self._scope.survey = survey_id
+        self._survey_layout = layout
+        self._campaign_meta = self._resolve_campaign_in_site(self._scope.campaign) if self._campaign_meta is None else self._campaign_meta
 
     # ------------------------------------------------------------------
-    # Convenience accessors (scope names and metadata)
+    # Convenience accessors (metadata slots and layout helpers)
     # ------------------------------------------------------------------
-
-    @property
-    def network_name(self) -> str | None:
-        return self.network.name
-
-    @property
-    def station_name(self) -> str | None:
-        return self.station.name
-
-    @property
-    def campaign_name(self) -> str | None:
-        return self.campaign.name
-
-    @property
-    def survey_name(self) -> str | None:
-        return self.survey.name or None
 
     @property
     def site(self) -> "Site | None":
-        return self.station.metadata  # type: ignore[return-value]
+        return self._site
 
     @property
     def campaign_meta(self) -> "Campaign | None":
-        return self.campaign.metadata  # type: ignore[return-value]
+        return self._campaign_meta
 
     @property
     def root(self) -> Path:
@@ -431,16 +386,16 @@ class StationSession:
     @property
     def survey_dir(self) -> Path:
         """Root directory of the active survey. Requires campaign and survey to be set."""
-        if self.survey.layout is None:
+        if self._survey_layout is None:
             raise ValueError("survey_dir requires a survey to be set; call set_survey() first")
-        return Path(self.survey.layout.root)  # type: ignore[arg-type]
+        return Path(self._survey_layout.root)  # type: ignore[arg-type]
 
     @property
     def survey_metadata_file(self) -> Path:
         """Metadata file path for the active survey."""
-        if self.survey.layout is None:
+        if self._survey_layout is None:
             raise ValueError("survey_metadata_file requires a survey to be set; call set_survey() first")
-        return Path(self.survey.layout.metadata_file)  # type: ignore[arg-type]
+        return Path(self._survey_layout.metadata_file)  # type: ignore[arg-type]
 
     # ------------------------------------------------------------------
     # Convenience layout helpers
@@ -449,17 +404,17 @@ class StationSession:
     def tiledb_layout(self) -> TileDBLayout:
         """Return the TileDB layout for the current station."""
         return self._file_manager.directory_tree.tiledb(
-            network=self.network.name, station=self.station.name
+            network=self._scope.network, station=self._scope.station
         )
 
     def ensure_campaign(self) -> CampaignLayout:
         """Materialise campaign directories and return the layout."""
-        if self.campaign.name is None:
+        if self._scope.campaign is None:
             raise ValueError("ensure_campaign requires a campaign to be set; call set_campaign() first")
         return self._file_manager.ensure_campaign(
-            network=self.network.name,
-            station=self.station.name,
-            campaign=self.campaign.name,
+            network=self._scope.network,
+            station=self._scope.station,
+            campaign=self._scope.campaign,
         )
 
     # ------------------------------------------------------------------
@@ -484,50 +439,50 @@ class StationSession:
     @property
     def network_dir(self) -> Path:
         """Root directory for this network."""
-        return Path(self._file_manager.directory_tree.network_dir(self.network.name))
+        return Path(self._file_manager.directory_tree.network_dir(self._scope.network))
 
     @property
     def station_dir(self) -> Path:
         """Root directory for this station."""
         return Path(self._file_manager.directory_tree.station_dir(
-            network=self.network.name, station=self.station.name
+            network=self._scope.network, station=self._scope.station
         ))
 
     def campaign_layout(self) -> CampaignLayout:
         """Return the campaign layout. Raises if campaign not set."""
-        if not self.campaign.name:
+        if not self._scope.campaign:
             raise ValueError("campaign_layout requires a campaign to be set; call set_campaign() first")
         return self._file_manager.directory_tree.campaign(
-            network=self.network.name, station=self.station.name, campaign=self.campaign.name
+            network=self._scope.network, station=self._scope.station, campaign=self._scope.campaign
         )
 
     def garpos_survey(self) -> "GARPOSLayout":
         """Return the GARPOS survey layout. Raises if survey not set."""
-        if not self.survey.name:
+        if not self._scope.survey:
             raise ValueError("garpos_survey requires a survey to be set; call set_survey() first")
         return self._file_manager.directory_tree.garpos(
-            network=self.network.name,
-            station=self.station.name,
-            campaign=self.campaign.name,
-            survey=self.survey.name,
+            network=self._scope.network,
+            station=self._scope.station,
+            campaign=self._scope.campaign,
+            survey=self._scope.survey,
         )
 
     def ensure_garpos_survey(self) -> "GARPOSLayout":
         """Materialise GARPOS survey directories and return the layout."""
-        if not self.survey.name:
+        if not self._scope.survey:
             raise ValueError("ensure_garpos_survey requires a survey to be set; call set_survey() first")
         return self._file_manager.ensure_garpos_survey(
-            network=self.network.name,
-            station=self.station.name,
-            campaign=self.campaign.name,
-            survey=self.survey.name,
+            network=self._scope.network,
+            station=self._scope.station,
+            campaign=self._scope.campaign,
+            survey=self._scope.survey,
         )
 
     def list_campaigns(self) -> list[str]:
         """Return campaign names seen in the catalog for this network/station."""
         assets = self._catalog.assets_for(
-            network=self.network.name,
-            station=self.station.name,
+            network=self._scope.network,
+            station=self._scope.station,
         )
         seen: dict[str, None] = {}
         for a in assets:
@@ -537,11 +492,7 @@ class StationSession:
 
     def load_site_metadata(self, site: object) -> None:
         """Load pre-fetched site metadata into this session (test helper)."""
-        self.station = ScopeRegistry(
-            name=self.station.name,
-            layout=self.station.layout,
-            metadata=site,
-        )
+        self._site = site  # type: ignore[assignment]
 
     # ------------------------------------------------------------------
     # Test factory
@@ -586,13 +537,15 @@ class StationSession:
         object.__setattr__(self, "_archive", in_archive)
 
         network_layout = file_manager.ensure_network(network)
-        object.__setattr__(self, "network", ScopeRegistry(name=network, layout=network_layout))
-
         station_layout = file_manager.ensure_station(network=network, station=station)
-        object.__setattr__(self, "station", ScopeRegistry(name=station, layout=station_layout))
 
-        object.__setattr__(self, "campaign", ScopeRegistry())
-        object.__setattr__(self, "survey", ScopeRegistry())
+        object.__setattr__(self, "_scope", SFGScope(network=network, station=station))
+        object.__setattr__(self, "_network_layout", network_layout)
+        object.__setattr__(self, "_station_layout", station_layout)
+        object.__setattr__(self, "_site", None)
+        object.__setattr__(self, "_campaign_layout", None)
+        object.__setattr__(self, "_survey_layout", None)
+        object.__setattr__(self, "_campaign_meta", None)
         object.__setattr__(self, "_sv3_pipeline", None)
         object.__setattr__(self, "_qc_pipeline", None)
         object.__setattr__(
@@ -761,7 +714,7 @@ class StationSession:
         for path in tiledb.all_paths:
             count = self._file_manager.pull_dir(UPath(path), overwrite=overwrite)
             logger.info(f"Pulled {count} files to {path}")
-        if self.campaign.name:
+        if self._scope.campaign:
             campaign = self.ensure_campaign()
             count = self._file_manager.pull_dir(UPath(campaign.root), overwrite=overwrite)
             logger.info(f"Pulled {count} campaign files to {campaign.root}")
@@ -773,7 +726,7 @@ class StationSession:
         rinex_dir = UPath(rinex_dir)
         if not rinex_dir.exists():
             return
-        station_name = self.station.name
+        station_name = self._scope.station
         for rinex_file in rinex_dir.rglob(f"*{station_name}*"):
             if not rinex_file.is_file():
                 continue
@@ -801,7 +754,7 @@ class StationSession:
         write_intermediate: bool = False,
     ) -> None:
         """Parse surveys for the active campaign and write CSVs into survey dirs."""
-        campaign_meta = self.campaign.metadata
+        campaign_meta = self._campaign_meta
         if campaign_meta is None:
             raise ValueError("Campaign metadata must be loaded before parse_surveys")
 

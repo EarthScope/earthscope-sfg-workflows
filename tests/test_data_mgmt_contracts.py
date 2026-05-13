@@ -48,9 +48,9 @@ def workspace_tree() -> DirectoryTree:
 
 
 class TestPureModel:
-    def test_scope_is_frozen(self, scope: SFGScope) -> None:
-        with pytest.raises(Exception):
-            scope.network = "other"  # type: ignore[misc]
+    def test_scope_is_mutable(self, scope: SFGScope) -> None:
+        scope.campaign = "new_campaign"
+        assert scope.campaign == "new_campaign"
 
     def test_with_survey(self, scope: SFGScope) -> None:
         s = scope.with_survey("S1")
@@ -330,10 +330,10 @@ class TestIngestor:
         self, scope: SFGScope, workspace_tree: DirectoryTree, tmp_path: Path
     ) -> None:
         # Need a real local fs for download because FakeArchive writes to disk.
-        from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import LocalFileStore
+        from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
 
         catalog = InMemoryAssetStore()
-        files = LocalFileStore(root=tmp_path)
+        files = FsspecFileStore(root=str(tmp_path))
         archive = FakeArchive()
         archive.seed("https://arc/a/foo.24o", b"R")
         tree = DirectoryTree(root=tmp_path)

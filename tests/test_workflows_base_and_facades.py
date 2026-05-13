@@ -1,5 +1,5 @@
 """Tests for the post-RFC-A workflow infrastructure: ``Workspace``, the four
-façades, ``WorkflowBase``, plus the new ``Ingestor.discover_campaign`` and
+façades, plus the new ``Ingestor.discover_campaign`` and
 ``LayoutInspector`` domain primitives.
 
 These tests run entirely against in-memory adapters — no disk, no network,
@@ -35,10 +35,6 @@ from earthscope_sfg_workflows.data_mgmt.core import (
     FileTypeDetector,
     Ingestor,
 )
-from earthscope_sfg_workflows.workflows.base import (
-    WorkflowBase,
-    validate_network_station_campaign,
-)
 from earthscope_sfg_workflows.workflows.session import StationSession as Workspace
 
 
@@ -50,13 +46,12 @@ from earthscope_sfg_workflows.workflows.session import StationSession as Workspa
 class TestWorkspaceScope:
     def test_network_station_always_set_after_construction(self):
         ws = Workspace.for_test(network="N", station="S")
-        assert ws.network_name == "N"
-        assert ws.station_name == "S"
+        assert ws.scope.network == "N"
+        assert ws.scope.station == "S"
 
-    def test_scope_raises_without_campaign(self):
+    def test_scope_campaign_none_before_set(self):
         ws = Workspace.for_test(network="N", station="S")
-        with pytest.raises(ValueError, match="campaign"):
-            _ = ws.scope
+        assert ws.scope.campaign is None
 
     def test_scope_returns_campaign_scope_when_campaign_set(self):
         ws = Workspace.for_test(network="N", station="S", campaign="2026_A")
@@ -74,8 +69,8 @@ class TestWorkspaceScope:
 
         ws.set_campaign("C2")
 
-        assert ws.campaign_name == "C2"
-        assert ws.survey_name is None
+        assert ws.scope.campaign == "C2"
+        assert ws.scope.survey is None
         # Site metadata persists across campaign changes.
         assert ws.site is site_obj
 
@@ -83,17 +78,17 @@ class TestWorkspaceScope:
         ws = Workspace.for_test(network="N", station="S")
         layout = ws.set_campaign("2026_A")
         assert layout is not None
-        assert ws.campaign_name == "2026_A"
+        assert ws.scope.campaign == "2026_A"
 
     def test_campaign_name_none_before_set(self):
         ws = Workspace.for_test(network="N", station="S")
-        assert ws.campaign_name is None
+        assert ws.scope.campaign is None
 
     def test_survey_name_cleared_by_set_campaign(self):
         ws = Workspace.for_test(network="N", station="S", campaign="C", survey="V")
-        assert ws.survey_name == "V"
+        assert ws.scope.survey == "V"
         ws.set_campaign("C2")
-        assert ws.survey_name is None
+        assert ws.scope.survey is None
 
 
 # ---------------------------------------------------------------------------
@@ -124,8 +119,11 @@ class TestSessionDecorators:
 
     def test_scope_requires_campaign_for_catalog_calls(self):
         ws = Workspace.for_test(network="N", station="S")
-        with pytest.raises(ValueError, match="campaign"):
-            ws.catalog.assets_for(ws.scope)
+        # scope is always valid; campaign is None until set_campaign() is called
+        assert ws.scope.campaign is None
+        # catalog.assets_for with no campaign returns an empty result (no raise)
+        results = ws.catalog.assets_for(ws.scope)
+        assert results == []
 
     def test_tiledb_layout_available_without_campaign(self):
         """TileDB is station-scoped — no campaign needed."""
@@ -213,8 +211,8 @@ class TestAssetQueryFacade:
 
     def test_catalog_requires_campaign_via_scope(self):
         ws = Workspace.for_test(network="N", station="S")
-        with pytest.raises(ValueError, match="campaign"):
-            _ = ws.scope
+        # scope is always valid; campaign slot is None before set_campaign()
+        assert ws.scope.campaign is None
 
 
 # ---------------------------------------------------------------------------
@@ -334,45 +332,6 @@ class TestLayoutInspector:
 
 
 # ---------------------------------------------------------------------------
-# WorkflowBase + decorators
-# ---------------------------------------------------------------------------
-
-
-class _DummyWorkflow(WorkflowBase):
-    @validate_network_station_campaign
-    def do_thing(self) -> str:
-        return "ok"
-
-
-class TestWorkflowBase:
-    def test_directory_property_matches_workspace_root(self):
-        ws = Workspace.for_test(root="/data", network="N", station="S")
-        wf = _DummyWorkflow(ws)
-        assert wf.directory == Path("/data")
-
-    def test_decorator_blocks_when_campaign_not_set(self):
-        """validate_network_station_campaign raises if campaign is None."""
-        ws = Workspace.for_test(network="N", station="S")  # no campaign
-        wf = _DummyWorkflow(ws)
-        with pytest.raises(ValueError, match="[Cc]ampaign"):
-            wf.do_thing()
-
-    def test_decorator_passes_when_scope_is_complete(self):
-        ws = Workspace.for_test(network="N", station="S", campaign="C")
-        wf = _DummyWorkflow(ws)
-        assert wf.do_thing() == "ok"
-
-    def test_no_port_attributes_leaked(self):
-        wf = _DummyWorkflow(Workspace.for_test(network="N", station="S"))
-        # Façade-only access. The base must not expose ports as attributes.
-        assert not hasattr(wf, "asset_catalog")
-        assert not hasattr(wf, "directory_handler")
-        assert not hasattr(wf, "catalog")
-        assert not hasattr(wf, "files")
-        assert not hasattr(wf, "archive")
-
-
-# ---------------------------------------------------------------------------
 # Workspace class
 # ---------------------------------------------------------------------------
 
@@ -395,20 +354,20 @@ class TestRealWorkspace:
     def test_set_active_returns_session(self):
         ws = self._ws()
         sess = ws.set_active("NET", "STA")
-        assert sess.network_name == "NET"
-        assert sess.station_name == "STA"
+        assert sess.scope.network == "NET"
+        assert sess.scope.station == "STA"
         assert ws.session is sess
 
     def test_set_active_sets_campaign(self):
         ws = self._ws()
         sess = ws.set_active("NET", "STA", campaign="2026_A")
-        assert sess.campaign_name == "2026_A"
+        assert sess.scope.campaign == "2026_A"
 
     def test_get_session_does_not_change_active(self):
         ws = self._ws()
         ws.set_active("NET", "STA")
         ws.get_session("NET2", "STA2")
-        assert ws.session.network_name == "NET"
+        assert ws.session.scope.network == "NET"
 
     def test_sessions_are_cached(self):
         ws = self._ws()

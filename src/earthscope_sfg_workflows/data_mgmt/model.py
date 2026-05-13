@@ -51,22 +51,17 @@ class AssetKind(str, Enum):
     KINRESIDUALS = "kinresiduals"
     GNSSOBSTDB = "GNSSOBSTDB"
     BCOFFLOAD = "bcoffload"
+    QCSTA = "qcsta"
 
 
 # ---------------------------------------------------------------------------
-# Scope (frozen identity for a campaign / survey)
+# Scope (mutable cursor for a network/station/campaign[/survey] context)
 # ---------------------------------------------------------------------------
 
 
 @dataclass
-class ScopeRegistry:
-    name: str
-    layout: NetworkLayout |CampaignLayout | SurveyLayout | None
-    metadata: Site | Campaign | Survey | None
-
-@dataclass(frozen=True)
 class SFGScope:
-    """Frozen identifier for a network/station/campaign[/survey] context."""
+    """Mutable scope cursor for a network/station/campaign[/survey] context."""
 
     network: str
     station: str

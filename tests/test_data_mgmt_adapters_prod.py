@@ -76,21 +76,21 @@ class TestEarthScopeArchiveShape:
 
 
 # ---------------------------------------------------------------------------
-# S3FileStore
+# FsspecFileStore
 # ---------------------------------------------------------------------------
 
 
-class TestS3FileStoreShape:
+class TestFsspecFileStoreShape:
     def test_implements_file_store_protocol(self) -> None:
-        from earthscope_sfg_workflows.data_mgmt.adapters import S3FileStore
+        from earthscope_sfg_workflows.data_mgmt.adapters import FsspecFileStore
 
-        fs = S3FileStore()
+        fs = FsspecFileStore()
         assert isinstance(fs, FileStorePort)
 
     def test_local_paths_pass_through(self, tmp_path: Path) -> None:
-        from earthscope_sfg_workflows.data_mgmt.adapters import S3FileStore
+        from earthscope_sfg_workflows.data_mgmt.adapters import FsspecFileStore
 
-        fs = S3FileStore()
+        fs = FsspecFileStore()
         target = tmp_path / "sub" / "x.bin"
         fs.write_bytes(target, b"hello")
         assert fs.is_file(target)
@@ -98,12 +98,12 @@ class TestS3FileStoreShape:
         assert fs.get_size(target) == 5
 
     def test_mkdir_on_s3_path_is_noop(self, tmp_path: Path, monkeypatch) -> None:
-        from earthscope_sfg_workflows.data_mgmt.adapters import S3FileStore
+        from earthscope_sfg_workflows.data_mgmt.adapters import FsspecFileStore
 
         # Should not raise and must not materialise any local directory.
         # Path("s3://bucket/…") normalises to "s3:/bucket/…" on POSIX; the
         # adapter un-normalises it back to "s3://" before dispatch.
         monkeypatch.chdir(tmp_path)
-        fs = S3FileStore()
+        fs = FsspecFileStore()
         fs.mkdir(Path("s3://bucket/some/prefix"))
         assert not (tmp_path / "s3:").exists()
