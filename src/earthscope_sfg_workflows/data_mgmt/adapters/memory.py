@@ -45,6 +45,10 @@ class InMemoryAssetStore:
         Return sorted distinct non-null values of *field* matching *filters*.
     delete_by_id(asset_id)
         Delete a single asset by id.
+    assets_to_process(kind, override, *, network, station, campaign)
+        Return unprocessed assets, or all assets when *override* is ``True``.
+    mark_processed_bulk(asset_ids)
+        Mark multiple assets as processed in one operation.
     add_merge_job(parent_type, child_type, parent_ids)
         Record that a merge job ran.
     is_merge_complete(parent_type, child_type, parent_ids)
@@ -286,6 +290,75 @@ class InMemoryAssetStore:
         """
         with self._lock:
             return self._rows.pop(asset_id, None) is not None
+
+    def assets_to_process(
+        self,
+        kind: "AssetKind | None" = None,
+        override: bool = False,
+        *,
+        network: str | None = None,
+        station: str | None = None,
+        campaign: str | None = None,
+    ) -> list["AssetEntry"]:
+        """Return unprocessed assets, or all assets when *override* is ``True``.
+
+        Parameters
+        ----------
+        kind : AssetKind or None, optional
+            Asset kind to filter by.  ``None`` matches all kinds.
+        override : bool, optional
+            When ``True``, return all matching assets regardless of their
+            ``is_processed`` flag.
+        network : str or None, optional
+            Network identifier to filter by.  ``None`` matches any network.
+        station : str or None, optional
+            Station identifier to filter by.  ``None`` matches any station.
+        campaign : str or None, optional
+            Campaign identifier to filter by.  ``None`` matches any campaign.
+
+        Returns
+        -------
+        list[AssetEntry]
+            Unprocessed (or all, when *override* is ``True``) matching assets,
+            sorted by id.
+        """
+        with self._lock:
+            out: list[AssetEntry] = []
+            for a in self._rows.values():
+                if network is not None and a.scope.network != network:
+                    continue
+                if station is not None and a.scope.station != station:
+                    continue
+                if campaign is not None and a.scope.campaign != campaign:
+                    continue
+                if kind is not None and a.kind != kind:
+                    continue
+                if not override and a.is_processed:
+                    continue
+                out.append(a)
+            out.sort(key=lambda a: a.id or 0)
+            return out
+
+    def mark_processed_bulk(self, asset_ids: list[int]) -> int:
+        """Mark multiple assets as processed in one operation.
+
+        Parameters
+        ----------
+        asset_ids : list[int]
+            Primary ids of assets to mark as processed.
+
+        Returns
+        -------
+        int
+            Number of rows updated.
+        """
+        updated = 0
+        with self._lock:
+            for aid in asset_ids:
+                if aid in self._rows:
+                    self._rows[aid] = replace(self._rows[aid], is_processed=True)
+                    updated += 1
+        return updated
 
     # -- merge job tracking -----------------------------------------------
 

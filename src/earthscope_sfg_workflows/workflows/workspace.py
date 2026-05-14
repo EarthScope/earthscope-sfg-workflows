@@ -76,7 +76,7 @@ class Workspace:
         ----------
         root_dir : Path or str or None, optional
             Root directory for all local data.  Falls back to the
-            ``GEOLAB_MAIN_DIRECTORY`` environment variable, then ``"."``.
+            ``MAIN_DIRECTORY_GEOLAB`` environment variable, then ``"."``.
         catalog : AssetCatalogPort or None, optional
             Asset catalog port to use.  Constructed automatically if omitted.
         files : FileStorePort or None, optional
