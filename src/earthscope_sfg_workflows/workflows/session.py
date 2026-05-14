@@ -43,13 +43,11 @@ from earthscope_sfg_tools.datamodels.metadata import Campaign, Site
 _Site = Site  # alias kept for the .from_json() classmethod call below
 
 from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
-from earthscope_sfg_workflows.data_mgmt.model import DirectoryTree
 from earthscope_sfg_workflows.data_mgmt.ports import (
     ArchiveSourcePort,
     AssetCatalogPort,
     FileStorePort,
 )
-from earthscope_sfg_workflows.data_mgmt.ports import ArchiveNotFoundError
 from earthscope_sfg_workflows.logging import GarposLogger as logger
 
 
