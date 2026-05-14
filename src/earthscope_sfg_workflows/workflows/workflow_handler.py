@@ -22,11 +22,7 @@ from earthscope_sfg_workflows.data_mgmt.model import AssetKind
 from earthscope_sfg_workflows.logging import ProcessLogger as logger
 from earthscope_sfg_workflows.logging import change_all_logger_dirs
 
-from ..config.file_config import (
-    DEFAULT_FILE_TYPES_TO_DOWNLOAD,
-    DEFAULT_INTERMEDIATE_FILE_TYPES_TO_DOWNLOAD,
-    AssetType,
-)
+from ..data_mgmt.model import DEFAULT_PREPROCESS_KINDS, DEFAULT_INTERMEDIATE_KINDS
 from earthscope_sfg_tools.datamodels.metadata import Site
 from ..modeling.garpos_tools.schemas import InversionParams
 from ..modeling.garpos_tools.garpos_handler import GarposHandler
@@ -48,23 +44,6 @@ from .workspace import Workspace
 pipeline_jobs = list(SV3_JOBS)
 qc_pipeline_jobs = list(QC_JOBS)
 
-
-def _to_kinds(
-    file_types: "list[AssetType] | list[str] | str | None",
-) -> "list[AssetKind] | None":
-    """Translate legacy ``AssetType`` / string file-type specs to :class:`AssetKind` values."""
-    if file_types is None:
-        return None
-    if isinstance(file_types, str):
-        file_types = [file_types]
-    kinds: list[AssetKind] = []
-    for ft in file_types:
-        val = ft.value if isinstance(ft, AssetType) else str(ft).lower()
-        try:
-            kinds.append(AssetKind(val))
-        except ValueError:
-            pass
-    return kinds or None
 
 _SV3Config = (
     SV3PipelineConfig
@@ -198,16 +177,36 @@ class WorkflowHandler:
 
     def download_data(
         self,
-        file_types: "list[AssetType] | list[str] | str | None" = DEFAULT_FILE_TYPES_TO_DOWNLOAD,
+        kinds: "list[AssetKind | str] | frozenset[AssetKind] | None" = DEFAULT_PREPROCESS_KINDS,
         override: bool = False,
         rinex_1Hz: bool = False,
     ) -> None:
         """Download cataloged remote files for the active campaign.
 
-        *file_types* filters by asset kind; pass ``None`` to download all kinds.
+        *kinds* filters by asset kind; pass ``None`` to download all kinds.
+        Accepts :class:`~earthscope_sfg_workflows.data_mgmt.model.AssetKind` values,
+        plain strings (e.g. ``"novatel"``), or ``None`` for all.
+        Defaults to :data:`~earthscope_sfg_workflows.data_mgmt.model.DEFAULT_PREPROCESS_KINDS`.
         """
+        if isinstance(kinds, (frozenset, set)):
+            kinds_list: list[AssetKind] | None = list(kinds)
+        elif kinds is None:
+            kinds_list = None
+        else:
+            if isinstance(kinds, str):
+                kinds = [kinds]
+            kinds_list = []
+            for k in kinds:
+                if isinstance(k, AssetKind):
+                    kinds_list.append(k)
+                else:
+                    try:
+                        kinds_list.append(AssetKind(str(k).lower()))
+                    except ValueError:
+                        pass
+            kinds_list = kinds_list or None
         self._session.ingest.download_remote(
-            kinds=_to_kinds(file_types),
+            kinds=kinds_list,
             override=override,
             rinex_1hz=rinex_1Hz,
         )

@@ -20,10 +20,7 @@ from upath import UPath
 
 
 class AssetKind(str, Enum):
-    """Single source of truth for asset types in the catalog.
-    Values match the legacy ``AssetType`` enum in ``config/file_config.py``
-    so persisted catalog rows remain readable across the migration.
-    """
+    """Single source of truth for asset types in the catalog."""
 
     NOVATEL = "novatel"
     NOVATEL770 = "novatel770"
@@ -52,6 +49,25 @@ class AssetKind(str, Enum):
     GNSSOBSTDB = "GNSSOBSTDB"
     BCOFFLOAD = "bcoffload"
     QCSTA = "qcsta"
+
+
+# Default download sets used by WorkflowHandler.download_data().
+DEFAULT_PREPROCESS_KINDS: frozenset["AssetKind"] = frozenset({
+    AssetKind.SONARDYNE,
+    AssetKind.NOVATEL,
+    AssetKind.NOVATEL000,
+    AssetKind.NOVATEL770,
+    AssetKind.DFOP00,
+    AssetKind.CTD,
+    AssetKind.SEABIRD,
+})
+
+DEFAULT_INTERMEDIATE_KINDS: frozenset["AssetKind"] = frozenset({
+    AssetKind.RINEX2,
+    AssetKind.CTD,
+    AssetKind.SEABIRD,
+    AssetKind.DFOP00,
+})
 
 
 # ---------------------------------------------------------------------------
