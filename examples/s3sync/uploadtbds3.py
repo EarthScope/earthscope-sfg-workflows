@@ -17,40 +17,37 @@ from typing import List
 from earthscope_sfg_workflows.config.env_config import Environment
 from earthscope_sfg_workflows.workflows.workflow_handler import WorkflowHandler
 
-S3_SYNC_BUCKET = "seafloor-public-bucket-bucket83908e77-gprctmuztrim"
 HOME_DIR = "/Volumes/DunbarSSD/Project/SeafloorGeodesy/SFGMain2"
 
 DEFAULT_CONFIG = {
-    # The destination S3 bucket for syncing TileDB arrays
     "S3_SYNC_BUCKET": "seafloor-public-bucket-bucket83908e77-gprctmuztrim",
 }
 
 NETWORK = "cascadia-gorda"
-#STATIONS = [ "NBR1", "GCC1", "NCL1", "NDP1"]
 STATIONS = ["NCL1", "NDP1"]
-for key, value in DEFAULT_CONFIG.items():
-    os.environ[key] = value
 
+if __name__ == "__main__":
+    for key, value in DEFAULT_CONFIG.items():
+        os.environ[key] = value
 
-Environment.load_working_environment()
+    Environment.load_working_environment()
 
-workflow = WorkflowHandler(HOME_DIR)
+    workflow = WorkflowHandler(HOME_DIR)
 
-for station in STATIONS:
-    workflow.set_network_station_campaign(
-        network_id=NETWORK, 
-        station_id=station, 
-        campaign_id=None)
-    print(f"Syncing station {station} data to S3")
-    workflow.midprocess_sync_station_data_s3(overwrite=False)
-
-    campaigns:List[Path] = workflow.list_campaign_directories()
-    for campaign in campaigns:
-        print(f"Syncing campaign {campaign.name} data to S3...")
+    for station in STATIONS:
         workflow.set_network_station_campaign(
-            network_id=NETWORK, 
-            station_id=station, 
-            campaign_id=campaign.name)
-        print(f"Syncing campaign {campaign.name} data to S3...")
-        workflow.midprocess_sync_campaign_data_s3(overwrite=False)
-    print(f"Finished syncing station {station} data to S3\n")
+            network_id=NETWORK,
+            station_id=station,
+            campaign_id=None)
+        print(f"Syncing station {station} data to S3")
+        workflow.midprocess_sync_station_data_s3(overwrite=False)
+
+        campaigns: List[Path] = workflow.list_campaign_directories()
+        for campaign in campaigns:
+            print(f"Syncing campaign {campaign.name} data to S3...")
+            workflow.set_network_station_campaign(
+                network_id=NETWORK,
+                station_id=station,
+                campaign_id=campaign.name)
+            workflow.midprocess_sync_campaign_data_s3(overwrite=False)
+        print(f"Finished syncing station {station} data to S3\n")

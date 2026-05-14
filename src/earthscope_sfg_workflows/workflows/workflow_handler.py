@@ -100,6 +100,15 @@ class WorkflowHandler:
             )
         return self._workspace._active
 
+    @property
+    def directory(self) -> Path:
+        """Root directory of the workspace."""
+        return self._workspace.root
+
+    @property
+    def s3_sync_bucket(self) -> str | None:
+        return self._workspace.s3_sync_bucket
+
     # ------------------------------------------------------------------
     # Scope management
     # ------------------------------------------------------------------
@@ -132,6 +141,15 @@ class WorkflowHandler:
     # ------------------------------------------------------------------
     # Ingest
     # ------------------------------------------------------------------
+
+    def ingest_discover_archive(self):
+        """Discover and catalog EarthScope archive URLs for the active campaign.
+
+        Returns the :class:`~earthscope_sfg_workflows.data_mgmt.model.IngestReport`
+        from the discovery operation. Call :meth:`download_data` afterwards to
+        fetch the cataloged files.
+        """
+        return self._session.ingest.discover_remote()
 
     def ingest_add_local_data(self, directory_path: Path) -> None:
         """Scan *directory_path* and catalog discovered files for the active campaign."""

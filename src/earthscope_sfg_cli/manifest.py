@@ -282,44 +282,12 @@ class PipelineManifest(BaseModel):
         )
 
     @classmethod
-    def from_json(cls, json_data: Path) -> "PipelineManifest":
-        """
-        Instantiates a PipelineManifest object from a JSON schema.
-
-        Args:
-            json_data: The path to the JSON file.
-
-        Returns:
-            An instance of the PipelineManifest class.
-        """
-        # Load JSON data
-        with open(json_data) as f:
-            data = json.load(f)
-        return cls._load(data)
-
-    @classmethod
-    def from_yaml(cls, yaml_data: Path) -> "PipelineManifest":
-        """
-        Instantiates a PipelineManifest object from a YAML schema.
-
-        Args:
-            yaml_data: The path to the YAML file.
-
-        Returns:
-            An instance of the PipelineManifest class.
-        """
-        # Load YAML data
-        with open(yaml_data) as f:
-            data = yaml.safe_load(f)
-        return cls._load(data)
-
-    @classmethod
     def load(cls, file_path: Path | str) -> "PipelineManifest":
         """
         Instantiates a PipelineManifest object from a JSON or YAML schema.
 
         Args:
-            file_path: The path to the JSON or YAML file.
+            file_path: The path to the JSON or YAML file (.json, .yaml, or .yml).
         Returns:
             An instance of the PipelineManifest class.
         """
@@ -328,8 +296,11 @@ class PipelineManifest(BaseModel):
 
         match file_path.suffix:
             case ".json":
-                return cls.from_json(file_path)
+                with open(file_path) as f:
+                    data = json.load(f)
             case ".yaml" | ".yml":
-                return cls.from_yaml(file_path)
+                with open(file_path) as f:
+                    data = yaml.safe_load(f)
             case _:
                 raise ValueError(f"Unsupported file type: {file_path.suffix}")
+        return cls._load(data)

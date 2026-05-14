@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from earthscope_sfg_workflows.data_mgmt.model import DEFAULT_INTERMEDIATE_KINDS
 from earthscope_sfg_workflows.workflows.workflow_handler import WorkflowHandler
 
 # Input survey parameters
@@ -50,9 +51,9 @@ def main():
     print(f"Workflow directory: {workflow.directory}")
     print(f"Raw data directory for campaign: {raw_data_dir}")
 
-    # 1. Ingest catalog data
-    workflow.ingest_catalog_archive_data()
-    workflow.ingest_download_intermediate_archive_data(rinex_1Hz=False)
+    # 1. Discover and catalog archive URLs, then download intermediate files (RINEX, SVP, DFOP00)
+    workflow.ingest_discover_archive()
+    workflow.download_data(kinds=DEFAULT_INTERMEDIATE_KINDS, rinex_1Hz=False)
     workflow.preprocess_run_pipeline_sv3(job="intermediate", primary_config=global_config)
 
 

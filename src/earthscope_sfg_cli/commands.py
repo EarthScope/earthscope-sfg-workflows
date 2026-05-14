@@ -20,27 +20,19 @@ def run_manifest(manifest_object):
     """
     from earthscope_sfg_workflows.config.env_config import Environment
     from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
-
-    # Load environment early so GEOLAB directory / S3 config is available
-    # before WorkflowHandler resolves paths.
-    Environment.load_working_environment()
-    from earthscope_sfg_workflows.data_mgmt import SFGScope
-    from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import (
-        list_campaign_archive_urls,
-    )
-    from earthscope_sfg_workflows.data_mgmt.archives.earthscope.earthscope_archive import (
-        EarthScopeArchive,
-    )
     from earthscope_sfg_workflows.modeling.garpos_tools.load_utils import get_lib_paths
     from earthscope_sfg_workflows.workflows.workflow_handler import WorkflowHandler
 
     from .manifest import GARPOSConfig
     from .utils import display_pipelinemanifest
 
+    # Load environment early so GEOLAB directory / S3 config is available
+    # before WorkflowHandler resolves paths.
+    Environment.load_working_environment()
+
     display_pipelinemanifest(manifest_object)
     get_lib_paths()
     wfh = WorkflowHandler(directory=manifest_object.main_directory)
-    archive = EarthScopeArchive()
 
     for ingest_job in manifest_object.ingestion_jobs:
         wfh.set_network_station_campaign(
@@ -52,17 +44,16 @@ def run_manifest(manifest_object):
         wfh.ingest_add_local_data(ingest_job.directory)
 
     for job in manifest_object.download_jobs:
-        scope = SFGScope(network=job.network, station=job.station, campaign=job.campaign)
-        urls = list_campaign_archive_urls(archive, scope)
-        if not urls:
-            print(f"No Remote Assets Found For {job.model_dump()}")
         wfh.set_network_station_campaign(
             network_id=job.network,
             station_id=job.station,
             campaign_id=job.campaign,
         )
-        wfh.ingest_catalog_archive_data(remote_filepaths=urls)
-        wfh.ingest_download_archive_data()
+        report = wfh.ingest_discover_archive()
+        if report.cataloged == 0:
+            print(f"No Remote Assets Found For {job.model_dump()}")
+        else:
+            wfh.download_data()
 
     for job in manifest_object.process_jobs:
         wfh.set_network_station_campaign(
@@ -102,26 +93,4 @@ def run_manifest(manifest_object):
             )
 
 
-def run_preprocessing(directory, network_id: str, campaign_id: str, stations: list):
-    """
-    Initializes and runs the preprocessing workflow for a set of stations.
 
-    Args:
-        directory: Root path of the data tree.
-        network_id: The network identifier.
-        campaign_id: The campaign identifier.
-        stations: A list of station identifiers.
-    """
-    from earthscope_sfg_workflows.config.env_config import Environment
-    from earthscope_sfg_workflows.workflows.workflow_handler import WorkflowHandler
-
-    Environment.load_working_environment()
-
-    wfh = WorkflowHandler(directory=directory)
-    for station_id in stations:
-        wfh.set_network_station_campaign(
-            network_id=network_id,
-            station_id=station_id,
-            campaign_id=campaign_id,
-        )
-        wfh.preprocess_run_pipeline_sv3(job="all")

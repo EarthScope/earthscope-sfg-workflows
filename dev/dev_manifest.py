@@ -1,7 +1,8 @@
 from earthscope_sfg_cli import commands, manifest
 
-pipeline_manifest = manifest.PipelineManifest.from_json(
-    "dev/NCC1-preproc-manifest.json"
-)
+if __name__ == "__main__":
+    pipeline_manifest = manifest.PipelineManifest.load(
+        "dev/NCC1-preproc-manifest.json"
+    )
 
-commands.run_manifest(pipeline_manifest)
+    commands.run_manifest(pipeline_manifest)

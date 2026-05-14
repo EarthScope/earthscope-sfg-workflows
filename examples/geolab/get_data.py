@@ -55,14 +55,15 @@ NETWORK = "cascadia-gorda"
 CAMPAIGN = "2025_A_1126"
 STATIONS = ["NTH1", "NCC1", "NBR1", "GCC1"]
 
-workflow = WorkflowHandler()
+if __name__ == "__main__":
+    workflow = WorkflowHandler()
 
-for station in STATIONS:
-    workflow.set_network_station_campaign(
-        network_id=NETWORK,
-        station_id=station,
-        campaign_id=CAMPAIGN,
-    )
-    workflow.midprocess_prep_garpos(
-        custom_filters=FILTER_CONFIG, override_garpos_prep=False, write_intermediate=False
-    )
+    for station in STATIONS:
+        workflow.set_network_station_campaign(
+            network_id=NETWORK,
+            station_id=station,
+            campaign_id=CAMPAIGN,
+        )
+        workflow.midprocess_prep_garpos(
+            custom_filters=FILTER_CONFIG, override_garpos_prep=False, write_intermediate=False
+        )

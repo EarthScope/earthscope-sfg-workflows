@@ -17,7 +17,7 @@ except RuntimeError:
     pass
 
 from earthscope_sfg_workflows.logging import ProcessLogger
-from earthscope_sfg_cli.commands import run_manifest, run_preprocessing
+from earthscope_sfg_cli.commands import run_manifest
 from earthscope_sfg_cli.manifest import PipelineManifest
 # This adds the PRIDE binary path to the system's PATH.
 # A better long-term solution is for the user to configure this in their shell.
@@ -42,14 +42,7 @@ def run(file: Path):
     Raises:
         ValueError: If the file extension is not .json, .yaml, or .yml.
     """
-    match file.suffix:
-        case ".json":
-            manifest_object = PipelineManifest.from_json(file)
-        case ".yaml" | ".yml":
-            manifest_object = PipelineManifest.from_yaml(file)
-        case _:
-            raise ValueError(f"Unsupported file type: {file.suffix}")
-    run_manifest(manifest_object)
+    run_manifest(PipelineManifest.load(file))
 
 
 @app.command()
@@ -60,12 +53,18 @@ def preprocess(
     stations: list[str] = typer.Option(..., help="List of station IDs"),
 ):
     """Run the preprocessing pipeline for a network, campaign, and set of stations."""
-    run_preprocessing(
-        directory=main_dir,
-        network_id=network,
-        campaign_id=campaign,
-        stations=stations,
-    )
+    from earthscope_sfg_workflows.config.env_config import Environment
+    from earthscope_sfg_workflows.workflows.workflow_handler import WorkflowHandler
+
+    Environment.load_working_environment()
+    wfh = WorkflowHandler(directory=main_dir)
+    for station_id in stations:
+        wfh.set_network_station_campaign(
+            network_id=network,
+            station_id=station_id,
+            campaign_id=campaign,
+        )
+        wfh.preprocess_run_pipeline_sv3(job="all")
 
 
 if __name__ == "__main__":
