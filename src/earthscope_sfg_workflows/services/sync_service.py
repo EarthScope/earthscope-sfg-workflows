@@ -21,9 +21,33 @@ class SyncService:
     Requires that the session's remote backend has been configured via
     :meth:`~earthscope_sfg_workflows.workflows.session.StationSession.configure_remote`
     before calling any method.
+
+    Attributes
+    ----------
+    _s : StationSession
+        The bound station session.
+    _fm : FileManager
+        File manager providing local and remote backend access.
+
+    Methods
+    -------
+    push_station(overwrite)
+        Upload TileDB arrays for the current station to the remote backend.
+    push_campaign(overwrite)
+        Upload SVP, RINEX, and log files for the active campaign.
+    pull(overwrite)
+        Download TileDB arrays and active campaign files from the remote mirror.
     """
 
     def __init__(self, session: "StationSession") -> None:
+        """Initialize the service.
+
+        Parameters
+        ----------
+        session : StationSession
+            The active station session providing file manager and scope
+            information.
+        """
         self._s = session
         self._fm = session._file_manager
 
@@ -39,7 +63,21 @@ class SyncService:
         return self._fm.remote_path_for(local_path)
 
     def _push_dir(self, local_root: UPath, overwrite: bool = False) -> int:
-        """Upload all files under *local_root* to the mirrored remote path."""
+        """Upload all files under *local_root* to the mirrored remote path.
+
+        Parameters
+        ----------
+        local_root : UPath
+            Local directory to upload recursively.
+        overwrite : bool, optional
+            When ``True``, overwrite files that already exist on the remote.
+            Default is ``False``.
+
+        Returns
+        -------
+        int
+            Number of files uploaded.
+        """
         if not self._has_remote:
             return 0
         local_root = UPath(local_root)
@@ -59,7 +97,21 @@ class SyncService:
         return count
 
     def _pull_dir(self, local_root: UPath, overwrite: bool = False) -> int:
-        """Download all files from the mirrored remote path into *local_root*."""
+        """Download all files from the mirrored remote path into *local_root*.
+
+        Parameters
+        ----------
+        local_root : UPath
+            Local directory that mirrors the remote tree.
+        overwrite : bool, optional
+            When ``True``, overwrite files that already exist locally.
+            Default is ``False``.
+
+        Returns
+        -------
+        int
+            Number of files downloaded.
+        """
         if not self._has_remote:
             return 0
         local_root = UPath(local_root)
@@ -85,7 +137,14 @@ class SyncService:
     # ------------------------------------------------------------------
 
     def push_station(self, overwrite: bool = False) -> None:
-        """Upload TileDB arrays for the current station to the remote backend."""
+        """Upload TileDB arrays for the current station to the remote backend.
+
+        Parameters
+        ----------
+        overwrite : bool, optional
+            When ``True``, overwrite files that already exist on the remote.
+            Default is ``False``.
+        """
         if not self._has_remote:
             logger.warning("push_station: no remote configured, skipping.")
             return
@@ -95,7 +154,14 @@ class SyncService:
             logger.info(f"Pushed {count} files from {path}")
 
     def push_campaign(self, overwrite: bool = False) -> None:
-        """Upload SVP, RINEX, and log files for the active campaign to the remote backend."""
+        """Upload SVP, RINEX, and log files for the active campaign to the remote backend.
+
+        Parameters
+        ----------
+        overwrite : bool, optional
+            When ``True``, overwrite files that already exist on the remote.
+            Default is ``False``.
+        """
         if not self._has_remote:
             logger.warning("push_campaign: no remote configured, skipping.")
             return
@@ -110,7 +176,14 @@ class SyncService:
     # ------------------------------------------------------------------
 
     def pull(self, overwrite: bool = False) -> None:
-        """Download TileDB arrays and active campaign files from the remote mirror."""
+        """Download TileDB arrays and active campaign files from the remote mirror.
+
+        Parameters
+        ----------
+        overwrite : bool, optional
+            When ``True``, overwrite files that already exist locally.
+            Default is ``False``.
+        """
         if not self._has_remote:
             logger.warning("pull: no remote configured, skipping.")
             return
@@ -128,7 +201,15 @@ class SyncService:
     # ------------------------------------------------------------------
 
     def _compress_rinex(self, rinex_dir: UPath) -> None:
-        """Compress uncompressed RINEX files in *rinex_dir* to CRINEX gz format."""
+        """Compress uncompressed RINEX files in *rinex_dir* to CRINEX gz format.
+
+        Parameters
+        ----------
+        rinex_dir : UPath
+            Directory to scan for uncompressed RINEX files matching the active
+            station name. Files that are already compressed (``.crx``, ``.gz``,
+            etc.) are skipped.
+        """
         from earthscope_sfg_tools.rinex_tools import crinex_compress
 
         rinex_dir = UPath(rinex_dir)

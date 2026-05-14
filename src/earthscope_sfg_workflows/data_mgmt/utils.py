@@ -58,12 +58,17 @@ def get_merge_signature_shotdata(
     """
     Get the merge signature for the shotdata and kin_position data
 
-    Args:
-        shotdata (TDBShotDataArray): The shotdata array
-        kin_position (TDBKinPositionArray): The kinposition array
+    Parameters
+    ----------
+    shotdata : TDBShotDataArray
+        The shotdata array
+    kin_position : TDBKinPositionArray
+        The kinposition array
 
-    Returns:
-        Tuple[List[str], List[np.datetime64]]: The merge signature and the dates to merge
+    Returns
+    -------
+    Tuple[List[str], List[np.datetime64]]
+        The merge signature and the dates to merge
     """
 
     merge_signature = []

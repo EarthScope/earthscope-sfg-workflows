@@ -1,3 +1,6 @@
+"""Custom exceptions raised by the SFG processing pipelines."""
+
+
 class NoNovatelFound(Exception):
     """Custom exception raised when no Novatel files are found for processing."""
 

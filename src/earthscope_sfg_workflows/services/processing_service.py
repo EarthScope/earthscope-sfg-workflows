@@ -32,16 +32,49 @@ class ProcessingService:
     Owns the cached pipeline instances (``SV3Pipeline``, ``QCPipeline``) and
     all config-merging logic so that :class:`StationSession` stays free of
     pipeline concerns.
+
+    Attributes
+    ----------
+    config : _Config or None
+        Default pipeline configuration applied when no per-call config is
+        provided.
+
+    Methods
+    -------
+    get_sv3(config, secondary_config)
+        Return a configured ``SV3Pipeline`` for the current scope.
+    run_sv3(job, config, secondary_config)
+        Run an ``SV3Pipeline`` job for the current scope.
+    get_qc(config, secondary_config)
+        Return a configured ``QCPipeline`` for the current scope.
+    run_qc(job, config)
+        Run a ``QCPipeline`` job for the current scope.
+    parse_surveys(survey_id, override, write_intermediate)
+        Parse surveys and write CSVs into survey directories.
     """
 
     def __init__(self, session: "StationSession", config=None) -> None:
+        """Initialize the service.
+
+        Parameters
+        ----------
+        session : StationSession
+            The active station session providing scope, catalog, and layout
+            information.
+        config : _Config or None, optional
+            Default pipeline configuration. Applied as the first override when
+            no per-call config is supplied. Default is ``None``.
+        """
         self._s = session
         self.config = config
         self._sv3_pipeline: Optional[SV3Pipeline] = None
         self._qc_pipeline: Optional[QCPipeline] = None
 
     def _ensure_log_dir(self) -> None:
-        """Route all loggers to the active campaign's logs directory, if set."""
+        """Route all loggers to the active campaign's logs directory, if set.
+
+        Has no effect when no campaign layout is currently active.
+        """
         layout = self._s.active_campaign_layout
         if layout is not None:
             change_all_logger_dirs(layout.logs)
@@ -53,8 +86,22 @@ class ProcessingService:
     def get_sv3(self, config: "_Config | None" = None, secondary_config: "_Config | None" = None) -> SV3Pipeline:
         """Return a configured ``SV3Pipeline`` for the current scope.
 
-        *config* defaults to the value set at construction when not passed.
-        Config merging follows: defaults → construction config → *config* → *secondary_config*.
+        Config merging order: defaults → construction config → *config* →
+        *secondary_config*.
+
+        Parameters
+        ----------
+        config : _Config or None, optional
+            Primary config override. Defaults to the value set at construction
+            when ``None``.
+        secondary_config : _Config or None, optional
+            Secondary config applied on top of the primary merge. Default is
+            ``None``.
+
+        Returns
+        -------
+        SV3Pipeline
+            Fully configured pipeline instance (cached between calls).
         """
         effective = config if config is not None else self.config
         base = SV3PipelineConfig()
@@ -90,7 +137,28 @@ class ProcessingService:
         config: "_Config | None" = None,
         secondary_config: "_Config | None" = None,
     ) -> None:
-        """Run an ``SV3Pipeline`` *job* for the current scope."""
+        """Run an ``SV3Pipeline`` *job* for the current scope.
+
+        Parameters
+        ----------
+        job : str, optional
+            Name of the pipeline job to execute. Must be one of the keys in
+            ``SV3_JOBS``. Default is ``"all"``.
+        config : _Config or None, optional
+            Primary config override passed to :meth:`get_sv3`. Default is
+            ``None``.
+        secondary_config : _Config or None, optional
+            Secondary config override passed to :meth:`get_sv3`. Default is
+            ``None``.
+
+        Raises
+        ------
+        AssertionError
+            If *job* is not a recognised ``SV3_JOBS`` key.
+        Exception
+            Re-raises any exception produced by the pipeline job after logging
+            the error.
+        """
         assert job in SV3_JOBS, f"Job must be one of {list(SV3_JOBS.keys())}"
         self._ensure_log_dir()
         pipeline = self.get_sv3(config=config, secondary_config=secondary_config)
@@ -105,7 +173,21 @@ class ProcessingService:
     # ------------------------------------------------------------------
 
     def get_qc(self, config: "QCPipelineConfig | None" = None, secondary_config: "_Config | None" = None) -> QCPipeline:
-        """Return a configured ``QCPipeline`` for the current scope."""
+        """Return a configured ``QCPipeline`` for the current scope.
+
+        Parameters
+        ----------
+        config : QCPipelineConfig or None, optional
+            Primary config override. Default is ``None``.
+        secondary_config : _Config or None, optional
+            Secondary config applied on top of the primary merge. Default is
+            ``None``.
+
+        Returns
+        -------
+        QCPipeline
+            Fully configured pipeline instance (cached between calls).
+        """
         base = QCPipelineConfig()
         merged = base.model_copy()
         if config is not None:
@@ -137,7 +219,24 @@ class ProcessingService:
         ] = "all",
         config: "QCPipelineConfig | None" = None,
     ) -> None:
-        """Run a ``QCPipeline`` *job* for the current scope."""
+        """Run a ``QCPipeline`` *job* for the current scope.
+
+        Parameters
+        ----------
+        job : str, optional
+            Name of the pipeline job to execute. Must be one of the keys in
+            ``QC_JOBS``. Default is ``"all"``.
+        config : QCPipelineConfig or None, optional
+            Config override passed to :meth:`get_qc`. Default is ``None``.
+
+        Raises
+        ------
+        AssertionError
+            If *job* is not a recognised ``QC_JOBS`` key.
+        Exception
+            Re-raises any exception produced by the pipeline job after logging
+            the error.
+        """
         assert job in QC_JOBS, f"Job must be one of {list(QC_JOBS.keys())}"
         self._ensure_log_dir()
         pipeline = self.get_qc(config=config)
@@ -160,7 +259,25 @@ class ProcessingService:
     ) -> None:
         """Parse surveys for the active campaign and write CSVs into survey dirs.
 
-        Raises ``ValueError`` if site metadata or campaign metadata is not loaded.
+        Parameters
+        ----------
+        survey_id : str or None, optional
+            Restrict processing to the survey with this ID. When ``None`` all
+            surveys in the campaign are processed. Default is ``None``.
+        override : bool, optional
+            When ``True``, overwrite existing CSV files. Default is ``False``.
+        write_intermediate : bool, optional
+            When ``True``, also write kinematic-position and IMU-position CSVs
+            alongside the shotdata CSV. Default is ``False``.
+
+        Raises
+        ------
+        ValueError
+            If site metadata is not loaded on the session.
+        ValueError
+            If campaign metadata is not loaded on the session.
+        ValueError
+            If *survey_id* is specified but not found in the campaign metadata.
         """
         self._ensure_log_dir()
         from earthscope_sfg_tools.tiledb_integration import (

@@ -1,18 +1,28 @@
-# External Imports
+"""SV3 preprocessing pipeline: NovAtel → RINEX → PRIDE-PPP → kinematic → shotdata."""
+
+# stdlib
 import dataclasses
 import datetime
+import json
 import multiprocessing
 import os
 import sys
 import threading
 from functools import partial, wraps
 from pathlib import Path
-import json
 from typing import Callable
-import warnings
-from pride_ppp import kin_to_kin_position_df, PrideProcessor, ProcessingResult, ProcessingMode, rinex_get_time_range
-from pride_ppp.specifications.config import PRIDEPPPFileConfig as _PRIDEPPPFileConfig
+
+# third-party — monkey-patch targets must be imported before the patches below
+import tiledb as _tiledb
+from earthscope_sfg_tools.tiledb_integration.arrays import TBDArray as _TBDArray
+from pride_ppp import (
+    ProcessingMode,
+    PrideProcessor,
+    kin_to_kin_position_df,
+    rinex_get_time_range,
+)
 from pride_ppp.factories.processor import PrideProcessor as _PrideProcessorCls
+from pride_ppp.specifications.config import PRIDEPPPFileConfig as _PRIDEPPPFileConfig
 
 # pride_ppp <= current version omits `ISB model` from generated config_files;
 # pdp3 >= 3.2.7 requires it.  Patch write_config_file to inject the line.
@@ -52,9 +62,6 @@ _PrideProcessorCls._validate_kinfile = _pride_validate_kinfile_patched
 # tiledb requires the sparse dimension ('time') to be the pandas index, not a
 # plain column.  The DataFrame returned by kin_to_kin_position_df has time as
 # a plain column.  Patch write_df to set it as the index after validation.
-from earthscope_sfg_tools.tiledb_integration.arrays import TBDArray as _TBDArray
-import tiledb as _tiledb
-
 def _tbd_write_df_patched(self, df, validate: bool = True):
     if validate:
         df = self.dataframe_schema.validate(df, lazy=True)
@@ -64,33 +71,33 @@ def _tbd_write_df_patched(self, df, validate: bool = True):
 
 _TBDArray.write_df = _tbd_write_df_patched
 
-from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
-from earthscope_sfg_workflows.logging import ProcessLogger
+# third-party
 from earthscope_sfg_tools import tiledb_integration as novb_ops
-from earthscope_sfg_tools.tiledb_integration import rinex_qc
+from earthscope_sfg_tools.novatel_tools.utils import get_metadata, get_metadatav2
 from earthscope_sfg_tools.seafloor_site_tools.soundspeed_operations import (
     CTD_to_svp_v1,
     CTD_to_svp_v2,
     seabird_to_soundvelocity,
 )
-from earthscope_sfg_tools.novatel_tools.utils import get_metadata, get_metadatav2
 from earthscope_sfg_tools.sonardyne_tools import sv3_operations as sv3_ops
 from earthscope_sfg_tools.tiledb_integration import (
     TDBIMUPositionArray,
     TDBKinPositionArray,
     TDBShotDataArray,
+    rinex_qc,
+    tdb2rnx,
 )
+from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
+from earthscope_sfg_workflows.logging import ProcessLogger
 from tqdm.auto import tqdm
-from earthscope_sfg_tools.tiledb_integration import tdb2rnx
 
-# Local imports
+# local
 from ..data_mgmt.model import AssetEntry, AssetKind, CampaignLayout, SFGScope, TileDBLayout
 from ..data_mgmt.utils import get_merge_signature_shotdata
 from .config import PrideConfig, RinexConfig, SV3PipelineConfig
 from .exceptions import (
     NoDFOP00Found,
     NoKinFound,
-    NoLocalData,
     NoNovatelFound,
     NoRinexBuilt,
     NoRinexFound,
@@ -100,7 +107,7 @@ from .shotdata_gnss_refinement import merge_shotdata_kinposition
 
 
 def _pipeline_method(fn):
-    """Decorator that ensures only one pipeline method runs at a time per instance."""
+    """Wrap a pipeline method so only one runs at a time per instance."""
     @wraps(fn)
     def wrapper(self, *args, **kwargs):
         if not self._lock.acquire(blocking=False):
@@ -115,65 +122,76 @@ def _pipeline_method(fn):
 
 
 class SV3Pipeline:
-    """Orchestrates the end-to-end processing of Sonardyne SV3 and Novatel GNSS data for seafloor geodesy.
-    This class manages a comprehensive workflow for processing seafloor geodesy
-    data, including:
+    """End-to-end processor for Sonardyne SV3 / NovAtel GNSS seafloor geodesy data.
 
-    1. **GNSS Data Preprocessing**:
-       - Processes Novatel 770 binary files (primary GNSS observations)
-       - Processes Novatel 000 binary files (secondary GNSS + IMU positions)
-       - Stores observations in TileDB arrays for efficient access
+    **Stage order and data flow** (run via :meth:`run_pipeline` / ``job="all"``)::
 
-    2. **RINEX Generation**:
-       - Converts TileDB GNSS observations to daily RINEX files
-       - Manages RINEX metadata and file organization
+        Novatel 770 ──► TileDB GNSS obs ──► RINEX files ──► PRIDE-PPP ──► KIN files
+        Novatel 000 ──► TileDB GNSS obs (secondary) + IMU positions              │
+                                                                                   ▼
+        DFOP00 files ──────────────────────────────────────────► shotdata_pre ──► shotdata_final
+                                                               (acoustic ranges)  (+ positions)
+        CTD / Seabird ──► SVP CSV  (processed independently; no blocking deps)
 
-    3. **Precise Point Positioning**:
-       - Downloads GNSS product files (SP3, OBX, ATT)
-       - Runs PRIDE-PPPAR for high-precision positioning
-       - Generates kinematic (KIN) and residual files
+    Each stage checks the asset catalog to avoid redundant work.  Override
+    behaviour is controlled per-stage via :class:`SV3PipelineConfig`.
 
-    4. **Kinematic Position Processing**:
-       - Converts KIN files to structured dataframes
-       - Stores kinematic positions in TileDB for interpolation
+    **Individual stages** (run via ``job=<name>``)::
 
-    5. **Acoustic Data Processing**:
-       - Processes Sonardyne DFOP00 files (acoustic ping-reply sequences)
-       - Generates preliminary shotdata with acoustic ranges
+        "process_novatel"   → pre_process_novatel()        Novatel → TileDB
+        "build_rinex"       → get_rinex_files()             TileDB GNSS → RINEX
+        "run_pride"         → process_rinex()               RINEX → KIN
+        "process_kinematic" → process_kin()                 KIN → TileDB kinematic positions
+        "process_dfop00"    → process_dfop00()              DFOP00 → preliminary shotdata
+        "refine_shotdata"   → update_shotdata()             merge kin + acoustic → final shotdata
+        "process_svp"       → process_svp()                 CTD/Seabird → SVP CSV
+        "intermediate"      → run_intermediate_pipeline()   stages 3–7 (skips Novatel + RINEX)
+        "all"               → run_pipeline()                stages 1–7 in order
 
-    6. **Shotdata Refinement**:
-       - Interpolates high-precision GNSS positions to acoustic ping times
-       - Refines shotdata with improved position estimates
+    All catalog reads/writes flow through ``self.catalog``.  TileDB arrays are
+    opened once in ``__init__`` and shared across stage methods.
 
-    7. **Sound Velocity Profile Processing**:
-       - Processes CTD and Seabird files
-       - Generates sound velocity profiles for acoustic corrections
+    Attributes
+    ----------
+    scope : SFGScope
+        Active network/station/campaign scope.
+    catalog : AssetCatalogPort
+        Asset catalog for tracking data provenance.
+    config : SV3PipelineConfig
+        Configuration for all pipeline stages.
+    shotDataPreTDB : TDBShotDataArray
+        Preliminary shotdata TileDB array (before position refinement).
+    kinPositionTDB : TDBKinPositionArray
+        High-precision kinematic position TileDB array.
+    imuPositionTDB : TDBIMUPositionArray
+        IMU-derived position TileDB array (from Novatel 000 files).
+    shotDataFinalTDB : TDBShotDataArray
+        Final shotdata TileDB array (after position refinement).
+    gnssObsTDBURI : str or Path
+        URI for the primary GNSS observation TileDB array.
+    gnssObsTDB_secondaryURI : str or Path
+        URI for the secondary GNSS observation TileDB array (Novatel 000).
 
-    The pipeline operates on a hierarchical directory structure
-    (network/station/campaign) and uses TileDB for efficient storage and
-    retrieval of time-series data.
-
-    Attributes:
-        workspace: Manages the project directory structure and data layer access (catalog reads/writes flow through ``workspace.assets``).
-        config: Configuration settings for all pipeline steps, including Novatel, RINEX, PRIDE, DFOP00, and position update configs.
-        shotDataPreTDB: Preliminary shotdata (before position refinement).
-        kinPositionTDB: High-precision kinematic positions.
-        imuPositionTDB: IMU-derived positions (from Novatel 000).
-        shotDataFinalTDB: Final shotdata (after position refinement).
-        gnssObsTDBURI: Primary GNSS observation array (from Novatel 770).
-        gnssObsTDB_secondaryURI: Secondary GNSS observation array (from Novatel 000).
-        Methods:
-        -------:
-        set_network_station_campaign(network, station, campaign): Set the current processing context and initialize directories and TileDB arrays.
-        _build_rinex_metadata(): Prepare metadata for RINEX file generation from GNSS observations.
-        pre_process_novatel(): Preprocess Novatel 770 and 000 binary files into TileDB arrays.
-        get_rinex_files(): Generate daily RINEX files from TileDB GNSS observations.
-        process_rinex(): Process RINEX files using PRIDE-PPPAR to generate Kinematic files.
-        process_kin(): Convert Kinematic files to structured dataframes and store in TileDB.
-        process_dfop00(): Process Sonardyne DFOP00 files to generate preliminary shotdata.
-        update_shotdata(): Refine shotdata by interpolating high-precision GNSS positions.
-        process_svp(): Process CTD and Seabird files to generate sound velocity profiles.
-        run_pipeline(): Execute the full processing pipeline in sequence.
+    Methods
+    -------
+    pre_process_novatel()
+        Preprocess Novatel 770 and 000 binary files into TileDB arrays.
+    get_rinex_files()
+        Generate and catalog daily RINEX files from the GNSS observation array.
+    process_rinex()
+        Run PRIDE-PPP on RINEX files to generate KIN and residual files.
+    process_kin()
+        Process KIN files to generate kinematic-position DataFrames.
+    process_dfop00()
+        Process Sonardyne DFOP00 files to generate preliminary shotdata.
+    update_shotdata()
+        Refine shotdata with interpolated high-precision kinematic positions.
+    process_svp(override=False)
+        Process CTD and Seabird files to generate sound velocity profiles.
+    run_pipeline()
+        Execute the complete SV3 data processing pipeline in sequence.
+    run_intermediate_pipeline()
+        Run the intermediate pipeline steps (skips Novatel and RINEX generation).
     """
 
     def __init__(
@@ -189,12 +207,31 @@ class SV3Pipeline:
         campaign: str | None = None,
 
     ):
-        """Initializes the SV3Pipeline with a workspace and configuration.
-        Args:
-            directory: Root path of the data tree. Used to build a default :class:`Workspace` when ``workspace`` is not provided.
-            s3_sync_bucket: S3 bucket name/URI for sync operations.
-            config: Configuration settings for the pipeline. If None, uses default configuration. Defaults to None.
-            workspace: Pre-constructed workspace. Preferred over ``directory``.
+        """Initialise the SV3Pipeline with a scope, catalog, and configuration.
+
+        Parameters
+        ----------
+        catalog : AssetCatalogPort
+            Asset catalog for provenance tracking.
+        scope : SFGScope, optional
+            Pre-built scope (preferred). Must have a hydrated station layout.
+        config : SV3PipelineConfig, optional
+            Pipeline configuration; defaults to :class:`SV3PipelineConfig`.
+        campaign_layout : CampaignLayout, optional
+            Directory layout for the active campaign.
+        tiledb_layout : TileDBLayout, optional
+            URIs for all TileDB arrays used by this pipeline.
+        network : str, optional
+            Network name (used when *scope* is not provided).
+        station : str, optional
+            Station name (used when *scope* is not provided).
+        campaign : str, optional
+            Campaign name (used when *scope* is not provided).
+
+        Raises
+        ------
+        ValueError
+            If neither *scope* nor both *network* and *station* are supplied.
         """
 
         self._lock = threading.RLock()
@@ -224,47 +261,31 @@ class SV3Pipeline:
         self.gnssObsTDB_secondaryURI = tiledb.gnss_obs_secondary
 
     def _on_rinex_path(self, path: Path) -> None:
+        """Run per-file QC on a freshly generated RINEX file; no-op if not implemented."""
         try:
             rinex_qc(path)
         except NotImplementedError:
             ProcessLogger.debug("rinex_qc not yet implemented, skipping per-file QC")
 
-    @property
-    def current_network_name(self) -> str:
-        """Active network name; alias for `self.scope.network`."""
-        return self.scope.network
-
-    @property
-    def current_campaign_name(self) -> str | None:
-        """Active campaign name; alias for `self.scope.campaign`."""
-        return self.scope.campaign
-
-    @property
-    def current_station_name(self) -> str:
-        """Active station name; alias for `self.scope.station`."""
-        return self.scope.station
-
     @_pipeline_method
     def pre_process_novatel(self) -> None:
-        """Preprocess Novatel 770 and 000 binary files for the current context.
+        """Preprocess Novatel 770 and 000 binary files into TileDB observation arrays.
+
         Processing steps:
-        1. **Novatel 770**: Extracts GNSS observations to primary TileDB array
-        2. **Novatel 000**: Extracts GNSS observations to secondary array + IMU
-           positions
 
-        Both steps check if processing is needed (via override config or merge
-        status) and update the asset catalog upon completion.
+        1. **Novatel 770** — extracts GNSS observations into the primary TileDB
+           GNSS observation array via ``novatel_770_2tile``.
+        2. **Novatel 000** — extracts GNSS observations into the secondary array
+           and IMU positions into ``imuPositionTDB`` via ``nov0002tile``.
 
-        Raises:
-            Exception: If no Novatel 770 or 000 files are found.
-        """
+        Both steps skip work when a completed merge job already exists in the
+        catalog (unless ``config.novatel_config.override`` is ``True``).
 
-        """
-        Process Novatel 770 files
-        1. Query asset catalog for Novatel 770 files for current context
-        2. If files exist, check if processing is needed (override or not merged)
-        3. Call novatel_770_2tile to process files into TileDB GNSS observation array
-        4. Update asset catalog with merge job
+        Raises
+        ------
+        NoNovatelFound
+            If neither Novatel 770 nor Novatel 000 files are found for the
+            active campaign.
         """
         found_novatel_770 = False
         found_novatel_000 = False
@@ -279,7 +300,7 @@ class SV3Pipeline:
         if novatel_770_entries:
             found_novatel_770 = True
             ProcessLogger.info(
-                f"Processing {len(novatel_770_entries)} Novatel 770 files for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}. This may take a few minutes..."
+                f"Processing {len(novatel_770_entries)} Novatel 770 files for {self.scope.network} {self.scope.station} {self.scope.campaign}. This may take a few minutes..."
             )
             merge_signature = {
                 "parent_type": AssetKind.NOVATEL770.value,
@@ -307,23 +328,15 @@ class SV3Pipeline:
                         print(message)
                     
             else:
-                response = f"Novatel 770 Data Already Processed for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
+                response = f"Novatel 770 Data Already Processed for {self.scope.network} {self.scope.station} {self.scope.campaign}"
                 ProcessLogger.info(response)
         else:
             ProcessLogger.info(
-                f"No Novatel 770 Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
+                f"No Novatel 770 Files Found to Process for {self.scope.network} {self.scope.station} {self.scope.campaign}"
             )
 
-        """
-        Process Novatel 000 files
-        1. Query asset catalog for Novatel 000 files for current context
-        2. If files exist, check if processing is needed (override or not merged)
-        3. Call nov0002tile to process files into TileDB GNSS observation array + IMU positions
-        4. Update asset catalog with merge job
-        
-        """
         ProcessLogger.info(
-            f"Processing Novatel 000 data for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
+            f"Processing Novatel 000 data for {self.scope.network} {self.scope.station} {self.scope.campaign}"
         )
         novatel_000_entries: list[AssetEntry] = self.catalog.assets_for(
             network=self.scope.network,
@@ -364,25 +377,32 @@ class SV3Pipeline:
 
         else:
             ProcessLogger.info(
-                f"No Novatel 000 Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
+                f"No Novatel 000 Files Found to Process for {self.scope.network} {self.scope.station} {self.scope.campaign}"
             )
 
         if not found_novatel_770 and not found_novatel_000:
             raise NoNovatelFound(
-                f"No Novatel 770 or 000 files found for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}. Cannot proceed with GNSS processing."
+                f"No Novatel 770 or 000 files found for {self.scope.network} {self.scope.station} {self.scope.campaign}. Cannot proceed with GNSS processing."
             )
 
     @_pipeline_method
     def process_dfop00(self) -> None:
         """Process Sonardyne DFOP00 files to generate preliminary shotdata.
-        Steps:
-        1. Retrieves all DFOP00 files for the current context
-        2. Skips if a merge job already records this set as processed
-        3. Converts each file to shotdata dataframe (acoustic ping-reply sequences)
-        4. Writes dataframes to preliminary shotdata TileDB array
-        5. Records a merge job and marks files as processed in asset catalog
 
-        Uses multiprocessing for efficient parallel processing.
+        Steps:
+
+        1. Retrieves all cataloged DFOP00 files for the active campaign.
+        2. Skips if a completed merge job already records this set (idempotency).
+        3. Converts each file to a shotdata DataFrame (acoustic ping-reply
+           sequences) using ``sv3_ops.dfop00_to_shotdata`` in a process pool.
+        4. Writes DataFrames to the preliminary shotdata TileDB array.
+        5. Records a merge job and marks individual entries as processed in the
+           asset catalog.
+
+        Raises
+        ------
+        NoDFOP00Found
+            If no DFOP00 files are cataloged for the active campaign.
         """
 
         # 1. Get all catalogued DFOP00 files (not just unprocessed ones).
@@ -393,7 +413,7 @@ class SV3Pipeline:
             kind=AssetKind.DFOP00,
         )
         if not dfop00_entries:
-            response = f"No DFOP00 Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
+            response = f"No DFOP00 Files Found to Process for {self.scope.network} {self.scope.station} {self.scope.campaign}"
             ProcessLogger.error(response)
             raise NoDFOP00Found(response)
 
@@ -406,8 +426,8 @@ class SV3Pipeline:
         # 2. Skip if all files have already been merged into shotdata (idempotency).
         if not self.config.dfop00_config.override and self.catalog.is_merge_complete(**merge_signature):
             ProcessLogger.info(
-                f"DFOP00 data already merged for {self.current_network_name} "
-                f"{self.current_station_name} {self.current_campaign_name}, skipping."
+                f"DFOP00 data already merged for {self.scope.network} "
+                f"{self.scope.station} {self.scope.campaign}, skipping."
             )
             return
 
@@ -444,20 +464,17 @@ class SV3Pipeline:
         )
 
     @_pipeline_method
-    def update_shotdata(self):
-        """Refine shotdata with interpolated high-precision kinematic positions."""
+    def update_shotdata(self) -> None:
         """Refine shotdata with interpolated high-precision kinematic positions.
-        
-        Steps:
-        1. Gets merge signature from preliminary shotdata and kinematic
-           position arrays
-        2. Checks if refinement is needed (via override or merge status)
-        3. Merges shotdata with interpolated kinematic positions
-        4. Writes refined shotdata to final TileDB array
-        5. Records merge job in asset catalog
-        
-        This step significantly improves position accuracy by replacing GNSS
-        positions with interpolated PRIDE-PPP solutions.
+
+        Replaces preliminary GNSS positions in ``shotDataPreTDB`` with
+        PRIDE-PPP kinematic solutions interpolated to each acoustic ping time,
+        writing the result to ``shotDataFinalTDB``.
+
+        Returns
+        -------
+        None
+            Returns early without raising if the merge-signature lookup fails.
         """
 
         ProcessLogger.info("Updating shotdata with interpolated KinPosition data")
@@ -492,19 +509,29 @@ class SV3Pipeline:
 
     @_pipeline_method
     def process_svp(self, override: bool = False) -> None:
-        """Process CTD and Seabird files to generate sound velocity profiles (SVP).
+        """Process CTD and Seabird files to generate a sound velocity profile (SVP).
+
         Processing order:
-        1. Tries CTD files with CTD_to_svp_v2
-        2. If that fails, tries CTD_to_svp_v1
-        3. If still no success, tries Seabird files
 
-        The first successful SVP is saved to the campaign directory and
-        processing stops.
+        1. Tries each CTD file with ``CTD_to_svp_v2``, then ``CTD_to_svp_v1``.
+        2. If no CTD file yields a valid SVP, tries each Seabird file with
+           ``seabird_to_soundvelocity``.
 
-        Args:
-            override: If True, forces reprocessing even if SVP file exists. Default is False.
+        The first successful SVP is written to
+        ``<campaign_root>/<station>_svp.csv`` and processing stops.
+
+        Parameters
+        ----------
+        override : bool, optional
+            If ``True``, forces reprocessing even if the SVP CSV already
+            exists.  Default is ``False``.
+
+        Raises
+        ------
+        NoSVPFound
+            If no CTD or Seabird files are cataloged for the active campaign.
         """
-        svp_df_destination = self._campaign_layout.root / f"{self.current_station_name}_svp.csv"
+        svp_df_destination = self._campaign_layout.root / f"{self.scope.station}_svp.csv"
         if svp_df_destination.exists() and not override:
             return
 
@@ -519,7 +546,7 @@ class SV3Pipeline:
             kind=AssetKind.SEABIRD)
 
         if not ctd_entries and not seabird_entries:
-            response = f"No CTD or SEABIRD Files Found to Process for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
+            response = f"No CTD or SEABIRD Files Found to Process for {self.scope.network} {self.scope.station} {self.scope.campaign}"
             ProcessLogger.error(response)
             raise NoSVPFound(response)
 
@@ -565,12 +592,7 @@ class SV3Pipeline:
                 continue
 
     def _build_rinex_meta(self) -> None:
-        """Create RINEX metadata JSON files for the current campaign if absent.
-
-        Writes ``rinex_metav2.json`` and ``rinex_metav1.json`` into
-        ``<campaign_root>/metadata/`` and updates the rinex config's
-        ``settings_path`` to point at the v2 file.
-        """
+        """Create RINEX metadata JSON files for the current campaign if absent."""
         meta_dir = self._campaign_layout.metadata_dir
         meta_dir.mkdir(parents=True, exist_ok=True)
         rinex_metav2 = meta_dir / "rinex_metav2.json"
@@ -578,11 +600,11 @@ class SV3Pipeline:
 
         if not rinex_metav2.exists():
             with open(rinex_metav2, "w") as f:
-                json.dump(get_metadatav2(site=self.current_station_name), f)
+                json.dump(get_metadatav2(site=self.scope.station), f)
 
         if not rinex_metav1.exists():
             with open(rinex_metav1, "w") as f:
-                json.dump(get_metadata(site=self.current_station_name), f)
+                json.dump(get_metadata(site=self.scope.station), f)
 
         self.config.rinex_config.settings_path = rinex_metav2
 
@@ -590,13 +612,14 @@ class SV3Pipeline:
     def get_rinex_files(self) -> None:
         """Generate and catalog daily RINEX files from the GNSS observation TileDB array.
 
-        Uses :attr:`_gnss_obs_uri` as the source TileDB, and
-        :attr:`_rinex_merge_label` to distinguish SV3 from QC merge records.
-        After each file is created, :meth:`_on_rinex_path` is called (useful
-        for per-file QC; no-op by default).
+        After each file is written :meth:`_on_rinex_path` is called for
+        per-file QC (no-op if ``rinex_qc`` raises ``NotImplementedError``).
 
-        Raises:
-            NoRinexBuilt: If ``tdb2rnx`` produces no files.
+        Raises
+        ------
+        NoRinexBuilt
+            If ``tdb2rnx`` produces no RINEX files or exits with a non-zero
+            return code.
         """
         self._build_rinex_meta()
         rinex_cfg:RinexConfig = self.config.rinex_config
@@ -605,19 +628,19 @@ class SV3Pipeline:
         year = (
             rinex_cfg.processing_year
             if rinex_cfg.processing_year != -1
-            else int(self.current_campaign_name.split("_")[0])
+            else int(self.scope.campaign.split("_")[0])
         )
         gnss_uri = self._tiledb_layout.gnss_obs
 
         ProcessLogger.info(
-            f"Generating RINEX files for {self.current_network_name} "
-            f"{self.current_station_name} {year}. This may take a few minutes..."
+            f"Generating RINEX files for {self.scope.network} "
+            f"{self.scope.station} {year}. This may take a few minutes..."
         )
 
         parent_ids = (
-            f"N-{self.current_network_name}"
-            f"|ST-{self.current_station_name}"
-            f"|SV-{self.current_campaign_name}"
+            f"N-{self.scope.network}"
+            f"|ST-{self.scope.station}"
+            f"|SV-{self.scope.campaign}"
             f"|TDB-{gnss_uri}"
             f"|YEAR-{year}"
         )
@@ -660,7 +683,7 @@ class SV3Pipeline:
                 if not rinex_paths:
                     ProcessLogger.warning(
                         f"No RINEX files generated for "
-                        f"{self.current_network_name} {self.current_station_name} {year}."
+                        f"{self.scope.network} {self.scope.station} {year}."
                     )
                     raise NoRinexBuilt("No RINEX files were built.")
 
@@ -711,14 +734,14 @@ class SV3Pipeline:
 
         else:
             rinex_entries = self.catalog.assets_for(
-                network=self.current_network_name,
-                station=self.current_station_name,
-                campaign=self.current_campaign_name,
+                network=self.scope.network,
+                station=self.scope.station,
+                campaign=self.scope.campaign,
                 kind=AssetKind.RINEX2,
             )
             ProcessLogger.debug(
-                f"RINEX already generated for {self.current_network_name}, "
-                f"{self.current_station_name}, {year}. "
+                f"RINEX already generated for {self.scope.network}, "
+                f"{self.scope.station}, {year}. "
                 f"Found {len(rinex_entries)} entries."
             )
 
@@ -727,20 +750,24 @@ class SV3Pipeline:
         """Run PRIDE-PPP on RINEX files to generate KIN and residual files.
 
         Steps:
-        1. Retrieves RINEX files needing processing from the asset catalog.
-        2. Filters to entries with a local path.
-        3. Runs ``PrideProcessor.process_batch`` to convert RINEX → KIN.
-        4. Creates :class:`~...data_mgmt.model.AssetEntry` records for each
-           KIN and residual file and adds them to the catalog.
 
-        Raises:
-            NoRinexFound: If no processable RINEX files are found.
+        1. Retrieves unprocessed RINEX entries from the asset catalog.
+        2. Filters to entries that have a local path on disk.
+        3. Runs ``PrideProcessor.process_batch`` to convert RINEX → KIN files.
+        4. Creates :class:`~earthscope_sfg_workflows.data_mgmt.model.AssetEntry`
+           records for each KIN and residual file and adds them to the catalog.
+
+        Raises
+        ------
+        NoRinexFound
+            If no processable RINEX files are found in the catalog for the
+            active campaign.
         """
         pride_cfg:PrideConfig = self.config.pride_config
 
         ProcessLogger.info(
-            f"Running PRIDE-PPPAR on RINEX for {self.current_network_name} "
-            f"{self.current_station_name} {self.current_campaign_name}. "
+            f"Running PRIDE-PPPAR on RINEX for {self.scope.network} "
+            f"{self.scope.station} {self.scope.campaign}. "
             "This may take a few minutes..."
         )
 
@@ -749,9 +776,9 @@ class SV3Pipeline:
         pride_dir.mkdir(parents=True, exist_ok=True)
 
         rinex_entries: list[AssetEntry] = self.catalog.assets_to_process(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
+            network=self.scope.network,
+            station=self.scope.station,
+            campaign=self.scope.campaign,
             kind=AssetKind.RINEX2,
             override=pride_cfg.override,
         )
@@ -760,8 +787,8 @@ class SV3Pipeline:
         if not rinex_entries:
             msg = (
                 f"No RINEX files found to process for "
-                f"{self.current_network_name} {self.current_station_name} "
-                f"{self.current_campaign_name}"
+                f"{self.scope.network} {self.scope.station} "
+                f"{self.scope.campaign}"
             )
             ProcessLogger.error(msg)
             raise NoRinexFound(msg)
@@ -784,8 +811,8 @@ class SV3Pipeline:
             ),
             desc=(
                 f"Processing RINEX with PRIDE-PPPAR for "
-                f"{self.current_network_name} {self.current_station_name} "
-                f"{self.current_campaign_name} using {pride_cfg.n_processes} workers"
+                f"{self.scope.network} {self.scope.station} "
+                f"{self.scope.campaign} using {pride_cfg.n_processes} workers"
             ),
             total=len(rinex_entries),
         ):
@@ -832,35 +859,38 @@ class SV3Pipeline:
 
     @_pipeline_method
     def process_kin(self) -> None:
-        """Process KIN files to generate kinematic-position dataframes.
+        """Process KIN files to generate kinematic-position DataFrames.
 
         Steps:
-        1. Retrieves KIN files needing processing from the asset catalog.
-        2. Converts each KIN file to a structured dataframe via
-           ``kin_to_kin_position_df``.
-        3. Writes the dataframe to :attr:`_kin_position_tdb`.
-        4. Marks each file as processed in the asset catalog.
 
-        Raises:
-            NoKinFound: If no KIN files are found for the current context.
+        1. Retrieves unprocessed KIN entries from the asset catalog.
+        2. Converts each KIN file to a structured DataFrame via
+           ``kin_to_kin_position_df``.
+        3. Writes the DataFrame to ``kinPositionTDB``.
+        4. Marks each successfully processed file in the asset catalog.
+
+        Raises
+        ------
+        NoKinFound
+            If no KIN files are found for the active campaign in the catalog.
         """
         ProcessLogger.info(
-            f"Looking for KIN files to process for {self.current_network_name} "
-            f"{self.current_station_name} {self.current_campaign_name}"
+            f"Looking for KIN files to process for {self.scope.network} "
+            f"{self.scope.station} {self.scope.campaign}"
         )
 
         kin_entries: list[AssetEntry] = self.catalog.assets_to_process(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
+            network=self.scope.network,
+            station=self.scope.station,
+            campaign=self.scope.campaign,
             kind=AssetKind.KIN,
             override=self.config.rinex_config.override,  # use RINEX override to control KIN processing
         )
         if not kin_entries:
             msg = (
                 f"No KIN files found to process for "
-                f"{self.current_network_name} {self.current_station_name} "
-                f"{self.current_campaign_name}"
+                f"{self.scope.network} {self.scope.station} "
+                f"{self.scope.campaign}"
             )
             ProcessLogger.info(msg)
             raise NoKinFound(msg)
@@ -890,21 +920,23 @@ class SV3Pipeline:
     @_pipeline_method
     def run_pipeline(self) -> None:
         """Execute the complete SV3 data processing pipeline in sequence.
-        Pipeline steps (in order):
-        1. pre_process_novatel(): Process Novatel GNSS data
-        2. get_rinex_files(): Generate RINEX files
-        3. process_rinex(): Run PRIDE-PPP on RINEX
-        4. process_kin(): Convert KIN files to dataframes
-        5. process_dfop00(): Process acoustic data
-        6. update_shotdata(): Refine shotdata with high-precision positions
-        7. process_svp(): Generate sound velocity profile
 
-        Each step checks if processing is needed via config overrides or
-        catalog status.
+        Steps run in order:
+
+        1. :meth:`pre_process_novatel` — Novatel binary files → TileDB arrays.
+        2. :meth:`get_rinex_files` — GNSS obs TileDB → daily RINEX files.
+        3. :meth:`process_rinex` — RINEX → KIN + residual files via PRIDE-PPP.
+        4. :meth:`process_kin` — KIN files → kinematic-position DataFrames.
+        5. :meth:`process_dfop00` — DFOP00 files → preliminary shotdata.
+        6. :meth:`update_shotdata` — merge kinematic positions into final shotdata.
+        7. :meth:`process_svp` — CTD/Seabird files → SVP CSV.
+
+        Each step's expected exception is caught so that the remaining steps
+        still execute.
         """
 
         ProcessLogger.info(
-            f"Starting SV3 Processing Pipeline for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
+            f"Starting SV3 Processing Pipeline for {self.scope.network} {self.scope.station} {self.scope.campaign}"
         )
         try:
             self.pre_process_novatel()
@@ -939,26 +971,30 @@ class SV3Pipeline:
             pass
 
         ProcessLogger.info(
-            f"Completed SV3 Processing Pipeline for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
+            f"Completed SV3 Processing Pipeline for {self.scope.network} {self.scope.station} {self.scope.campaign}"
         )
 
     @_pipeline_method
     def run_intermediate_pipeline(self) -> None:
-        """Run only the intermediate steps of the SV3 pipeline. This assumes rinex is already downloaded
-        Intermediate steps include:
-        1. process_rinex(): Run PRIDE-PPP on RINEX
-        2. process_kin(): Convert KIN files to dataframes
-        3. process_dfop00(): Process acoustic data to preliminary shotdata
-        4. update_shotdata(): Refine shotdata with interpolated kinematic
-           positions
-        5. process_svp(): Generate sound velocity profile
+        """Run only the intermediate pipeline steps, assuming RINEX already exists.
 
-        This allows for faster iteration on acoustic processing and position
-        refinement without re-running the full GNSS processing steps.
+        Skips Novatel preprocessing and RINEX generation, enabling faster
+        iteration on acoustic processing and position refinement.
+
+        Steps run in order:
+
+        1. :meth:`process_rinex` — RINEX → KIN + residual files via PRIDE-PPP.
+        2. :meth:`process_kin` — KIN files → kinematic-position DataFrames.
+        3. :meth:`process_dfop00` — DFOP00 files → preliminary shotdata.
+        4. :meth:`update_shotdata` — merge kinematic positions into final shotdata.
+        5. :meth:`process_svp` — CTD/Seabird files → SVP CSV.
+
+        Each step's expected exception is caught so that the remaining steps
+        still execute.
         """
 
         ProcessLogger.info(
-            f"Starting SV3 Intermediate Pipeline for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
+            f"Starting SV3 Intermediate Pipeline for {self.scope.network} {self.scope.station} {self.scope.campaign}"
         )
 
         try:
@@ -984,7 +1020,7 @@ class SV3Pipeline:
             pass
 
         ProcessLogger.info(
-            f"Completed SV3 Intermediate Pipeline for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
+            f"Completed SV3 Intermediate Pipeline for {self.scope.network} {self.scope.station} {self.scope.campaign}"
         )
 
 

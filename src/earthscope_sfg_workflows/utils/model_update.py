@@ -8,12 +8,19 @@ from pydantic import BaseModel
 
 def validate_keys_recursively(config_dict: dict, model_class: BaseModel, path: str = ""):
     """Recursively validate keys and suggest corrections for typos.
-    Args:
-        config_dict: The dictionary to validate.
-        model_class: The Pydantic model to validate against.
-        path: The current path in the nested dictionary, for error reporting.
 
-    Returns:
+    Parameters
+    ----------
+    config_dict
+        The dictionary to validate.
+    model_class
+        The Pydantic model to validate against.
+    path
+        The current path in the nested dictionary, for error reporting.
+
+    Returns
+    -------
+    list
         A list of error messages.
     """
     valid_fields = set(model_class.model_fields.keys())
@@ -63,11 +70,16 @@ def deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str
     For nested dictionaries, values are merged recursively rather than replaced.
     For other types, override values replace base values.
 
-    Args:
-        base: The base dictionary to merge into.
-        override: The override dictionary with values to merge.
+    Parameters
+    ----------
+    base
+        The base dictionary to merge into.
+    override
+        The override dictionary with values to merge.
 
-    Returns:
+    Returns
+    -------
+    dict
         A new dictionary with merged values.
     """
     result = base.copy()
@@ -90,15 +102,22 @@ def validate_and_merge_config(
     Performs a deep merge so that nested configuration objects (like pride_config)
     are merged field-by-field rather than completely replaced.
 
-    Args:
-        base_class: The base configuration class instance (Pydantic model).
-        override_config: The override configuration dictionary to update the base config.
+    Parameters
+    ----------
+    base_class
+        The base configuration class instance (Pydantic model).
+    override_config
+        The override configuration dictionary to update the base config.
 
-    Returns:
+    Returns
+    -------
+    BaseModel
         A new instance of the base_class with merged configuration.
 
-    Raises:
-        ValueError: If there are typos or invalid keys in the override_config.
+    Raises
+    ------
+    ValueError
+        If there are typos or invalid keys in the override_config.
     """
 
     # Check if the base class is a Pydantic model

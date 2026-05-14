@@ -60,16 +60,21 @@ See `PIXI.md` for full Pixi details.
 from pathlib import Path
 from earthscope_sfg_workflows.workflows import WorkflowHandler
 
+# Point at your local SFGMain workspace directory.
 handler = WorkflowHandler(directory=Path("/path/to/SFGMain"))
-handler.workspace.set_scope(
-    network="cascadia-gorda",
-    station="NCC1",
-    campaign="2024_A_1126",
-)
 
-# Discover and ingest assets for the active campaign.
-handler.data_handler.discover()
-handler.data_handler.ingest()
+# Set the active network / station / campaign context.
+handler.set_network_station_campaign("cascadia-gorda", "NCC1", "2024_A_1126")
+
+# Discover files in the EarthScope archive and download them locally.
+handler.ingest_discover_archive()
+handler.download_data()
+
+# Run the SV3 preprocessing pipeline (NovAtel → RINEX → PRIDE-PPP → shotdata).
+handler.preprocess_run_pipeline_sv3()
+
+# (Optional) Run GARPOS inversion.
+handler.run_garpos()
 ```
 
 The CLI is exposed as `sfgtools` (Typer-based, see `src/earthscope_sfg_cli/`):
@@ -83,27 +88,38 @@ sfgtools preprocess \
     --stations NCC1
 ```
 
+### Environment variables
+
+| Variable | Purpose |
+|---|---|
+| `WORKING_ENVIRONMENT` | `LOCAL` (default) or `GEOLAB` |
+| `MAIN_DIRECTORY_GEOLAB` | Workspace root when running on GEOLAB |
+| `S3_SYNC_BUCKET` | S3 bucket name for remote push/pull |
+
 ## Package layout
 
 ```
 earthscope_sfg_workflows/
-├── config/         # Static config: file types, GARPOS site, filter levels
-├── data_mgmt/      # Ports & adapters: AssetStore, FileStore, ArchiveSource
-│   └── adapters/   # local_fs, s3_fs, sql, earthscope_archive, memory (tests)
-├── logging/        # Process-aware loggers (ProcessLogger, BaseLogger)
+├── config/             # Environment singleton, file-type config, GARPOS settings
+├── data_mgmt/          # Ports & adapters: catalog, file store, archive
+│   ├── adapters/       # In-memory fakes for tests
+│   ├── archives/       # EarthScope archive adapter + HTTP helpers
+│   ├── catalog/        # SQLite asset catalog adapter
+│   ├── filestore/      # fsspec-backed local + S3 file store
+│   ├── core.py         # FileManager, LayoutInspector (orchestration over ports)
+│   ├── model.py        # Immutable layout dataclasses, AssetEntry, IngestReport
+│   └── ports.py        # AssetCatalogPort, FileStorePort, ArchiveSourcePort
+├── logging/            # GarposLogger, ProcessLogger
 ├── modeling/
-│   └── garpos_tools/   # GARPOS schemas, data prep, plotting helpers
-├── prefiltering/   # Shotdata QC filters (SNR, DBV, XC, distance, WRMS, …)
-├── utils/          # CLI helpers, custom warnings, model_update
-└── workflows/      # Top-level orchestration
-    ├── base.py             # WorkflowBase
-    ├── facades.py          # Layout / Metadata / Assets / Ingest façades
-    ├── workspace.py        # Workspace = scope + façades
-    ├── workflow_handler.py # Backwards-compatible legacy entry point
-    ├── pipelines/          # qc, sv2_ops, sv3, shotdata_gnss_refinement
-    ├── midprocess/         # Mid-processing helpers
-    ├── modeling/           # garpos_handler
-    └── preprocess_ingest/  # data_handler
+│   └── garpos_tools/   # GARPOS schemas, inversion handler, plotting
+├── pipelines/          # SV3 and QC preprocessing pipelines + shotdata refinement
+├── prefiltering/       # Shotdata QC filters (SNR, DBV, XC, distance, PRIDE WRMS)
+├── services/           # IngestService, ProcessingService, SyncService
+├── utils/              # CLI helpers, custom exceptions, config merging
+└── workflows/          # Top-level entry points
+    ├── session.py          # StationSession — scoped unit of work
+    ├── workspace.py        # Workspace — multi-session container
+    └── workflow_handler.py # WorkflowHandler — user-facing flat API
 
 earthscope_sfg_cli/
 ├── __main__.py     # `sfgtools` Typer app
@@ -114,18 +130,24 @@ earthscope_sfg_cli/
 ## Architecture
 
 The data layer follows the **ports & adapters** (hexagonal) pattern.
-Workflows interact only with the ports — `AssetStore`, `FileStore`,
-`ArchiveSource` — never with concrete implementations. Adapters live under
-`data_mgmt/adapters/` (local FS, S3, SQL catalog, EarthScope archive, plus
-in-memory fakes for tests).
+Workflows interact only with three ports — `AssetCatalogPort`, `FileStorePort`,
+`ArchiveSourcePort` — never with concrete implementations. Adapters live under
+`data_mgmt/` subdirectories (SQLite catalog, fsspec local/S3 file store,
+EarthScope archive, and in-memory fakes for tests).
 
-`WorkflowHandler` owns a single `Workspace`, which exposes four façades —
-`layout`, `metadata`, `assets`, `ingest` — to subclasses of `WorkflowBase`.
-Façades are constructed per access against the workspace's *current* scope,
-so they never drift if scope mutates between calls.
+`WorkflowHandler` wraps a `Workspace`, which manages a pool of
+`StationSession` instances keyed by `(network, station)`. Sessions are
+created once and reused on campaign switches — TileDB arrays are opened at
+construction and never rebuilt. Services (`IngestService`, `ProcessingService`,
+`SyncService`) are lazy properties on each session; they are constructed on
+first access.
 
-See `plans/rfc-a-data-mgmt-ports-and-adapters.md` and
-`plans/rfc-b-workflow-facade.md` for design notes.
+The `Environment` singleton (`config/env_config.py`) is the single source of
+truth for runtime settings (`WORKING_ENVIRONMENT`, `S3_SYNC_BUCKET`,
+`MAIN_DIRECTORY_GEOLAB`). Components read from it directly; no environment
+variables are threaded through initializer chains.
+
+See `plans/rfc-a-data-mgmt-ports-and-adapters.md` for design notes.
 
 ## Development
 

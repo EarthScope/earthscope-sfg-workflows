@@ -1,3 +1,5 @@
+"""QC pipeline: processes Sonardyne QC PIN files through PRIDE-PPP to refined shotdata."""
+
 # External Imports
 import concurrent.futures
 import datetime
@@ -42,7 +44,7 @@ from .shotdata_gnss_refinement import merge_shotdata_qc
 
 
 def _pipeline_method(fn):
-    """Decorator that ensures only one pipeline method runs at a time per instance."""
+    """Wrap a pipeline method so only one runs at a time per instance."""
     @wraps(fn)
     def wrapper(self, *args, **kwargs):
         if not self._lock.acquire(blocking=False):
@@ -62,6 +64,24 @@ def process_single_qcpin(
     rangea_string_queue: deque,
     processed_asset_queue: deque,
 ) -> bool:
+    """Parse a single QC PIN file and append results to the shared queues.
+
+    Parameters
+    ----------
+    entry : AssetEntry
+        Catalog entry for the QC PIN file to process.
+    shotdata_df_queue : deque
+        Queue to which the parsed shotdata DataFrame is appended.
+    rangea_string_queue : deque
+        Queue to which extracted RANGEA strings are appended.
+    processed_asset_queue : deque
+        Queue to which the updated (processed) asset entry is appended.
+
+    Returns
+    -------
+    bool
+        ``True`` on success, ``False`` if parsing failed.
+    """
     try:
         df = qcjson_to_shotdata(entry.local_path, ProcessLogger.logger)
         rangea_strings: list[str] = extract_rangea_strings_from_qcpin(entry.local_path)
@@ -83,7 +103,25 @@ def rangea_string_epoch(
     rangea_string_queue: deque,
     stop_event: threading.Event,
 ) -> None:
-    """Background thread: flush RANGEA string batches to the GNSS obs TileDB array."""
+    """Flush RANGEA string batches from the queue to the GNSS observation TileDB array.
+
+    Intended to be run in a background thread.  Sleeps for 10 seconds between
+    flush cycles.  When *stop_event* is set the loop exits and any remaining
+    strings are written before the function returns.
+
+    Parameters
+    ----------
+    gnss_obs_tdb : TDBGNSSObsArray
+        Open TileDB array for GNSS observations.
+    rangea_string_queue : deque
+        Shared queue populated by :func:`process_single_qcpin`.
+    stop_event : threading.Event
+        Signal used by the main thread to request shutdown.
+
+    Returns
+    -------
+    None
+    """
     import time as _time
 
     SLEEP_TIME_SECONDS = 10
@@ -104,40 +142,53 @@ def rangea_string_epoch(
 
 
 class QCPipeline:
-    """Orchestrates the QC data processing pipeline for seafloor geodesy.
+    """Orchestrate the QC data processing pipeline for seafloor geodesy.
 
     This class manages a workflow for processing QC (Quality Control) data
     from Sonardyne equipment, including:
 
-    1. **QC PIN File Processing**:
-       - Processes QC PIN JSON files to generate preliminary shotdata
-       - Extracts RANGEA logs from PIN files for GNSS processing
+    1. **QC PIN File Processing** — converts QC PIN JSON files to preliminary
+       shotdata and extracts RANGEA logs for GNSS processing.
+    2. **GNSS Data Processing** — writes NOVATEL observations into a TileDB
+       array and generates daily RINEX files from it.
+    3. **Precise Point Positioning** — runs PRIDE-PPPAR to produce kinematic
+       (KIN) and residual files.
+    4. **Kinematic Position Processing** — converts KIN files to structured
+       DataFrames stored in a QC-specific TileDB array.
+    5. **Shotdata Refinement** — interpolates high-precision GNSS positions to
+       acoustic ping times and writes the refined shotdata.
 
-    2. **GNSS Data Processing**:
-       - Processes NOVATEL PIN files into TileDB GNSS observation arrays
-       - Generates daily RINEX files from GNSS observations
+    Attributes
+    ----------
+    scope : SFGScope
+        Active network/station/campaign scope.
+    catalog : AssetCatalogPort
+        Asset catalog for tracking data provenance.
+    config : QCPipelineConfig
+        Configuration for all pipeline stages.
+    qcShotDataPreTDB : TDBShotDataArray
+        QC preliminary shotdata TileDB array (before position refinement).
+    qcKinPositionTDB : TDBKinPositionArray
+        QC high-precision kinematic position TileDB array.
+    qcShotDataFinalTDB : TDBShotDataArray
+        QC final shotdata TileDB array (after position refinement).
+    qcGnssObsTDB : TDBGNSSObsArray
+        QC GNSS observation TileDB array.
 
-    3. **Precise Point Positioning**:
-       - Downloads GNSS product files (SP3, OBX, ATT)
-       - Runs PRIDE-PPPAR for high-precision positioning
-       - Generates kinematic (KIN) and residual files
-
-    4. **Kinematic Position Processing**:
-       - Converts KIN files to structured dataframes
-       - Stores kinematic positions in QC-specific TileDB array
-
-    5. **Shotdata Refinement**:
-       - Interpolates high-precision GNSS positions to acoustic ping times
-       - Refines shotdata with improved position estimates
-
-    Attributes:
-        scope: Active network/station/campaign scope.
-        catalog: Asset catalog for tracking data provenance.
-        config: Configuration settings for all pipeline stages.
-        qcShotDataPreTDB: QC preliminary shotdata (before position refinement).
-        qcKinPositionTDB: QC high-precision kinematic positions.
-        qcShotDataFinalTDB: QC final shotdata (after position refinement).
-        qcGnssObsTDB: QC GNSS observation array.
+    Methods
+    -------
+    process_qcpin()
+        Process QC PIN files to generate preliminary shotdata and GNSS observations.
+    get_rinex_files()
+        Generate and catalog daily RINEX files from the QC GNSS observation array.
+    process_rinex()
+        Run PRIDE-PPP on QC RINEX files to generate KIN and residual files.
+    process_kin()
+        Process KIN files to generate QC kinematic-position DataFrames.
+    update_shotdata()
+        Refine QC shotdata with interpolated high-precision kinematic positions.
+    run_pipeline()
+        Execute the complete QC data processing pipeline in sequence.
     """
 
     def __init__(
@@ -154,13 +205,29 @@ class QCPipeline:
     ) -> None:
         """Initialise the QCPipeline.
 
-        Args:
-            catalog: Asset catalog for provenance tracking.
-            scope: Pre-built scope (preferred). Must have hydrated station layout.
-            config: Pipeline configuration; defaults to :class:`QCPipelineConfig`.
-            network: Network name (used when *scope* is not provided).
-            station: Station name (used when *scope* is not provided).
-            campaign: Campaign name (used when *scope* is not provided).
+        Parameters
+        ----------
+        catalog : AssetCatalogPort
+            Asset catalog for provenance tracking.
+        scope : SFGScope, optional
+            Pre-built scope (preferred). Must have a hydrated station layout.
+        config : QCPipelineConfig, optional
+            Pipeline configuration; defaults to :class:`QCPipelineConfig`.
+        campaign_layout : CampaignLayout, optional
+            Directory layout for the active campaign.
+        tiledb_layout : TileDBLayout, optional
+            URIs for all TileDB arrays used by this pipeline.
+        network : str, optional
+            Network name (used when *scope* is not provided).
+        station : str, optional
+            Station name (used when *scope* is not provided).
+        campaign : str, optional
+            Campaign name (used when *scope* is not provided).
+
+        Raises
+        ------
+        ValueError
+            If neither *scope* nor both *network* and *station* are supplied.
         """
         self._lock = threading.RLock()
         self.config = config if config is not None else QCPipelineConfig()
@@ -188,22 +255,6 @@ class QCPipeline:
         self.qcGnssObsTDB.consolidate()
 
     # ------------------------------------------------------------------
-    # Scope accessors
-    # ------------------------------------------------------------------
-
-    @property
-    def current_network_name(self) -> str:
-        return self.scope.network
-
-    @property
-    def current_station_name(self) -> str:
-        return self.scope.station
-
-    @property
-    def current_campaign_name(self) -> str | None:
-        return self.scope.campaign
-
-    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
@@ -216,11 +267,11 @@ class QCPipeline:
 
         if not rinex_metav2.exists():
             with open(rinex_metav2, "w") as f:
-                json.dump(get_metadatav2(site=self.current_station_name), f)
+                json.dump(get_metadatav2(site=self.scope.station), f)
 
         if not rinex_metav1.exists():
             with open(rinex_metav1, "w") as f:
-                json.dump(get_metadata(site=self.current_station_name), f)
+                json.dump(get_metadata(site=self.scope.station), f)
 
         self.config.rinex_config.settings_path = rinex_metav2
 
@@ -232,20 +283,22 @@ class QCPipeline:
     def process_qcpin(self) -> None:
         """Process QC PIN files to generate preliminary shotdata and GNSS observations.
 
-        Raises:
-            NoQCPinFound: If no QC PIN files are found for the current context.
+        Raises
+        ------
+        NoQCPinFound
+            If no QC PIN files are cataloged for the active campaign.
         """
         qcpin_entries: list[AssetEntry] = self.catalog.assets_to_process(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
+            network=self.scope.network,
+            station=self.scope.station,
+            campaign=self.scope.campaign,
             kind=AssetKind.QCPIN,
             override=self.config.qcpin_config.override,
         )
         if not qcpin_entries:
             msg = (
-                f"No QCPIN Files Found for {self.current_network_name} "
-                f"{self.current_station_name} {self.current_campaign_name}"
+                f"No QCPIN Files Found for {self.scope.network} "
+                f"{self.scope.station} {self.scope.campaign}"
             )
             ProcessLogger.error(msg)
             raise NoQCPinFound(msg)
@@ -313,8 +366,11 @@ class QCPipeline:
     def get_rinex_files(self) -> None:
         """Generate and catalog daily RINEX files from the QC GNSS observation TileDB array.
 
-        Raises:
-            NoRinexBuilt: If ``tdb2rnx`` produces no files.
+        Raises
+        ------
+        NoRinexBuilt
+            If ``tdb2rnx`` produces no RINEX files or exits with a non-zero
+            return code.
         """
         rinex_cfg: RinexConfig = self.config.rinex_config
         rinex_dest = self._campaign_layout.rinex
@@ -322,19 +378,19 @@ class QCPipeline:
         year = (
             rinex_cfg.processing_year
             if rinex_cfg.processing_year != -1
-            else int(self.current_campaign_name.split("_")[0])
+            else int(self.scope.campaign.split("_")[0])
         )
         gnss_uri = self.qcGnssObsTDB.uri
 
         ProcessLogger.info(
-            f"Generating QC RINEX files for {self.current_network_name} "
-            f"{self.current_station_name} {year}. This may take a few minutes..."
+            f"Generating QC RINEX files for {self.scope.network} "
+            f"{self.scope.station} {year}. This may take a few minutes..."
         )
 
         parent_ids = (
-            f"N-{self.current_network_name}"
-            f"|ST-{self.current_station_name}"
-            f"|SV-{self.current_campaign_name}"
+            f"N-{self.scope.network}"
+            f"|ST-{self.scope.station}"
+            f"|SV-{self.scope.campaign}"
             f"|TDB-{gnss_uri}"
             f"|YEAR-{year}"
             f"|QC"
@@ -378,7 +434,7 @@ class QCPipeline:
                 if not rinex_paths:
                     ProcessLogger.warning(
                         f"No QC RINEX files generated for "
-                        f"{self.current_network_name} {self.current_station_name} {year}."
+                        f"{self.scope.network} {self.scope.station} {year}."
                     )
                     raise NoRinexBuilt("No QC RINEX files were built.")
 
@@ -421,14 +477,14 @@ class QCPipeline:
 
         else:
             rinex_entries = self.catalog.assets_for(
-                network=self.current_network_name,
-                station=self.current_station_name,
-                campaign=self.current_campaign_name,
+                network=self.scope.network,
+                station=self.scope.station,
+                campaign=self.scope.campaign,
                 kind=AssetKind.RINEX2,
             )
             ProcessLogger.debug(
-                f"QC RINEX already generated for {self.current_network_name}, "
-                f"{self.current_station_name}, {year}. "
+                f"QC RINEX already generated for {self.scope.network}, "
+                f"{self.scope.station}, {year}. "
                 f"Found {len(rinex_entries)} entries."
             )
 
@@ -436,14 +492,16 @@ class QCPipeline:
     def process_rinex(self) -> None:
         """Run PRIDE-PPP on QC RINEX files to generate KIN and residual files.
 
-        Raises:
-            NoRinexFound: If no processable QC RINEX files are found.
+        Raises
+        ------
+        NoRinexFound
+            If no processable QC RINEX files are found in the catalog.
         """
         pride_cfg: PrideConfig = self.config.pride_config
 
         ProcessLogger.info(
-            f"Running PRIDE-PPPAR on QC RINEX for {self.current_network_name} "
-            f"{self.current_station_name} {self.current_campaign_name}. "
+            f"Running PRIDE-PPPAR on QC RINEX for {self.scope.network} "
+            f"{self.scope.station} {self.scope.campaign}. "
             "This may take a few minutes..."
         )
 
@@ -452,9 +510,9 @@ class QCPipeline:
         pride_dir.mkdir(parents=True, exist_ok=True)
 
         rinex_entries: list[AssetEntry] = self.catalog.assets_to_process(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
+            network=self.scope.network,
+            station=self.scope.station,
+            campaign=self.scope.campaign,
             kind=AssetKind.RINEX2,
             override=pride_cfg.override,
         )
@@ -463,8 +521,8 @@ class QCPipeline:
         if not rinex_entries:
             msg = (
                 f"No QC RINEX files found to process for "
-                f"{self.current_network_name} {self.current_station_name} "
-                f"{self.current_campaign_name}"
+                f"{self.scope.network} {self.scope.station} "
+                f"{self.scope.campaign}"
             )
             ProcessLogger.error(msg)
             raise NoRinexFound(msg)
@@ -487,8 +545,8 @@ class QCPipeline:
             ),
             desc=(
                 f"Processing QC RINEX with PRIDE-PPPAR for "
-                f"{self.current_network_name} {self.current_station_name} "
-                f"{self.current_campaign_name} using {pride_cfg.n_processes} workers"
+                f"{self.scope.network} {self.scope.station} "
+                f"{self.scope.campaign} using {pride_cfg.n_processes} workers"
             ),
             total=len(rinex_entries),
         ):
@@ -531,28 +589,30 @@ class QCPipeline:
 
     @_pipeline_method
     def process_kin(self) -> None:
-        """Process KIN files to generate QC kinematic-position dataframes.
+        """Process KIN files to generate QC kinematic-position DataFrames.
 
-        Raises:
-            NoKinFound: If no KIN files are found for the current context.
+        Raises
+        ------
+        NoKinFound
+            If no KIN files are found for the active campaign in the catalog.
         """
         ProcessLogger.info(
-            f"Looking for KIN files to process for {self.current_network_name} "
-            f"{self.current_station_name} {self.current_campaign_name}"
+            f"Looking for KIN files to process for {self.scope.network} "
+            f"{self.scope.station} {self.scope.campaign}"
         )
 
         kin_entries: list[AssetEntry] = self.catalog.assets_to_process(
-            network=self.current_network_name,
-            station=self.current_station_name,
-            campaign=self.current_campaign_name,
+            network=self.scope.network,
+            station=self.scope.station,
+            campaign=self.scope.campaign,
             kind=AssetKind.KIN,
             override=self.config.rinex_config.override,
         )
         if not kin_entries:
             msg = (
                 f"No KIN files found to process for "
-                f"{self.current_network_name} {self.current_station_name} "
-                f"{self.current_campaign_name}"
+                f"{self.scope.network} {self.scope.station} "
+                f"{self.scope.campaign}"
             )
             ProcessLogger.info(msg)
             raise NoKinFound(msg)
@@ -581,7 +641,13 @@ class QCPipeline:
 
     @_pipeline_method
     def update_shotdata(self) -> None:
-        """Refine QC shotdata with interpolated high-precision kinematic positions."""
+        """Refine QC shotdata with interpolated high-precision kinematic positions.
+
+        Returns
+        -------
+        None
+            Returns early without raising if the merge-signature lookup fails.
+        """
         ProcessLogger.info("Updating QC shotdata with interpolated QCKinPosition data")
 
         try:
@@ -612,16 +678,20 @@ class QCPipeline:
     def run_pipeline(self) -> None:
         """Execute the complete QC data processing pipeline in sequence.
 
-        Pipeline steps (in order):
-        1. process_qcpin(): Process QC PIN files to generate shotdata + GNSS obs
-        2. get_rinex_files(): Generate RINEX files from QC GNSS observations
-        3. process_rinex(): Run PRIDE-PPP on RINEX
-        4. process_kin(): Convert KIN files to dataframes
-        5. update_shotdata(): Refine shotdata with high-precision positions
+        Steps run in order:
+
+        1. :meth:`process_qcpin` — QC PIN files → preliminary shotdata + GNSS obs.
+        2. :meth:`get_rinex_files` — GNSS obs TileDB → daily RINEX files.
+        3. :meth:`process_rinex` — RINEX → KIN + residual files via PRIDE-PPP.
+        4. :meth:`process_kin` — KIN files → kinematic-position DataFrames.
+        5. :meth:`update_shotdata` — merge kinematic positions into final shotdata.
+
+        Each step's expected exception is caught and logged so that the
+        remaining steps still execute.
         """
         ProcessLogger.info(
-            f"Starting QC Processing Pipeline for {self.current_network_name} "
-            f"{self.current_station_name} {self.current_campaign_name}"
+            f"Starting QC Processing Pipeline for {self.scope.network} "
+            f"{self.scope.station} {self.scope.campaign}"
         )
 
         try:
@@ -647,8 +717,8 @@ class QCPipeline:
         self.update_shotdata()
 
         ProcessLogger.info(
-            f"Completed QC Processing Pipeline for {self.current_network_name} "
-            f"{self.current_station_name} {self.current_campaign_name}"
+            f"Completed QC Processing Pipeline for {self.scope.network} "
+            f"{self.scope.station} {self.scope.campaign}"
         )
 
 

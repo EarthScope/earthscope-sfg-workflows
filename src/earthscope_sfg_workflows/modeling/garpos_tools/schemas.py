@@ -341,12 +341,18 @@ class GarposFixed(BaseModel):
         Generates a data file with fixed parameters for the inversion process.
         This method creates a configuration file with hyperparameters and inversion parameters
         required for the inversion process. The generated file is written to the specified path.
-        Args:
-            self.inversion_params (InversionParams): An instance of InversionParams containing the
-                parameters for the inversion process.
-            path (Path): The file path where the generated configuration file will be saved.
-        Returns:
-            None
+
+        Parameters
+        ----------
+        self.inversion_params : InversionParams
+            An instance of InversionParams containing the
+            parameters for the inversion process.
+        path : Path
+            The file path where the generated configuration file will be saved.
+
+        Returns
+        -------
+        None
         """
 
         fixed_str = f"""[HyperParameters]
@@ -466,12 +472,16 @@ class GarposInput(BaseModel):
         """
         Write a GarposInput to a datafile
 
-        Args:
-            garpos_input (GarposInput): The GarposInput object
-            path (Path): The path to the datafile
+        Parameters
+        ----------
+        garpos_input : GarposInput
+            The GarposInput object
+        path : Path
+            The path to the datafile
 
-        Returns:
-            None
+        Returns
+        -------
+        None
         """
 
         def datetime_to_mjd(dt: datetime) -> float:
@@ -643,14 +653,17 @@ class InversionResults(BaseModel):
 
     @classmethod
     def from_dat_file(cls, file_path: str) -> "InversionResults":
-        """
-        Parse the inversion results from a .dat file
+        """Parse the inversion results from a .dat file.
 
-        Args:
-            file_path (str): Path to the .dat file
+        Parameters
+        ----------
+        file_path : str
+            Path to the .dat file.
 
-        Returns:
-            InversionResults (obj): Inversion results
+        Returns
+        -------
+        InversionResults
+            Inversion results parsed from the file.
         """
 
         logger.info(f"Reading inversion results from {file_path}")

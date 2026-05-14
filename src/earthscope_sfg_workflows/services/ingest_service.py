@@ -38,11 +38,42 @@ class IngestService:
     Holds the catalog, file-backend, and archive ports directly so all ingest
     orchestration lives here without an intermediate helper object.
 
-    *override* is stored at construction and applied to every operation that
+    ``override`` is stored at construction and applied to every operation that
     supports it (e.g. :meth:`qcpin_tarballs` and :meth:`download_remote`).
+
+    Attributes
+    ----------
+    override : bool
+        When ``True``, re-ingest assets that are already cataloged or already
+        exist on disk.
+
+    Methods
+    -------
+    detect(filename)
+        Return the first matching ``AssetKind`` for *filename*, or ``None``.
+    local(source_dir)
+        Catalog every recognized file under *source_dir*.
+    qcpin_tarballs(tarball_dir, override)
+        Extract ``.pin``/``.sta`` files from ``.tar.gz`` tarballs and catalog them.
+    discover_remote()
+        Discover canonical EarthScope archive URLs and catalog them.
+    list_archive_urls(scope)
+        Enumerate every archive file URL for the scope without writing to the catalog.
+    download_remote(kinds, override, rinex_1hz)
+        Download cataloged remote assets to local storage.
     """
 
     def __init__(self, session: "StationSession", *, override: bool = False) -> None:
+        """Initialize the service.
+
+        Parameters
+        ----------
+        session : StationSession
+            The active station session providing catalog, file, and archive ports.
+        override : bool, optional
+            When ``True``, skip deduplication checks so existing assets are
+            re-ingested or re-downloaded. Default is ``False``.
+        """
         self._s = session
         self.override = override
         self._catalog: AssetCatalogPort = session._catalog
@@ -55,7 +86,18 @@ class IngestService:
     # ------------------------------------------------------------------
 
     def detect(self, filename: str) -> AssetKind | None:
-        """Return the first matching :class:`AssetKind`, or ``None``."""
+        """Return the first matching :class:`AssetKind`, or ``None``.
+
+        Parameters
+        ----------
+        filename : str
+            Bare filename (no directory component) to classify.
+
+        Returns
+        -------
+        AssetKind or None
+            The matched asset kind, or ``None`` if no pattern matches.
+        """
         return self._detector.detect(filename)
 
     # ------------------------------------------------------------------
@@ -63,7 +105,18 @@ class IngestService:
     # ------------------------------------------------------------------
 
     def local(self, source_dir: Path) -> IngestReport:
-        """Catalog every recognized file under *source_dir*."""
+        """Catalog every recognized file under *source_dir*.
+
+        Parameters
+        ----------
+        source_dir : Path
+            Root directory to scan recursively for ingestable files.
+
+        Returns
+        -------
+        IngestReport
+            Summary of cataloged, skipped, and errored items.
+        """
         scope = self._s.scope
         if not self._file_backend.is_dir(source_dir):
             return IngestReport(errors=(f"Not a directory: {source_dir}",))
@@ -109,7 +162,24 @@ class IngestService:
     ) -> IngestReport:
         """Extract ``.pin``/``.sta`` files from ``.tar.gz`` tarballs and catalog them.
 
-        *override* defaults to the value set at construction when not passed.
+        Parameters
+        ----------
+        tarball_dir : Path or None, optional
+            Directory containing ``.tar.gz`` tarballs. When ``None`` the
+            campaign layout's ``qc`` directory is used. Default is ``None``.
+        override : bool or None, optional
+            When ``True``, re-extract and re-catalog assets that already exist.
+            Defaults to the ``override`` value set at construction.
+
+        Returns
+        -------
+        IngestReport
+            Summary of cataloged, skipped, and errored items.
+
+        Raises
+        ------
+        ValueError
+            If *tarball_dir* is ``None`` and no campaign with a layout is active.
         """
         effective_override = self.override if override is None else override
         scope = self._s.scope
@@ -177,7 +247,13 @@ class IngestService:
     # ------------------------------------------------------------------
 
     def discover_remote(self) -> IngestReport:
-        """Discover canonical EarthScope archive URLs and catalog them."""
+        """Discover canonical EarthScope archive URLs and catalog them.
+
+        Returns
+        -------
+        IngestReport
+            Summary of cataloged, skipped, and errored items.
+        """
         from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import (
             canonical_campaign_urls,
         )
@@ -196,7 +272,20 @@ class IngestService:
         return IngestReport(cataloged=cataloged, skipped=skipped, errors=tuple(errors))
 
     def _discover_archive(self, scope: "SFGScope", directory_url: str) -> IngestReport:
-        """List *directory_url* and catalog every recognized file."""
+        """List *directory_url* and catalog every recognized file.
+
+        Parameters
+        ----------
+        scope : SFGScope
+            Active scope used to tag each cataloged asset.
+        directory_url : str
+            Archive directory URL to enumerate.
+
+        Returns
+        -------
+        IngestReport
+            Summary of cataloged, skipped, and errored items.
+        """
         cataloged = 0
         skipped = 0
         errors: list[str] = []
@@ -227,7 +316,19 @@ class IngestService:
         return IngestReport(cataloged=cataloged, skipped=skipped, errors=tuple(errors))
 
     def list_archive_urls(self, scope=None) -> list[str]:
-        """Enumerate every archive file URL for the scope without writing to the catalog."""
+        """Enumerate every archive file URL for the scope without writing to the catalog.
+
+        Parameters
+        ----------
+        scope : SFGScope or None, optional
+            Scope to enumerate. Defaults to the session's active scope when
+            ``None``.
+
+        Returns
+        -------
+        list of str
+            All archive file URLs found for the given scope.
+        """
         from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import (
             list_campaign_archive_urls,
         )
@@ -248,7 +349,22 @@ class IngestService:
     ) -> IngestReport:
         """Download cataloged remote assets to local storage.
 
-        *override* defaults to the value set at construction when not passed.
+        Parameters
+        ----------
+        kinds : list of AssetKind or None, optional
+            Asset kinds to restrict the download to. When ``None`` all
+            cataloged remote assets are considered. Default is ``None``.
+        override : bool or None, optional
+            When ``True``, re-download files that already exist locally.
+            Defaults to the ``override`` value set at construction.
+        rinex_1hz : bool, optional
+            When ``True``, download only high-rate (1 Hz) RINEX files.
+            When ``False``, skip 1 Hz RINEX files. Default is ``False``.
+
+        Returns
+        -------
+        IngestReport
+            Summary of downloaded, skipped, and errored items.
         """
         effective_override = self.override if override is None else override
         scope = self._s.scope
@@ -314,6 +430,21 @@ class IngestService:
         s3_assets: list[AssetEntry],
         layout,
     ) -> IngestReport:
+        """Download a list of S3-backed assets using a thread pool.
+
+        Parameters
+        ----------
+        s3_assets : list of AssetEntry
+            Assets whose ``remote_type`` is ``"s3"``.
+        layout : CampaignLayout
+            Active campaign layout providing ``raw`` and ``intermediate``
+            destination directories.
+
+        Returns
+        -------
+        IngestReport
+            Summary of downloaded and errored items.
+        """
         plan: list[dict] = []
         for asset in s3_assets:
             assert asset.remote_path is not None
@@ -342,6 +473,18 @@ class IngestService:
         return IngestReport(downloaded=downloaded, errors=tuple(errors))
 
     def _download_s3_file(self, plan: dict) -> Path | None:
+        """Download a single S3 object described by *plan*.
+
+        Parameters
+        ----------
+        plan : dict
+            Mapping with keys ``"bucket"``, ``"prefix"``, and ``"local_dir"``.
+
+        Returns
+        -------
+        Path or None
+            Local path of the downloaded file, or ``None`` on failure.
+        """
         bucket = plan["bucket"]
         prefix = plan["prefix"]
         local_dir: Path = plan["local_dir"]
@@ -358,6 +501,21 @@ class IngestService:
         http_assets: list[AssetEntry],
         layout,
     ) -> IngestReport:
+        """Download a list of HTTP-backed assets sequentially with a progress bar.
+
+        Parameters
+        ----------
+        http_assets : list of AssetEntry
+            Assets whose ``remote_type`` is ``"http"``.
+        layout : CampaignLayout
+            Active campaign layout providing ``raw`` and ``intermediate``
+            destination directories.
+
+        Returns
+        -------
+        IngestReport
+            Summary of downloaded and errored items.
+        """
         downloaded = 0
         errors: list[str] = []
 
@@ -375,6 +533,21 @@ class IngestService:
         return IngestReport(downloaded=downloaded, errors=tuple(errors))
 
     def _download_http_file(self, remote_url: str, local_dir: Path) -> Path | None:
+        """Download a single HTTP file into *local_dir*.
+
+        Parameters
+        ----------
+        remote_url : str
+            Fully-qualified HTTP URL of the file to download.
+        local_dir : Path
+            Directory where the file will be saved; the filename is taken from
+            the URL.
+
+        Returns
+        -------
+        Path or None
+            Local path of the downloaded file, or ``None`` on failure.
+        """
         local_path = local_dir / Path(remote_url).name
         try:
             self._archive.download_file(remote_url, local_path)

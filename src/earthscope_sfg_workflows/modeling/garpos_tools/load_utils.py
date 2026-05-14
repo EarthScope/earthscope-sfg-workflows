@@ -30,8 +30,10 @@ class GarposNotInstalledError(RuntimeError):
 def _garpos_path_root() -> Path | None:
     """Return ``Path(GARPOS_PATH)`` if set and exists, else ``None``.
 
-    Raises:
-        FileNotFoundError: If ``GARPOS_PATH`` is set but does not exist.
+    Raises
+    ------
+    FileNotFoundError
+        If ``GARPOS_PATH`` is set but does not exist.
     """
     raw = os.getenv("GARPOS_PATH", None)
     if raw is None or raw == "None":
@@ -57,14 +59,17 @@ def _candidate_subroots(root: Path) -> list[Path]:
 def _resolve_lib_paths() -> tuple[str, str] | None:
     """Resolve the GARPOS Fortran library paths from ``GARPOS_PATH``.
 
-    Returns:
+    Returns
+    -------
+    tuple[str, str] or None
         ``(f90lib_dir, lib_raytrace_so)`` as strings, or ``None`` if
         ``GARPOS_PATH`` is unset.
 
-    Raises:
-        FileNotFoundError: If ``GARPOS_PATH`` is set but ``f90lib`` /
-            ``lib_raytrace.so`` cannot be located in the path or any of its
-            immediate subdirectories.
+    Raises
+    ------
+    FileNotFoundError
+        If ``GARPOS_PATH`` is set but ``f90lib`` / ``lib_raytrace.so`` cannot
+        be located in the path or any of its immediate subdirectories.
     """
     root = _garpos_path_root()
     if root is None:
@@ -90,13 +95,17 @@ def _load_drive_garpos_from_path() -> Callable:
     Looks for ``garpos_main.py`` under ``$GARPOS_PATH`` or any of its
     immediate subdirectories (e.g. ``garpos_v102/garpos_main.py``).
 
-    Returns:
+    Returns
+    -------
+    Callable
         The ``drive_garpos`` function from the discovered module.
 
-    Raises:
-        FileNotFoundError: If ``GARPOS_PATH`` is unset, or ``garpos_main.py``
-            cannot be located.
-        AttributeError: If the discovered module has no ``drive_garpos``.
+    Raises
+    ------
+    FileNotFoundError
+        If ``GARPOS_PATH`` is unset, or ``garpos_main.py`` cannot be located.
+    AttributeError
+        If the discovered module has no ``drive_garpos``.
     """
     root = _garpos_path_root()
     if root is None:
@@ -146,10 +155,11 @@ def get_drive_garpos() -> Callable:
 
     The result is cached for the process lifetime.
 
-    Raises:
-        GarposNotInstalledError: If neither install path yields a usable
-            ``drive_garpos`` callable. The error message lists both
-            attempted strategies and how to fix them.
+    Raises
+    ------
+    GarposNotInstalledError
+        If neither install path yields a usable ``drive_garpos`` callable.
+        The error message lists both attempted strategies and how to fix them.
     """
     # Strategy 1: pip-installed package.
     try:

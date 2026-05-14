@@ -107,13 +107,17 @@ class Environment:
         Otherwise, it checks for AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN
         environment variables.
 
-        Returns:
-            tuple: (aws_access_key, aws_secret_key, aws_session_token, aws_profile)
-                   If profile is set, the first three will be None.
-                   If explicit credentials are set, aws_profile will be None.
+        Returns
+        -------
+        tuple
+            ``(aws_access_key, aws_secret_key, aws_session_token, aws_profile)``.
+            If profile is set, the first three will be ``None``.
+            If explicit credentials are set, ``aws_profile`` will be ``None``.
 
-        Raises:
-            Warning: If neither profile nor explicit credentials are fully set.
+        Raises
+        ------
+        Warning
+            If neither profile nor explicit credentials are fully set.
         """
 
         aws_profile = os.environ.get("AWS_PROFILE")

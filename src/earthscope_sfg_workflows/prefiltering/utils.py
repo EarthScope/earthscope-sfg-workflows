@@ -1,3 +1,5 @@
+"""Utility functions for pre-filtering shotdata before GARPOS inversion."""
+
 from datetime import UTC, datetime
 
 import numpy as np
@@ -21,20 +23,35 @@ def filter_shotdata(
     base_config: FilterConfig | None = None,
     custom_filters: dict | None = None,
 ) -> pd.DataFrame:
-    """
-    Filter the shot data based on the specified acoustic level and minimum ping replies.
+    """Filter shot data using the configured acoustic, ping-reply, distance, and PRIDE filters.
 
-    Args:
-        survey_type: The type of survey.
-        site: The site metadata.
-        shot_data: The shot data to filter.
-        kinPostionTDBUri: The URI of the kinematic position TileDB array.
-        start_time: The start time of the survey.
-        end_time: The end time of the survey.
-        custom_filters: Custom filters to apply.
+    Parameters
+    ----------
+    survey_type : str or SurveyType
+        Survey type; determines whether the distance-from-center filter is
+        applied (center surveys only).
+    site : Site
+        Site metadata providing the array center coordinates.
+    shot_data : pd.DataFrame
+        Raw shot data to be filtered.
+    kinPostionTDBUri : str
+        URI of the kinematic-position TileDB array used by the PRIDE residuals
+        filter.
+    start_time : datetime
+        Start of the survey window.
+    end_time : datetime
+        End of the survey window.
+    base_config : FilterConfig or None, optional
+        Base filter configuration. When ``None`` a default ``FilterConfig`` is
+        used. Default is ``None``.
+    custom_filters : dict or None, optional
+        Nested override mapping applied on top of *base_config*. Default is
+        ``None``.
 
-    Returns:
-        The filtered shot data.
+    Returns
+    -------
+    pd.DataFrame
+        Filtered shot data.
     """
 
     if base_config is None:
@@ -111,17 +128,27 @@ def filter_wg_distance_from_center(
     array_center_lon: float,
     max_distance_m: float = 150,
 ) -> pd.DataFrame:
-    """
-    Remove data where waveglider is > x meters from array center. Typically used for center surveys.
+    """Remove shots where the waveglider exceeds *max_distance_m* from the array center.
 
-    Args:
-        df: DataFrame with shotdata.
-        array_center_lat: Latitude of the array center.
-        array_center_lon: Longitude of the array center.
-        max_distance_m: Maximum distance from center in meters, by default 150.
+    Typically applied to center surveys only.
 
-    Returns:
-        Filtered DataFrame.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Shot data containing ``east0`` and ``north0`` ECEF coordinate columns.
+    array_center_lat : float
+        Geodetic latitude of the array center in decimal degrees.
+    array_center_lon : float
+        Geodetic longitude of the array center in decimal degrees.
+    max_distance_m : float, optional
+        Maximum horizontal distance from the array center in metres. Default
+        is ``150``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Filtered shot data with the temporary ``distance_from_center`` column
+        removed.
     """
     # Convert array center lat/lon to ECEF coordinates (assuming sea level)
     center_x, center_y, center_z = pm.geodetic2ecef(
@@ -153,18 +180,25 @@ def filter_wg_distance_from_center(
 
 
 def filter_SNR(df, snr_min=12):
-    """
-    Remove data based on SNR threshold.
-    GOOD: > 20
-    OKAY: 12-20
-    DIFFICULT(default): < 12
+    """Remove shots below the SNR threshold.
 
-    Args:
-        df: DataFrame with shotdata.
-        snr_min: Minimum SNR threshold. Defaults to 12.
+    Quality reference levels:
 
-    Returns:
-        Filtered DataFrame.
+    - GOOD: SNR > 20
+    - OK: SNR 12–20
+    - DIFFICULT (default): SNR < 12
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Shot data containing an ``snr`` column.
+    snr_min : int or float, optional
+        Minimum SNR value (inclusive). Default is ``12``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Filtered shot data. Returned unchanged if ``snr`` column is absent.
     """
     if "snr" not in df.columns:
         logger.error("SNR column not found, skipping filter")
@@ -179,19 +213,27 @@ def filter_SNR(df, snr_min=12):
 
 
 def filter_dbv(df, dbv_min=-36, dbv_max=-3):
-    """
-    Remove data based on DBV threshold.
-    GOOD: -3 to -26
-    OKAY: -26 to -36
-    DIFFICULT (default): <-36 or >-3
+    """Remove shots outside the DBV window.
 
-    Args:
-        df: DataFrame with shotdata.
-        dbv_min: Minimum DBV threshold.
-        dbv_max: Maximum DBV threshold.
+    Quality reference levels:
 
-    Returns:
-        Filtered DataFrame.
+    - GOOD: DBV −3 to −26
+    - OK: DBV −26 to −36
+    - DIFFICULT (default): DBV < −36 or > −3
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Shot data containing a ``dbv`` column.
+    dbv_min : int or float, optional
+        Minimum DBV value (inclusive). Default is ``-36``.
+    dbv_max : int or float, optional
+        Maximum DBV value (inclusive). Default is ``-3``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Filtered shot data. Returned unchanged if ``dbv`` column is absent.
     """
     if "dbv" not in df.columns:
         logger.error("DBV column not found, skipping filter")
@@ -205,18 +247,25 @@ def filter_dbv(df, dbv_min=-36, dbv_max=-3):
 
 
 def filter_xc(df, xc_min=45):
-    """
-    Remove data based on XC threshold.
-    GOOD: > 60
-    OKAY: 45-60
-    DIFFICULT (Default): < 45
+    """Remove shots below the XC (cross-correlation) threshold.
 
-    Args:
-        df: DataFrame with shotdata.
-        xc_min: Minimum XC threshold.
+    Quality reference levels:
 
-    Returns:
-        Filtered DataFrame.
+    - GOOD: XC > 60
+    - OK: XC 45–60
+    - DIFFICULT (default): XC < 45
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Shot data containing an ``xc`` column.
+    xc_min : int or float, optional
+        Minimum XC value (inclusive). Default is ``45``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Filtered shot data. Returned unchanged if ``xc`` column is absent.
     """
     if "xc" not in df.columns:
         logger.error("XC column not found, skipping filter")
@@ -230,23 +279,31 @@ def filter_xc(df, xc_min=45):
 
 
 def filter_acoustic_diagnostics(df, snr_min=12, dbv_min=-36, dbv_max=-3, xc_min=45):
-    """
-    Remove data based on acoustic diagnostics (SNR, DBV, XC)
+    """Remove shots that fail any of the SNR, DBV, or XC thresholds.
 
-    Quality thresholds:
-    - Good: SNR>20, DBV(-3 to -26), XC>60
-    - Okay: SNR(12-20), DBV(-26 to -36), XC(45-60)
-    - Difficult (default): SNR<12, DBV(<-36 or >-3), XC<45
+    Quality threshold reference:
 
-    Args:
-        df: DataFrame with shotdata.
-        snr_min: Minimum SNR threshold.
-        dbv_min: Minimum DBV threshold.
-        dbv_max: Maximum DBV threshold.
-        xc_min: Minimum XC threshold.
+    - Good: SNR > 20, DBV (−3 to −26), XC > 60
+    - OK: SNR 12–20, DBV (−26 to −36), XC 45–60
+    - Difficult (default): SNR < 12, DBV (< −36 or > −3), XC < 45
 
-    Returns:
-        Filtered DataFrame.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Shot data containing ``snr``, ``dbv``, and ``xc`` columns.
+    snr_min : int or float, optional
+        Minimum SNR threshold. Default is ``12``.
+    dbv_min : int or float, optional
+        Minimum DBV threshold. Default is ``-36``.
+    dbv_max : int or float, optional
+        Maximum DBV threshold. Default is ``-3``.
+    xc_min : int or float, optional
+        Minimum XC threshold. Default is ``45``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Filtered shot data.
     """
 
     initial_count = len(df)
@@ -259,54 +316,71 @@ def filter_acoustic_diagnostics(df, snr_min=12, dbv_min=-36, dbv_max=-3, xc_min=
 
 
 def good_acoustic_diagnostics(df):
-    """
-    Filter for "good" level acoustic diagnostics.
+    """Apply "good" level acoustic-diagnostics thresholds.
 
-    Args:
-        df: DataFrame with shotdata.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Shot data to filter.
 
-    Returns:
-        Filtered DataFrame with "good" acoustic diagnostics.
+    Returns
+    -------
+    pd.DataFrame
+        Filtered shot data retaining only shots with good acoustic quality
+        (SNR > 20, DBV −3 to −26, XC > 60).
     """
     return filter_acoustic_diagnostics(df, snr_min=20, dbv_min=-26, dbv_max=-3, xc_min=60)
 
 
 def ok_acoustic_diagnostics(df):
-    """
-    Filter for "ok" level acoustic diagnostics.
+    """Apply "ok" level acoustic-diagnostics thresholds.
 
-    Args:
-        df: DataFrame with shotdata.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Shot data to filter.
 
-    Returns:
-        Filtered DataFrame with "ok" level acoustic diagnostics.
+    Returns
+    -------
+    pd.DataFrame
+        Filtered shot data retaining shots with acceptable acoustic quality
+        (SNR >= 12, DBV −36 to −3, XC >= 45).
     """
     return filter_acoustic_diagnostics(df, snr_min=12, dbv_min=-36, dbv_max=-3, xc_min=45)
 
 
 def difficult_acoustic_diagnostics(df):
-    """
-    Filter for "difficult" level acoustic diagnostics.
+    """Apply "difficult" level acoustic-diagnostics thresholds (most permissive).
 
-    Args:
-        df: DataFrame with shotdata.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Shot data to filter.
 
-    Returns:
-        Filtered DataFrame with "difficult" level acoustic diagnostics.
+    Returns
+    -------
+    pd.DataFrame
+        Filtered shot data using the default (loosest) SNR, DBV, and XC
+        thresholds.
     """
     return filter_acoustic_diagnostics(df)
 
 
 def filter_ping_replies(df, min_replies=3):
-    """
-    Require minimum number of replies for each ping (e.g., 3 replies for the 3 transponders).
+    """Require a minimum number of replies per ping.
 
-    Args:
-        df: DataFrame with shotdata.
-        min_replies: Minimum number of replies required. Defaults to 3.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Shot data with a ``pingTime`` column.
+    min_replies : int, optional
+        Minimum reply count required to retain a ping. Default is ``3``.
 
-    Returns:
-        Filtered DataFrame.
+    Returns
+    -------
+    pd.DataFrame
+        Filtered shot data. Returned unchanged if ``pingTime`` column is
+        absent.
     """
     if "pingTime" not in df.columns:
         logger.error("pingTime column not found, skipping filter")
@@ -334,18 +408,27 @@ def filter_ping_replies(df, min_replies=3):
 def filter_pride_residuals(
     df, kinPostionTDBUri: str, start_time: datetime, end_time: datetime, max_wrms=15
 ):
-    """
-    Filter Pride PPP data based on wrms residuals in position tileDB array.
+    """Remove shots that coincide with high PRIDE-PPP WRMS epochs.
 
-    Args:
-        df: DataFrame with shotdata.
-        kinPostionTDBUri: URI for the KinPosition tileDB array.
-        start_time: Start time for filtering.
-        end_time: End time for filtering.
-        max_wrms: Maximum WRMS threshold in millimeters. Defaults to 15.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Shot data with a ``pingTime`` column containing Unix timestamps.
+    kinPostionTDBUri : str
+        URI of the kinematic-position TileDB array containing PRIDE WRMS data.
+    start_time : datetime
+        Start of the time window to read from the TileDB array.
+    end_time : datetime
+        End of the time window to read from the TileDB array.
+    max_wrms : int or float, optional
+        Maximum allowable WRMS value in millimetres. Shots within ±1 second
+        of epochs that exceed this threshold are removed. Default is ``15``.
 
-    Returns:
-        Filtered DataFrame.
+    Returns
+    -------
+    pd.DataFrame
+        Filtered shot data. Returned unchanged if the TileDB array is empty or
+        lacks a ``wrms`` column.
     """
 
     # Convert tileDB array to dataframe

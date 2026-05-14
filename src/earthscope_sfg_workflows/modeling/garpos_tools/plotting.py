@@ -20,11 +20,16 @@ class DOYResult:
     def __init__(self, year: int, doy: int, df_path: Path, results_path: Path):
         """Load shotdata CSV and inversion JSON for a given (year, doy).
 
-        Args:
-            year: Calendar year (e.g., 2024).
-            doy: Day of year (1-based).
-            df_path: Path to the GARPOS shotdata CSV for this day.
-            results_path: Path to the inversion-results JSON for this day.
+        Parameters
+        ----------
+        year :
+            Calendar year (e.g., 2024).
+        doy :
+            Day of year (1-based).
+        df_path :
+            Path to the GARPOS shotdata CSV for this day.
+        results_path :
+            Path to the inversion-results JSON for this day.
         """
         self.year = year
         self.doy = doy

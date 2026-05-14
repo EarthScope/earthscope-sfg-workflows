@@ -14,8 +14,10 @@ def display_pipelinemanifest(pipeline_manifest: PipelineManifest):
     """
     Displays a rich table of jobs organized by network, station, and campaign.
 
-    Args:
-        pipeline_manifest: The PipelineManifest object containing the jobs.
+    Parameters
+    ----------
+    pipeline_manifest
+        The PipelineManifest object containing the jobs.
     """
     CONSOLE_WIDTH = 80
     console = Console()

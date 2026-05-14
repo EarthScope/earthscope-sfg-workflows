@@ -36,11 +36,15 @@ def run(file: Path):
 
     The file format (JSON or YAML) is determined by the file extension.
 
-    Args:
-        file: The path to the manifest file.
+    Parameters
+    ----------
+    file
+        The path to the manifest file.
 
-    Raises:
-        ValueError: If the file extension is not .json, .yaml, or .yml.
+    Raises
+    ------
+    ValueError
+        If the file extension is not .json, .yaml, or .yml.
     """
     run_manifest(PipelineManifest.load(file))
 

@@ -1,3 +1,5 @@
+"""Pipeline result plotting utilities for campaign diagnostics."""
+
 import datetime
 from collections import defaultdict
 
@@ -13,10 +15,15 @@ UNIX_EPOCH = np.datetime64("1970-01-01T00:00:00Z")
 
 def to_timestamp(time: np.datetime64 | datetime.datetime) -> float:
     """Converts a numpy.datetime64 or datetime.datetime object to a UNIX timestamp.
-    Args:
-        time: The time to convert.
 
-    Returns:
+    Parameters
+    ----------
+    time
+        The time to convert.
+
+    Returns
+    -------
+    float
         The UNIX timestamp.
     """
     if isinstance(time, int):
@@ -28,10 +35,15 @@ def to_timestamp(time: np.datetime64 | datetime.datetime) -> float:
 
 def get_rinex_timelast(rinex_asset: AssetEntry) -> datetime.datetime:
     """Gets the last timestamp from a RINEX file.
-    Args:
-        rinex_asset: The RINEX asset entry.
 
-    Returns:
+    Parameters
+    ----------
+    rinex_asset
+        The RINEX asset entry.
+
+    Returns
+    -------
+    datetime.datetime
         The last timestamp in the RINEX file.
     """
     year = str(rinex_asset.timestamp_data_start.year)[2:]
@@ -76,9 +88,12 @@ def plot_kin_position_data(
     8. Sets the title for each subplot to indicate the date range of the data.
     9. Adjusts the layout and displays the plot.
 
-    Args:
-        kin_position_data: An object containing KinPosition data with methods to retrieve unique dates and read data frames.
-        rinex_entries: A list of RINEX asset entries, by default [].
+    Parameters
+    ----------
+    kin_position_data
+        An object containing KinPosition data with methods to retrieve unique dates and read data frames.
+    rinex_entries
+        A list of RINEX asset entries, by default [].
     """
 
     if rinex_entries is None:

@@ -19,10 +19,14 @@ def get_survey_filter_config(survey_type: SurveyType | str) -> FilterConfig:
     """
     Get the filter configuration based on the survey type.
 
-    Args:
-        survey_type: The type of the survey.
+    Parameters
+    ----------
+    survey_type
+        The type of the survey.
 
-    Returns:
+    Returns
+    -------
+    FilterConfig
         The filter configuration for the survey type.
     """
     if isinstance(survey_type, str):
@@ -41,10 +45,14 @@ def get_garpos_site_config(survey_type: SurveyType | str) -> GarposSiteConfig:
     """
     Get the GARPOS site configuration based on the survey type.
 
-    Args:
-        survey_type: The type of the survey.
+    Parameters
+    ----------
+    survey_type
+        The type of the survey.
 
-    Returns:
+    Returns
+    -------
+    GarposSiteConfig
         The GARPOS site configuration for the survey type.
     """
     if isinstance(survey_type, str):

@@ -1,3 +1,5 @@
+"""Low-level math and signal-processing helpers for GARPOS inversion."""
+
 import math
 import sys
 
@@ -43,17 +45,22 @@ def xyz2enu(x, y, z, lat0, lon0, hgt0, inv=1, **kwargs):
     (or XYZ coordinates) specified in origin.
     if inv = -1. then enu -> xyz
 
-    Args:
-        x:
-        y:
-        z: Position in ECEF (if inv=-1, in ENU)
-        lat0:
-        lon0:
-        Hgt0: Origin for the local system in degrees.
-        inv: Switch (1: XYZ -> ENU, -1: ENU -> XYZ)
+    Parameters
+    ----------
+    x :
+    y :
+    z :
+        Position in ECEF (if inv=-1, in ENU)
+    lat0 :
+    lon0 :
+    Hgt0 :
+        Origin for the local system in degrees.
+    inv :
+        Switch (1: XYZ -> ENU, -1: ENU -> XYZ)
 
-    Returns:
-        e
+    Returns
+    -------
+    e
     """
 
     if inv != 1 and inv != -1:
@@ -83,38 +90,43 @@ class CoordTransformer:
     """
     A class to transform coordinates between different systems.
 
-    Attributes:
-        lat0 : float
-            Latitude of the reference point.
-        lon0 : float
-            Longitude of the reference point.
-        hgt0 : float
-            Height of the reference point.
-        X0 : float
-            X coordinate of the reference point in ECEF.
-        Y0 : float
-            Y coordinate of the reference point in ECEF.
-        Z0 : float
-            Z coordinate of the reference point in ECEF.
+    Attributes
+    ----------
+    lat0 : float
+        Latitude of the reference point.
+    lon0 : float
+        Longitude of the reference point.
+    hgt0 : float
+        Height of the reference point.
+    X0 : float
+        X coordinate of the reference point in ECEF.
+    Y0 : float
+        Y coordinate of the reference point in ECEF.
+    Z0 : float
+        Z coordinate of the reference point in ECEF.
 
-    Methods:
-        XYZ2ENU(X, Y, Z, **kwargs):
-            Converts ECEF coordinates to ENU coordinates.
-        LLH2ENU(lat, lon, hgt, **kwargs):
-            Converts geodetic coordinates (latitude, longitude, height) to ENU coordinates.
-        LLH2ENU_vec(lat: np.ndarray, lon: np.ndarray, hgt: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-            Converts arrays of geodetic coordinates to ENU coordinates.
-        ECEF2ENU_vec(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-            Converts arrays of ECEF coordinates to ENU coordinates.
+    Methods
+    -------
+    XYZ2ENU(X, Y, Z, **kwargs)
+        Converts ECEF coordinates to ENU coordinates.
+    LLH2ENU(lat, lon, hgt, **kwargs)
+        Converts geodetic coordinates (latitude, longitude, height) to ENU coordinates.
+    LLH2ENU_vec(lat: np.ndarray, lon: np.ndarray, hgt: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]
+        Converts arrays of geodetic coordinates to ENU coordinates.
+    ECEF2ENU_vec(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]
+        Converts arrays of ECEF coordinates to ENU coordinates.
     """
 
     def __init__(self, latitude: float, longitude: float, elevation: float):
         """
         Initialize the object with a position in latitude, longitude, and height.
-        Args:
-            pos_llh (list | PositionLLH): The position in latitude, longitude, and height.
-                                      It can be either a list [latitude, longitude, height]
-                                      or an instance of PositionLLH class.
+
+        Parameters
+        ----------
+        pos_llh : list | PositionLLH
+            The position in latitude, longitude, and height.
+            It can be either a list [latitude, longitude, height]
+            or an instance of PositionLLH class.
         """
 
         self.lat0 = latitude
@@ -127,13 +139,19 @@ class CoordTransformer:
         """
         Convert Cartesian coordinates (X, Y, Z) to East-North-Up (ENU) coordinates.
 
-        Args:
-            X (float): X coordinate in the Cartesian system.
-            Y (float): Y coordinate in the Cartesian system.
-            Z (float): Z coordinate in the Cartesian system.
+        Parameters
+        ----------
+        X : float
+            X coordinate in the Cartesian system.
+        Y : float
+            Y coordinate in the Cartesian system.
+        Z : float
+            Z coordinate in the Cartesian system.
 
-        Returns:
-            tuple: A tuple containing the East (e), North (n), and Up (u) coordinates.
+        Returns
+        -------
+        tuple
+            A tuple containing the East (e), North (n), and Up (u) coordinates.
         """
 
         dX, dY, dZ = X - self.X0, Y - self.Y0, Z - self.Z0
@@ -156,12 +174,19 @@ class CoordTransformer:
         This function converts geodetic coordinates (latitude, longitude, height) to local
         tangent plane coordinates (East, North, Up) relative to a reference point.
 
-        Args:
-            lat (float): Latitude in degrees.
-            lon (float): Longitude in degrees.
-            hgt (float): Height in meters.
-        Returns:
-            Tuple[float, float, float]: A tuple containing the East, North, and Up coordinates in meters.
+        Parameters
+        ----------
+        lat : float
+            Latitude in degrees.
+        lon : float
+            Longitude in degrees.
+        hgt : float
+            Height in meters.
+
+        Returns
+        -------
+        Tuple[float, float, float]
+            A tuple containing the East, North, and Up coordinates in meters.
         """
 
         X, Y, Z = pm.geodetic2ecef(lat, lon, hgt)
@@ -185,16 +210,19 @@ class CoordTransformer:
         """
         Convert latitude, longitude, and height (LLH) coordinates to East-North-Up (ENU) coordinates.
 
-        Args:
-            lat : np.ndarray
-                Array of latitudes in degrees.
-            lon : np.ndarray
-                Array of longitudes in degrees.
-            hgt : np.ndarray
-                Array of heights in meters.
-        Returns:
-            Tuple[np.ndarray, np.ndarray, np.ndarray]
-                Tuple containing arrays of East, North, and Up coordinates in meters.
+        Parameters
+        ----------
+        lat : np.ndarray
+            Array of latitudes in degrees.
+        lon : np.ndarray
+            Array of longitudes in degrees.
+        hgt : np.ndarray
+            Array of heights in meters.
+
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray, np.ndarray]
+            Tuple containing arrays of East, North, and Up coordinates in meters.
         """
 
         X, Y, Z = pm.geodetic2ecef(lat, lon, hgt)
@@ -218,16 +246,19 @@ class CoordTransformer:
         """
         Convert ECEF coordinates to ENU coordinates.
 
-        Args:
-            X : np.ndarray
-                Array of X coordinates in meters.
-            Y : np.ndarray
-                Array of Y coordinates in meters.
-            Z : np.ndarray
-                Array of Z coordinates in meters.
-        Returns:
-            Tuple[np.ndarray, np.ndarray, np.ndarray]
-                Tuple containing arrays of East, North, and Up coordinates in meters.
+        Parameters
+        ----------
+        X : np.ndarray
+            Array of X coordinates in meters.
+        Y : np.ndarray
+            Array of Y coordinates in meters.
+        Z : np.ndarray
+            Array of Z coordinates in meters.
+
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray, np.ndarray]
+            Tuple containing arrays of East, North, and Up coordinates in meters.
         """
         dX, dY, dZ = X - self.X0, Y - self.Y0, Z - self.Z0
         e, n, u = xyz2enu(
@@ -250,11 +281,15 @@ def avg_transponder_position(
     """
     Calculate the average position of the transponders.
 
-    Args:
-        transponders (List[Transponder]): A list of transponders.
+    Parameters
+    ----------
+    transponders : List[Transponder]
+        A list of transponders.
 
-    Returns:
-        Tuple[PositionENU, PositionLLH]: A tuple containing the average position in ENU and LLH coordinates.
+    Returns
+    -------
+    Tuple[PositionENU, PositionLLH]
+        A tuple containing the average position in ENU and LLH coordinates.
     """
     pos_array_llh = []
     pos_array_enu = []
@@ -282,8 +317,10 @@ def plot_enu_llh_side_by_side(garpos_input: GarposInput):
     """
     Plot the transponder and antenna positions in ENU and LLH coordinates side by side.
 
-    Args:
-        garpos_input (GarposInput): The input data containing observations and site information.
+    Parameters
+    ----------
+    garpos_input : GarposInput
+        The input data containing observations and site information.
     """
 
     # Create a figure with two subplots
@@ -371,10 +408,15 @@ def process_garpos_results(results: GarposInput) -> tuple[GarposInput, pd.DataFr
     residual travel time (ResiTT) to meters using the harmonic mean of the
     sound speed data.
 
-    Args:
-        results (GarposInput): The input data containing observations and site information.
-    Returns:
-        Tuple[GarposResults, pd.DataFrame]: A tuple containing the processed garpos results
+    Parameters
+    ----------
+    results : GarposInput
+        The input data containing observations and site information.
+
+    Returns
+    -------
+    Tuple[GarposResults, pd.DataFrame]
+        A tuple containing the processed garpos results
         and a DataFrame with the shot data including the calculated residual ranges.
     """
 
@@ -418,14 +460,19 @@ def rectify_shotdata(coord_transformer: CoordTransformer, shot_data: pd.DataFram
     5. Selects and reorders the columns in the DataFrame.
     6. Validates and sorts the DataFrame by "triggerTime".
 
-    Args:
-        shot_data (pd.DataFrame): The input DataFrame containing shot data with columns
-                                    "east0", "north0", "up0", "east1", "north1", "up1",
-                                    "trigger_time", "hae0", "pingTime", "returnTime",
-                                    "tt", "transponderID", "head0", "pitch0", "roll0",
-                                    "head1", "pitch1", and "roll1".
-    Returns:
-        pd.DataFrame: The rectified and validated DataFrame sorted by "triggerTime".
+    Parameters
+    ----------
+    shot_data : pd.DataFrame
+        The input DataFrame containing shot data with columns
+        "east0", "north0", "up0", "east1", "north1", "up1",
+        "trigger_time", "hae0", "pingTime", "returnTime",
+        "tt", "transponderID", "head0", "pitch0", "roll0",
+        "head1", "pitch1", and "roll1".
+
+    Returns
+    -------
+    pd.DataFrame
+        The rectified and validated DataFrame sorted by "triggerTime".
     """
 
     e0, n0, u0 = coord_transformer.ECEF2ENU_vec(

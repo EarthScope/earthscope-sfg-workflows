@@ -70,20 +70,53 @@ class GarposHandler:
     Wraps a :class:`StationSession` to provide data preparation, model
     execution, and result visualisation for GARPOS inversions.
 
-    Attributes:
-        station_session: Active session providing scope, paths, and metadata.
-        garpos_fixed: Fixed/inversion parameters passed to the GARPOS solver.
-        _coord_transformer: ENU coordinate transformer derived from the site array centre.
-        current_garpos_survey_dir: Layout for the most recently activated survey.
+    Attributes
+    ----------
+    station_session : StationSession
+        Active session providing scope, paths, and metadata.
+    garpos_fixed : GarposFixed
+        Fixed/inversion parameters passed to the GARPOS solver.
+    current_garpos_survey_dir : GARPOSLayout or None
+        Layout for the most recently activated survey.
+
+    Methods
+    -------
+    prepare_garpos_survey()
+        Materialise GARPOS survey directories and return the layout.
+    set_campaign(campaign_id)
+        Set the active campaign on the underlying station session.
+    set_survey(survey_id)
+        Set the active survey and validate that shotdata and rectified files exist.
+    set_inversion_params(parameters)
+        Update inversion parameters for the GARPOS solver.
+    prepare_shotdata_garpos(campaign_id, survey_id, custom_filters, overwrite)
+        Prepare shotdata for GARPOS processing for the active campaign.
+    prepare_single_garpos_survey(survey, custom_filters, overwrite)
+        Prepare a single survey for GARPOS processing.
+    get_pseudo_surveys(shotdatatdb)
+        Generate pseudo-surveys from unique shotdata dates.
+    parse_surveys_qc(shotdata_uri, override)
+        Parse QC pseudo-surveys and produce GARPOS input files.
+    run_garpos(survey_id, run_id, iterations, override, custom_settings, surveys)
+        Run the GARPOS model for specified surveys or all campaign surveys.
+    plot_shotdata_replies_per_transponder(savefig, showfig)
+        Plot shotdata reply percentages per transponder for the active campaign.
+    plot_residuals_per_transponder_before_and_after(survey_id, run_id, savefig, showfig)
+        Plot per-transponder range residuals before and after inversion.
+    plot_remaining_residuals_per_transponder(survey_id, run_id, subplots, savefig, showfig)
+        Plot the remaining (unflagged) residuals for each transponder.
+    plot_ts_results(survey_id, run_id, res_filter, savefig, showfig)
+        Plot the time series results for a given survey.
     """
 
 
     def __init__(self, station_session: StationSession) -> None:
-        """Initializes the GarposHandler.
+        """Initialize the GarposHandler.
 
-        Args:
-            station_session: The active :class:`StationSession` providing scope, paths,
-                and metadata.
+        Parameters
+        ----------
+        station_session : StationSession
+            The active session providing scope, paths, and metadata.
         """
         self.station_session = station_session
         self.garpos_fixed = GarposFixed()
@@ -98,12 +131,18 @@ class GarposHandler:
         else:
             self._coord_transformer = None
 
-    def ensure_garpos_survey(self) -> GARPOSLayout:
-        """Materialise GARPOS survey directories and return the layout."""
-        return self.station_session.ensure_garpos_survey()
+    def prepare_garpos_survey(self) -> GARPOSLayout:
+        """Materialise GARPOS survey directories and return the layout.
+
+        Returns
+        -------
+        GARPOSLayout
+            Directory layout for the current survey's GARPOS workspace.
+        """
+        return self.station_session.prepare_garpos_survey()
 
     def _load_results_file(self, run_dir: Path) -> Path:
-        """Return the last *-res.dat file in run_dir, sorted by iteration number."""
+        """Return the last ``*-res.dat`` file in ``run_dir``, sorted by iteration number."""
         data_files = sorted(
             run_dir.glob("*-res.dat"),
             key=lambda x: int(x.stem.split("_")[-1].split("-")[0]),
@@ -116,20 +155,31 @@ class GarposHandler:
     def set_campaign(
         self, campaign_id: str
     ) -> None:
-        """Backward-compat scope setter.
+        """Set the active campaign on the underlying station session.
 
         Network and station are already fixed on the underlying
         :class:`StationSession`; only the campaign is applied here.
+
+        Parameters
+        ----------
+        campaign_id : str
+            Identifier of the campaign to activate.
         """
         self.station_session.set_campaign(campaign_id)
 
     def set_survey(self, survey_id: str) -> None:
-        """Sets the current survey.
-        Args:
-            survey_id: The ID of the survey to set.
+        """Set the active survey and validate that required data files exist.
 
-        Raises:
-            ValueError: If the survey is not found in the current campaign.
+        Parameters
+        ----------
+        survey_id : str
+            Identifier of the survey to activate.
+
+        Raises
+        ------
+        ValueError
+            If the survey is not found in campaign metadata, if the shotdata
+            CSV is missing, or if the rectified shotdata CSV is missing.
         """
 
         self.station_session.set_survey(survey_id)
@@ -155,7 +205,7 @@ class GarposHandler:
                 "Please run parse_surveys() first."
             )
 
-        garpos_layout = self.ensure_garpos_survey()
+        garpos_layout = self.prepare_garpos_survey()
         rectified_files = list(garpos_layout.root.glob("*_rectified.csv"))
         rectified = rectified_files[0] if rectified_files else None
         if rectified is None or not rectified.exists():
@@ -167,14 +217,16 @@ class GarposHandler:
         logger.set_dir(garpos_layout.logs)
 
     def set_inversion_params(self, parameters: dict | InversionParams):
-        """Set inversion parameters for the model.
-        This method updates the inversion parameters of the model using the
-        key-value pairs provided in the `args` dictionary. Each key in the
-        dictionary corresponds to an attribute of the `inversion_params`
-        object, and the associated value is assigned to that attribute.
+        """Set inversion parameters for the GARPOS solver.
 
-        Args:
-            parameters: A dictionary containing key-value pairs to update the inversion parameters or an InversionParams object.
+        Updates the inversion parameters by merging the supplied values into
+        the current :attr:`garpos_fixed.inversion_params` instance.
+
+        Parameters
+        ----------
+        parameters : dict or InversionParams
+            Key-value pairs to apply to the inversion parameters, or a fully
+            populated :class:`InversionParams` object.
         """
 
         self.garpos_fixed.inversion_params = validate_and_merge_config(
@@ -192,7 +244,28 @@ class GarposHandler:
         custom_filters: dict | None = None,
         overwrite: bool = False,
     ) -> None:
-        """Prepares shotdata for GARPOS processing for the active campaign."""
+        """Prepare shotdata for GARPOS processing for the active campaign.
+
+        Parameters
+        ----------
+        campaign_id : str or None, optional
+            Campaign to activate before processing. ``None`` uses the currently
+            active campaign.
+        survey_id : str or None, optional
+            Survey to process. ``None`` processes all surveys in the campaign.
+        custom_filters : dict or None, optional
+            Override values for the survey filter configuration. ``None`` uses
+            defaults derived from the survey type.
+        overwrite : bool, optional
+            If ``True``, regenerate output files even when they already exist.
+            Default is ``False``.
+
+        Raises
+        ------
+        ValueError
+            If no campaign has been set, or if ``survey_id`` is not found in
+            the campaign.
+        """
         if campaign_id is not None:
             self.station_session.set_campaign(campaign_id=campaign_id)
 
@@ -221,7 +294,19 @@ class GarposHandler:
         custom_filters: dict | None = None,
         overwrite: bool = False,
     ) -> None:
-        """Prepare a single survey for GARPOS processing."""
+        """Prepare a single survey for GARPOS processing.
+
+        Parameters
+        ----------
+        survey : Survey
+            Survey metadata object describing the survey to process.
+        custom_filters : dict or None, optional
+            Override values for the survey filter configuration. ``None`` uses
+            defaults derived from the survey type.
+        overwrite : bool, optional
+            If ``True``, regenerate output files even when they already exist.
+            Default is ``False``.
+        """
 
         site = self.station_session.site
         campaign_meta = self.station_session.campaign_meta
@@ -247,7 +332,7 @@ class GarposHandler:
             )
             return
 
-        garpos_layout = self.ensure_garpos_survey()
+        garpos_layout = self.prepare_garpos_survey()
 
         if not garpos_layout.settings_file.exists() or overwrite:
             GarposFixed()._to_datafile(garpos_layout.settings_file)
@@ -337,7 +422,19 @@ class GarposHandler:
             garpos_input_configured.to_datafile(garpos_layout.obs_file)
 
     def get_pseudo_surveys(self, shotdatatdb: TDBShotDataArray) -> list[Survey]:
-        """Generate pseudo-surveys from unique shotdata dates."""
+        """Generate pseudo-surveys from unique shotdata dates.
+
+        Parameters
+        ----------
+        shotdatatdb : TDBShotDataArray
+            TileDB shot-data array from which unique calendar dates are read.
+
+        Returns
+        -------
+        list of Survey
+            One :class:`Survey` per unique date that falls within the active
+            campaign year. Returns an empty list when no matching dates exist.
+        """
         pseudo_surveys: list[Survey] = []
         dates: list[np.datetime64] = shotdatatdb.get_unique_dates().tolist()
         if not dates:
@@ -381,7 +478,22 @@ class GarposHandler:
         shotdata_uri: str | Path,
         override: bool = False,
     ) -> list[GARPOSLayout] | None:
-        """Parse QC pseudo-surveys and produce GARPOS input files."""
+        """Parse QC pseudo-surveys and produce GARPOS input files.
+
+        Parameters
+        ----------
+        shotdata_uri : str or Path
+            URI or file-system path to the TileDB shot-data array.
+        override : bool, optional
+            If ``True``, regenerate all intermediate files even when they
+            already exist. Default is ``False``.
+
+        Returns
+        -------
+        list of GARPOSLayout or None
+            A layout object for each successfully prepared pseudo-survey, or
+            ``None`` if rectification fails for any survey.
+        """
 
         site = self.station_session.site
         campaign_meta = self.station_session.campaign_meta
@@ -482,17 +594,7 @@ class GarposHandler:
         run_id: int | str = 0,
         override: bool = False,
     ) -> Path:
-        """Runs the GARPOS model.
-        Args:
-            obsfile_path: The path to the observation file.
-            results_dir: The path to the results directory.
-            custom_settings: Custom GARPOS settings to apply, by default None.
-            run_id: The run ID, by default 0.
-            override: If True, override existing results, by default False.
-
-        Returns:
-            The path to the results file.
-        """
+        """Invoke the GARPOS solver for a single observation file."""
 
         garpos_fixed_params = self.garpos_fixed.model_copy()
         if custom_settings is not None:
@@ -542,17 +644,7 @@ class GarposHandler:
         iterations: int = 1,
         override: bool = False,
     ) -> None:
-        """Run the GARPOS model for a specific GARPOSSurveyDir.
-        Args:
-            garpos_survey_dir: The GARPOS survey directory to run.
-            custom_settings: Custom GARPOS settings to apply, by default None.
-            run_id: The run identifier, by default 0.
-            iterations: The number of iterations to run, by default 1.
-            override: If True, override existing results, by default False.
-
-        Raises:
-            ValueError: If the observation file does not exist.
-        """
+        """Run the GARPOS model for a specific survey layout directory."""
         logger.info(
             f"Running GARPOS model for survey {garpos_survey_dir.root.parent.name}. Run ID: {run_id}"
         )
@@ -614,7 +706,7 @@ class GarposHandler:
         iterations: int = 1,
         override: bool = False,
     ) -> None:
-        """Run the GARPOS model for a specific survey."""
+        """Run the GARPOS model for a survey identified by its string ID."""
         logger.info(f"Running GARPOS model for survey {survey_id}. Run ID: {run_id}")
         try:
             self.set_survey(survey_id=survey_id)
@@ -638,13 +730,27 @@ class GarposHandler:
         custom_settings: dict | InversionParams | None = None,
         surveys: list[GARPOSLayout] | None = None,
     ) -> None:
-        """Run the GARPOS model for a specific date or for all dates.
-        Args:
-            survey_id: The ID of the survey to run, by default None.
-            run_id: The run identifier, by default 0.
-            iterations: The number of iterations to run, by default 1.
-            override: If True, override existing results, by default False.
-            custom_settings: Custom GARPOS settings to apply, by default None.
+        """Run the GARPOS inversion for specified surveys or all campaign surveys.
+
+        Parameters
+        ----------
+        survey_id : str or None, optional
+            Identifier of the survey to process. ``None`` processes every
+            survey in the active campaign (ignored when ``surveys`` is given).
+        run_id : int or str, optional
+            Label for this inversion run. Default is ``0``.
+        iterations : int, optional
+            Number of sequential inversion iterations to perform. Default is
+            ``1``.
+        override : bool, optional
+            If ``True``, remove and replace existing run directories. Default
+            is ``False``.
+        custom_settings : dict or InversionParams or None, optional
+            Custom inversion settings to merge into the current configuration.
+            ``None`` uses the settings stored on :attr:`garpos_fixed`.
+        surveys : list of GARPOSLayout or None, optional
+            Pre-resolved layout objects to run. When supplied, ``survey_id``
+            is ignored and each layout is processed directly.
         """
 
         logger.info(f"Running GARPOS model. Run ID: {run_id}")
@@ -682,7 +788,16 @@ class GarposHandler:
         savefig: bool = False,
         showfig: bool = True,
     ) -> None:
-        """Plots shotdata reply percentages per transponder for the active campaign."""
+        """Plot shotdata reply percentages per transponder for the active campaign.
+
+        Parameters
+        ----------
+        savefig : bool, optional
+            If ``True``, save the figure as a PNG file in the campaign root.
+            Default is ``False``.
+        showfig : bool, optional
+            If ``True``, display the figure interactively. Default is ``True``.
+        """
         metadata_surveys = []
         site = self.station_session.site
         if site is not None:
@@ -819,6 +934,20 @@ class GarposHandler:
         savefig: bool = False,
         showfig: bool = True,
     ):
+        """Plot per-transponder range residuals before and after inversion.
+
+        Parameters
+        ----------
+        survey_id : str
+            Identifier of the survey whose residuals will be plotted.
+        run_id : int or str, optional
+            Run identifier selecting which result directory to read. Default is
+            ``0``.
+        savefig : bool, optional
+            If ``True``, save the figure as a PNG file. Default is ``False``.
+        showfig : bool, optional
+            If ``True``, display the figure interactively. Default is ``True``.
+        """
         surveys_to_process = []
         for survey in self.station_session.campaign_meta.surveys:
             if survey.id == survey_id or survey_id is None:
@@ -844,13 +973,7 @@ class GarposHandler:
         savefig: bool = False,
         showfig: bool = True,
     ):
-        """Plots the residuals on 3 subplots for a given survey.
-        Args:
-            survey_id (str): The ID of the survey to plot results for.
-            run_id (int | str, optional): The run ID of the survey results to plot. Defaults to 0.
-            savefig (bool, optional): If True, save the figure, by default False.
-            showfig (bool, optional): If True, display the figure, by default True.
-        """
+        """Plot flagged vs unflagged residuals on three subplots for a given survey."""
         results_dir: Path = self.current_garpos_survey_dir.results
         run_dir = results_dir / f"run_{run_id}"
         if not run_dir.exists():
@@ -929,12 +1052,22 @@ class GarposHandler:
         savefig: bool = False,
         showfig: bool = True,
     ) -> None:
-        """Plots the remaining residuals for each transponder.
-        Args:
-            survey_id (str): The ID of the survey to plot results for.
-            run_id (int | str, optional): The run ID of the survey results to plot. Defaults to 0.
-            savefig (bool, optional): If True, save the figure. Defaults to False.
-            showfig (bool, optional): If True, display the figure. Defaults to True.
+        """Plot the remaining (unflagged) residuals for each transponder.
+
+        Parameters
+        ----------
+        survey_id : str
+            Identifier of the survey to plot results for.
+        run_id : int or str, optional
+            Run identifier selecting which result directory to read. Default is
+            ``0``.
+        subplots : bool, optional
+            If ``True``, draw one subplot per transponder. If ``False``, overlay
+            all transponders on a single axes. Default is ``True``.
+        savefig : bool, optional
+            If ``True``, save the figure as a PNG file. Default is ``False``.
+        showfig : bool, optional
+            If ``True``, display the figure interactively. Default is ``True``.
         """
         surveys_to_process = []
         for survey in self.station_session.campaign_meta.surveys:
@@ -963,14 +1096,7 @@ class GarposHandler:
         savefig: bool = False,
         showfig: bool = True,
     ):
-        """Plots the residuals on 3 subplots for a given survey.
-        Args:
-            survey_id (str): The ID of the survey to plot results for.
-            run_id (int | str, optional): The run ID of the survey results to plot. Defaults to 0.
-            subplots (bool, optional): If True, use multiple subplots for the residuals. Defaults to True.
-            savefig (bool, optional): If True, save the figure, by default False.
-            showfig (bool, optional): If True, display the figure, by default True.
-        """
+        """Render unflagged residuals for a single survey, optionally as subplots."""
         results_dir: Path = self.current_garpos_survey_dir.results
         run_dir = results_dir / f"run_{run_id}"
         if not run_dir.exists():
@@ -1055,13 +1181,24 @@ class GarposHandler:
         savefig: bool = False,
         showfig: bool = True,
     ) -> None:
-        """Plots the time series results for a given survey.
-        Args:
-            survey_id: ID of the survey to plot results for, by default None.
-            run_id: The run ID of the survey results to plot, by default 0.
-            res_filter: The residual filter value to filter outrageous values (m), by default 10.
-            savefig: If True, save the figure, by default False.
-            showfig: If True, display the figure, by default True.
+        """Plot time series results for a given survey.
+
+        Parameters
+        ----------
+        survey_id : str or None, optional
+            Identifier of the survey to plot. ``None`` plots all surveys in the
+            active campaign. Default is ``None``.
+        run_id : int or str, optional
+            Run identifier selecting which result directory to read. Default is
+            ``0``.
+        res_filter : float, optional
+            Maximum absolute residual value (metres) shown in the time-series
+            and histogram panels. Default is ``10``.
+        savefig : bool, optional
+            If ``True``, save the figure as a PNG file in the run directory.
+            Default is ``False``.
+        showfig : bool, optional
+            If ``True``, display the figure interactively. Default is ``True``.
         """
         surveys_to_process = []
         for survey in self.station_session.campaign_meta.surveys:
@@ -1093,17 +1230,7 @@ class GarposHandler:
         showfig: bool = True,
         results_dir: Path | None = None,
     ) -> None:
-        """
-        Plots the time series results for a given survey.
-
-        Args:
-            survey_id: The ID of the survey to plot results for.
-            survey_type: Optional survey type to include in the title.
-            run_id: The GARPOS run ID to plot results for.
-            res_filter: The residual filter value to apply.
-            savefig: Whether to save the figure as a PNG file.
-            showfig: Whether to display the figure.
-        """
+        """Render the full time-series results figure for a single survey."""
 
         results_dir: Path = (
             self.current_garpos_survey_dir.results if results_dir is None else results_dir

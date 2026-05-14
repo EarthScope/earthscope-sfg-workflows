@@ -41,9 +41,12 @@ def remove_ansi_escape(text):
 
 
 def get_system_architecture() -> tuple[str, str]:
-    """Get the current system and architecture
-    Returns:
-        Tuple[str, str]: A tuple containing the system and architecture.
+    """Get the current system and architecture.
+
+    Returns
+    -------
+    tuple[str, str]
+        A tuple containing the system and architecture.
     """
     system = platform.system().lower()
     arch = platform.machine().lower()
@@ -125,15 +128,23 @@ def get_binary_path(
     binary_name: str,
 ) -> Path:
     """Resolve a platform-specific binary path from a ``{system_arch: path}`` map.
-    Args:
-        path_map: Mapping of ``"system_arch"`` keys (e.g. ``"darwin_arm64"``) to binary paths.
-        binary_name: Human-readable name used in error messages when the binary is missing.
 
-    Returns:
+    Parameters
+    ----------
+    path_map
+        Mapping of ``"system_arch"`` keys (e.g. ``"darwin_arm64"``) to binary paths.
+    binary_name
+        Human-readable name used in error messages when the binary is missing.
+
+    Returns
+    -------
+    Path
         Resolved binary path for the current platform.
 
-    Raises:
-        FileNotFoundError: If no binary is available for the current platform.
+    Raises
+    ------
+    FileNotFoundError
+        If no binary is available for the current platform.
     """
     system, arch = get_system_architecture()
     binary_path = path_map.get(f"{system}_{arch}")
@@ -149,14 +160,21 @@ def run_binary(
     capture: bool = True,
 ) -> subprocess.CompletedProcess:
     """Run an external binary, parse its CLI logs, and return the result.
-    Args:
-        cmd: Command and arguments to execute.
-        log: Logger instance for output parsing.  Falls back to module-level logger.
-        cwd: Working directory for the subprocess.
-        capture: Whether to capture stdout/stderr.  Defaults to True.
 
-    Returns:
-        subprocess.CompletedProcess
+    Parameters
+    ----------
+    cmd
+        Command and arguments to execute.
+    log
+        Logger instance for output parsing.  Falls back to module-level logger.
+    cwd
+        Working directory for the subprocess.
+    capture
+        Whether to capture stdout/stderr.  Defaults to True.
+
+    Returns
+    -------
+    subprocess.CompletedProcess
     """
     if log is None:
         log = logger

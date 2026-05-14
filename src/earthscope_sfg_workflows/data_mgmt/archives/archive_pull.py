@@ -1,3 +1,5 @@
+"""HTTP and S3 helpers for downloading files from the EarthScope seafloor archive."""
+
 import os
 import ssl
 import urllib.request

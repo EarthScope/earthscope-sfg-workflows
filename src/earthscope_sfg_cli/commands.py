@@ -11,12 +11,16 @@ def run_manifest(manifest_object):
     Executes a series of data ingestion, download, and processing jobs
     based on the provided PipelineManifest object.
 
-    Args:
-        manifest_object: An object containing details about all jobs and
-            the main directory for data handling.
+    Parameters
+    ----------
+    manifest_object
+        An object containing details about all jobs and
+        the main directory for data handling.
 
-    Raises:
-        AssertionError: If a directory listed in an ingestion job does not exist.
+    Raises
+    ------
+    AssertionError
+        If a directory listed in an ingestion job does not exist.
     """
     from earthscope_sfg_workflows.config.env_config import Environment
     from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config

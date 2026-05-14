@@ -27,16 +27,26 @@ class _BaseLogger:
     """Base class for creating and managing loggers.
     This class has file and console handlers.
 
-    Attributes:
-        name: The name of the logger.
-        dir: The directory where the log file will be stored.
-        file_name: The name of the log file.
-        path: The full path to the log file.
-        format: The logging format to be used.
-        level: The logging level.
-        logger: The logger instance.
-        file_handler: The file handler for the logger.
-        console_handler: The console handler for the logger (optional).
+    Attributes
+    ----------
+    name
+        The name of the logger.
+    dir
+        The directory where the log file will be stored.
+    file_name
+        The name of the log file.
+    path
+        The full path to the log file.
+    format
+        The logging format to be used.
+    level
+        The logging level.
+    logger
+        The logger instance.
+    file_handler
+        The file handler for the logger.
+    console_handler
+        The console handler for the logger (optional).
     """
 
     def __init__(
@@ -89,8 +99,11 @@ class _BaseLogger:
 
     def set_dir(self, dir: Path) -> None:
         """Set the directory for the logger and update the file path.
-        Args:
-            dir: The directory path to set for the logger.
+
+        Parameters
+        ----------
+        dir
+            The directory path to set for the logger.
         """
 
         self.dir = dir
@@ -126,8 +139,11 @@ class _BaseLogger:
         ],
     ) -> None:  # type: ignore
         """Set the logging level for the logger.
-        Args:
-            level: The logging level to set. This can be one of the standard logging levels (e.g., logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL).
+
+        Parameters
+        ----------
+        level
+            The logging level to set. This can be one of the standard logging levels (e.g., logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL).
         """
 
         self.level = level
@@ -148,10 +164,15 @@ class _BaseLogger:
 
     def non_negotiable_console_log(self, message: str) -> str | None:
         """Log a message to the console if a console handler is present.
-        Args:
-            message: The message to log.
 
-        Returns:
+        Parameters
+        ----------
+        message
+            The message to log.
+
+        Returns
+        -------
+        str or None
             The message if a console handler is present, otherwise None.
         """
         if not hasattr(self, "console_handler"):
@@ -173,8 +194,10 @@ class _BaseLogger:
         This uses stacklevel=2 so the logging module goes up the stack to get
         the calling function.
 
-        Args:
-            message: The message to log.
+        Parameters
+        ----------
+        message
+            The message to log.
         """
         self.logger.debug(message, stacklevel=2)
 
@@ -183,8 +206,10 @@ class _BaseLogger:
         This uses stacklevel=2 so the logging module goes up the stack to get
         the calling function.
 
-        Args:
-            message: The message to log.
+        Parameters
+        ----------
+        message
+            The message to log.
         """
         self.logger.info(message, stacklevel=2)
 
@@ -193,10 +218,14 @@ class _BaseLogger:
         This uses stacklevel=2 so the logging module goes up the stack to get
         the calling function.
 
-        Args:
-            message: The message to log.
+        Parameters
+        ----------
+        message
+            The message to log.
 
-        Returns:
+        Returns
+        -------
+        None or str
             The message if a console handler is present, otherwise None.
         """
         self.logger.error(message, stacklevel=2)
@@ -207,8 +236,10 @@ class _BaseLogger:
         This uses stacklevel=2 so the logging module goes up the stack to get
         the calling function.
 
-        Args:
-            message: The message to log.
+        Parameters
+        ----------
+        message
+            The message to log.
         """
         self.logger.warning(message, stacklevel=2)
 
@@ -231,8 +262,11 @@ def set_all_logger_levels(
     level: Literal[logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL],
 ):  # type: ignore
     """Set the level for all loggers.
-    Args:
-        level: The logging level to set.
+
+    Parameters
+    ----------
+    level
+        The logging level to set.
     """
     PRIDELogger.set_level(level)
     ProcessLogger.set_level(level)
@@ -241,8 +275,11 @@ def set_all_logger_levels(
 
 def change_all_logger_dirs(dir: Path):
     """Change the directory for all loggers.
-    Args:
-        dir: The directory to set.
+
+    Parameters
+    ----------
+    dir
+        The directory to set.
     """
     BaseLogger.set_dir(dir)
     PRIDELogger.set_dir(dir)

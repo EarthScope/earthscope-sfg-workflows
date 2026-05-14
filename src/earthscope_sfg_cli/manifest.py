@@ -194,10 +194,14 @@ class PipelineManifest(BaseModel):
         dictionary, handling global configurations, and constructing the
         list of jobs.
 
-        Args:
-            data: The dictionary to load from, typically from a JSON or YAML file.
+        Parameters
+        ----------
+        data
+            The dictionary to load from, typically from a JSON or YAML file.
 
-        Returns:
+        Returns
+        -------
+        PipelineManifest
             An instance of the PipelineManifest.
         """
         if (global_config_data := data.get("globalConfig")) is not None:
@@ -286,9 +290,14 @@ class PipelineManifest(BaseModel):
         """
         Instantiates a PipelineManifest object from a JSON or YAML schema.
 
-        Args:
-            file_path: The path to the JSON or YAML file (.json, .yaml, or .yml).
-        Returns:
+        Parameters
+        ----------
+        file_path
+            The path to the JSON or YAML file (.json, .yaml, or .yml).
+
+        Returns
+        -------
+        PipelineManifest
             An instance of the PipelineManifest class.
         """
         if isinstance(file_path, str):

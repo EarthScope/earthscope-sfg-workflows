@@ -103,12 +103,64 @@ def _entry_to_kwargs(asset: AssetEntry) -> dict:
 
 
 class AssetCatalog:
-    """SQLAlchemy-backed :class:`AssetStore`. Works with any URL — SQLite locally,
-    Postgres/RDS in cloud. Pass an engine directly or use the factory classmethods.
+    """SQLAlchemy-backed asset catalog. Works with any SQLAlchemy URL.
+
+    Backed by SQLite locally or Postgres/RDS in cloud. Pass an engine
+    directly or use the factory classmethods :meth:`sqlite` and
+    :meth:`from_url`.
+
+    Attributes
+    ----------
+    _engine : Engine
+        The underlying SQLAlchemy engine (not for direct use by callers).
+
+    Methods
+    -------
+    sqlite(db_path, create_schema)
+        Build a catalog backed by a local SQLite file.
+    from_url(url, create_schema)
+        Build a catalog from a SQLAlchemy database URL.
+    add(asset)
+        Insert an asset and return it with its assigned id.
+    update(asset)
+        Update an existing asset row by id.
+    mark_processed_bulk(asset_ids)
+        Mark multiple assets as processed in a single statement.
+    by_id(asset_id)
+        Look up an asset by primary key.
+    by_local_path(path)
+        Return all assets whose local_path matches a given path.
+    assets_for(kind, network, station, campaign)
+        Return assets matching the given scope fields.
+    assets_to_process(kind, override, network, station, campaign)
+        Return unprocessed assets optionally filtered by kind.
+    delete(kind, network, station, campaign)
+        Delete assets matching the given scope and optional kind.
+    delete_by_id(asset_id)
+        Delete a single asset by id.
+    count_by_kind(network, station, campaign)
+        Return per-kind row counts for the specified scope.
+    distinct_values(field, **filters)
+        Return sorted distinct non-null values of a scope field.
+    add_merge_job(parent_type, child_type, parent_ids)
+        Persist a record that a merge job ran.
+    is_merge_complete(parent_type, child_type, parent_ids)
+        Check whether a merge job has previously been recorded.
+    close()
+        Dispose of the underlying SQLAlchemy engine.
     """
 
     def __init__(self, engine: Engine, *, create_schema: bool = True) -> None:
-        """Bind to a SQLAlchemy `Engine`; create tables when `create_schema`."""
+        """Bind to an existing SQLAlchemy engine.
+
+        Parameters
+        ----------
+        engine : Engine
+            A pre-built SQLAlchemy :class:`~sqlalchemy.engine.Engine`.
+        create_schema : bool, optional
+            When ``True`` (default), run ``CREATE TABLE IF NOT EXISTS`` for
+            all managed tables on first use.
+        """
         self._engine = engine
         if create_schema:
             Base.metadata.create_all(self._engine)
@@ -122,24 +174,65 @@ class AssetCatalog:
 
     @classmethod
     def sqlite(cls, db_path: Path, *, create_schema: bool = True) -> "AssetCatalog":
-        """Build a `AssetCatalog` backed by a local SQLite file at `db_path`."""
+        """Build an :class:`AssetCatalog` backed by a local SQLite file.
+
+        Parameters
+        ----------
+        db_path : Path
+            Filesystem path to the SQLite database file. Parent directories
+            are created automatically.
+        create_schema : bool, optional
+            When ``True`` (default), create tables if they do not exist.
+
+        Returns
+        -------
+        AssetCatalog
+            A catalog instance bound to the SQLite database at ``db_path``.
+        """
         db_path.parent.mkdir(parents=True, exist_ok=True)
         engine = create_engine(f"sqlite:///{db_path}", future=True)
         return cls(engine, create_schema=create_schema)
 
     @classmethod
     def from_url(cls, url: str, *, create_schema: bool = True) -> "AssetCatalog":
-        """Build a `AssetCatalog` from a SQLAlchemy database URL."""
+        """Build an :class:`AssetCatalog` from a SQLAlchemy database URL.
+
+        Parameters
+        ----------
+        url : str
+            A SQLAlchemy connection URL (e.g. ``"sqlite:///path/to/db.sqlite"``
+            or ``"postgresql://user:pass@host/db"``).
+        create_schema : bool, optional
+            When ``True`` (default), create tables if they do not exist.
+
+        Returns
+        -------
+        AssetCatalog
+            A catalog instance bound to the given database URL.
+        """
         return cls(create_engine(url, future=True), create_schema=create_schema)
 
     # -- AssetStore protocol ----------------------------------------------
 
     def add(self, asset: AssetEntry) -> AssetEntry:
-        """Insert `asset`, returning the persisted entry with its assigned id.
+        """Insert an asset and return it with its assigned id.
 
-        Raises ``IntegrityError`` if the local_path or remote_path already
-        exists (UNIQUE constraint violation), which callers can treat as a
-        no-op skip.
+        Parameters
+        ----------
+        asset : AssetEntry
+            The asset to persist. ``asset.id`` is ignored; a new id is assigned.
+
+        Returns
+        -------
+        AssetEntry
+            A copy of ``asset`` with ``id`` populated from the database.
+
+        Raises
+        ------
+        IntegrityError
+            If ``local_path`` or ``remote_path`` already exists (UNIQUE
+            constraint violation). Callers may treat this as a no-op skip;
+            the existing matching entry is returned instead.
         """
         try:
             with self._Session.begin() as session:
@@ -157,7 +250,19 @@ class AssetCatalog:
             raise
 
     def update(self, asset: AssetEntry) -> bool:
-        """Update an existing row by id; return True iff a row was modified."""
+        """Update an existing asset row by id.
+
+        Parameters
+        ----------
+        asset : AssetEntry
+            Asset containing updated field values. Must have ``id`` set.
+
+        Returns
+        -------
+        bool
+            ``True`` if a row was modified; ``False`` if the id was ``None``
+            or no matching row existed.
+        """
         if asset.id is None:
             return False
         with self._Session.begin() as session:
@@ -166,7 +271,18 @@ class AssetCatalog:
             return result.rowcount > 0
 
     def mark_processed_bulk(self, asset_ids: list[int]) -> int:
-        """Mark multiple assets as processed by id. Returns count of updated rows."""
+        """Mark multiple assets as processed in a single statement.
+
+        Parameters
+        ----------
+        asset_ids : list[int]
+            Primary keys of assets to mark as processed.
+
+        Returns
+        -------
+        int
+            Number of rows updated.
+        """
         if not asset_ids:
             return 0
         with self._Session.begin() as session:
@@ -175,13 +291,35 @@ class AssetCatalog:
             return result.rowcount
 
     def by_id(self, asset_id: int) -> AssetEntry | None:
-        """Return the asset with `asset_id`, or None if absent."""
+        """Look up an asset by primary key.
+
+        Parameters
+        ----------
+        asset_id : int
+            The primary key to look up.
+
+        Returns
+        -------
+        AssetEntry or None
+            The matching entry, or ``None`` if no row has that id.
+        """
         with self._Session() as session:
             row = session.get(Assets, asset_id)
             return None if row is None else _row_to_entry(row)
 
     def by_local_path(self, path: Path) -> list[AssetEntry]:
-        """Return all assets whose `local_path` matches `path`."""
+        """Return all assets whose local_path matches a given path.
+
+        Parameters
+        ----------
+        path : Path
+            Filesystem path to match against.
+
+        Returns
+        -------
+        list[AssetEntry]
+            All entries with ``local_path == str(path)``.
+        """
         with self._Session() as session:
             rows = (
                 session.execute(select(Assets).where(Assets.local_path == str(path)))
@@ -192,21 +330,38 @@ class AssetCatalog:
 
     def assets_for(
         self,
-        scope: "SFGScope | None" = None,
         kind: AssetKind | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
         campaign: str | None = None,
     ) -> list[AssetEntry]:
-        """Return assets in ``scope``, optionally filtered by ``kind``, ordered by id."""
-        net = scope.network if scope is not None else network
-        sta = scope.station if scope is not None else station
-        camp = scope.campaign if scope is not None else campaign
+        """Return assets matching the given scope fields.
+
+        All scope fields default to ``None``; ``None`` is treated as an exact
+        ``NULL`` match rather than a wildcard.  To query across all campaigns
+        for a station, use :meth:`distinct_values` first.
+
+        Parameters
+        ----------
+        kind : AssetKind or None, optional
+            Filter to a specific asset kind. ``None`` returns all kinds.
+        network : str or None, optional
+            Network to filter on (exact match).
+        station : str or None, optional
+            Station to filter on (exact match).
+        campaign : str or None, optional
+            Campaign to filter on (exact match).
+
+        Returns
+        -------
+        list[AssetEntry]
+            All matching entries, ordered by id.
+        """
         stmt = select(Assets).where(
-            Assets.network == net,
-            Assets.station == sta,
-            Assets.campaign == camp,
+            Assets.network == network,
+            Assets.station == station,
+            Assets.campaign == campaign,
         )
         if kind is not None:
             stmt = stmt.where(Assets.type == kind.value)
@@ -216,7 +371,6 @@ class AssetCatalog:
 
     def assets_to_process(
         self,
-        scope: "SFGScope | None" = None,
         kind: AssetKind | None = None,
         override: bool = False,
         *,
@@ -224,17 +378,34 @@ class AssetCatalog:
         station: str | None = None,
         campaign: str | None = None,
     ) -> list[AssetEntry]:
-        """Return unprocessed assets in ``scope`` filtered by ``kind``."""
-        net = scope.network if scope is not None else network
-        sta = scope.station if scope is not None else station
-        camp = scope.campaign if scope is not None else campaign
+        """Return unprocessed assets optionally filtered by kind.
+
+        Parameters
+        ----------
+        kind : AssetKind or None, optional
+            Filter to a specific asset kind. ``None`` returns all kinds.
+        override : bool, optional
+            When ``True``, returns all matching assets regardless of processed
+            status (equivalent to calling :meth:`assets_for`).
+        network : str or None, optional
+            Network to filter on.
+        station : str or None, optional
+            Station to filter on.
+        campaign : str or None, optional
+            Campaign to filter on.
+
+        Returns
+        -------
+        list[AssetEntry]
+            Unprocessed (or all, when ``override=True``) matching entries.
+        """
         if override:
-            return self.assets_for(network=net, station=sta, campaign=camp, kind=kind)
+            return self.assets_for(network=network, station=station, campaign=campaign, kind=kind)
 
         stmt = select(Assets).where(
-            Assets.network == net,
-            Assets.station == sta,
-            Assets.campaign == camp,
+            Assets.network == network,
+            Assets.station == station,
+            Assets.campaign == campaign,
             Assets.is_processed.is_(False),
         )
         if kind is not None:
@@ -245,21 +416,35 @@ class AssetCatalog:
 
     def delete(
         self,
-        scope: "SFGScope | None" = None,
         kind: AssetKind | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
         campaign: str | None = None,
     ) -> int:
-        """Delete assets matching the scope (and optional kind). Return count."""
-        net = scope.network if scope is not None else network
-        sta = scope.station if scope is not None else station
-        camp = scope.campaign if scope is not None else campaign
+        """Delete assets matching the given scope fields and optional kind.
+
+        Parameters
+        ----------
+        kind : AssetKind or None, optional
+            Restrict deletion to this asset kind. ``None`` deletes all kinds
+            in the given scope.
+        network : str or None, optional
+            Network to match.
+        station : str or None, optional
+            Station to match.
+        campaign : str or None, optional
+            Campaign to match.
+
+        Returns
+        -------
+        int
+            Number of rows deleted.
+        """
         stmt = delete(Assets).where(
-            Assets.network == net,
-            Assets.station == sta,
-            Assets.campaign == camp,
+            Assets.network == network,
+            Assets.station == station,
+            Assets.campaign == campaign,
         )
         if kind is not None:
             stmt = stmt.where(Assets.type == kind.value)
@@ -267,30 +452,53 @@ class AssetCatalog:
             return session.execute(stmt).rowcount or 0
 
     def delete_by_id(self, asset_id: int) -> bool:
-        """Delete a single asset by id; return True iff a row was deleted."""
+        """Delete a single asset by primary key.
+
+        Parameters
+        ----------
+        asset_id : int
+            Primary key of the asset to delete.
+
+        Returns
+        -------
+        bool
+            ``True`` if a row was deleted; ``False`` if no matching row existed.
+        """
         with self._Session.begin() as session:
             result = session.execute(delete(Assets).where(Assets.id == asset_id))
             return (result.rowcount or 0) > 0
 
     def count_by_kind(
         self,
-        scope: "SFGScope | None" = None,
         *,
         network: str | None = None,
         station: str | None = None,
         campaign: str | None = None,
     ) -> dict[AssetKind, int]:
-        """Return a per-`AssetKind` row count for assets in the specified scope."""
-        net = scope.network if scope is not None else network
-        sta = scope.station if scope is not None else station
-        camp = scope.campaign if scope is not None else campaign
+        """Return per-kind row counts for assets in the specified scope.
+
+        Parameters
+        ----------
+        network : str or None, optional
+            Network to filter on.
+        station : str or None, optional
+            Station to filter on.
+        campaign : str or None, optional
+            Campaign to filter on.
+
+        Returns
+        -------
+        dict[AssetKind, int]
+            Mapping of :class:`AssetKind` to row count. Only kinds with at
+            least one row are included. Unknown legacy kind values are skipped.
+        """
         with self._Session() as session:
             rows = (
                 session.execute(
                     select(Assets.type).where(
-                        Assets.network == net,
-                        Assets.station == sta,
-                        Assets.campaign == camp,
+                        Assets.network == network,
+                        Assets.station == station,
+                        Assets.campaign == campaign,
                     )
                 )
                 .scalars()
@@ -306,7 +514,26 @@ class AssetCatalog:
         return dict(counts)
 
     def distinct_values(self, field: str, **filters: str | None) -> list[str]:
-        """Return sorted distinct non-null values of *field* matching *filters*."""
+        """Return sorted distinct non-null values of a scope field.
+
+        Parameters
+        ----------
+        field : str
+            Column to query. Must be one of ``"network"``, ``"station"``,
+            or ``"campaign"``.
+        **filters : str or None
+            Optional equality filters using the same supported column names.
+
+        Returns
+        -------
+        list[str]
+            Sorted list of distinct non-null values.
+
+        Raises
+        ------
+        ValueError
+            If ``field`` or any filter key is not a supported column name.
+        """
         _col_map = {
             "network": Assets.network,
             "station": Assets.station,
@@ -327,7 +554,7 @@ class AssetCatalog:
         return sorted(r for r in rows if r)
 
     def close(self) -> None:
-        """Dispose of the underlying SQLAlchemy `Engine`."""
+        """Dispose of the underlying SQLAlchemy engine, releasing all connections."""
         self._engine.dispose()
 
     # -- merge job tracking ----------------------------------------------
@@ -343,7 +570,17 @@ class AssetCatalog:
         child_type: str,
         parent_ids: list[int] | list[str],
     ) -> None:
-        """Persist a record that a merge from `parent_ids` produced a `child_type`."""
+        """Persist a record that a merge job ran.
+
+        Parameters
+        ----------
+        parent_type : str
+            Asset kind string for the parent (input) assets.
+        child_type : str
+            Asset kind string for the child (output) asset.
+        parent_ids : list[int] or list[str]
+            Ids of the parent assets consumed in this merge.
+        """
         sig = self._merge_signature(parent_ids)
         with self._Session.begin() as session:
             session.add(
@@ -360,7 +597,22 @@ class AssetCatalog:
         child_type: str,
         parent_ids: list[int] | list[str],
     ) -> bool:
-        """Return True iff a matching merge job has previously been recorded."""
+        """Check whether a merge job for these inputs has previously been recorded.
+
+        Parameters
+        ----------
+        parent_type : str
+            Asset kind string for the parent assets.
+        child_type : str
+            Asset kind string for the child asset.
+        parent_ids : list[int] or list[str]
+            Ids of the parent assets to check.
+
+        Returns
+        -------
+        bool
+            ``True`` if a matching merge record exists; ``False`` otherwise.
+        """
         sig = self._merge_signature(parent_ids)
         with self._Session() as session:
             row = session.execute(
