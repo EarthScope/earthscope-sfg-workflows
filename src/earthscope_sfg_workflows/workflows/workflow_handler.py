@@ -151,18 +151,6 @@ class WorkflowHandler:
     def current_station_name(self) -> str | None:
         return self._active.scope.station if self._active else None
 
-    @property
-    def current_campaign_name(self) -> str | None:
-        return self._active.scope.campaign if self._active else None
-
-    @property
-    def current_survey_name(self) -> str | None:
-        return self._active.scope.survey if self._active else None
-
-    @property
-    def current_station_metadata(self) -> "Site | None":
-        return self._active.site if self._active else None
-
     def set_network_station_campaign(
         self,
         network_id: str,

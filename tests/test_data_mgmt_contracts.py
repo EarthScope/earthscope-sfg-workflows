@@ -282,12 +282,12 @@ class TestFileManager:
 
 class TestIngestService:
     def _session(self, scope: SFGScope, files: InMemoryFileStore | None = None):
-        from earthscope_sfg_workflows.workflows.session import StationSession
+        from tests.utils import make_session
 
         catalog = InMemoryAssetStore()
         fs = files if files is not None else InMemoryFileStore()
         archive = FakeArchive()
-        session = StationSession.for_test(
+        session = make_session(
             network=scope.network,
             station=scope.station,
             campaign=scope.campaign,
@@ -332,7 +332,7 @@ class TestIngestService:
         # Need a real local fs for download because FakeArchive writes to disk.
         from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
         from earthscope_sfg_workflows.data_mgmt.core import FileManager
-        from earthscope_sfg_workflows.workflows.session import StationSession
+        from tests.utils import make_session
 
         catalog = InMemoryAssetStore()
         files = FsspecFileStore(root=str(tmp_path))
@@ -341,7 +341,7 @@ class TestIngestService:
 
         # Build session without campaign so we can swap the file backend
         # to a real on-disk store before the campaign layout is computed.
-        session = StationSession.for_test(
+        session = make_session(
             network=scope.network,
             station=scope.station,
             catalog=catalog,

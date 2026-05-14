@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from earthscope_sfg_workflows.config.env_config import Environment
+from earthscope_sfg_workflows.data_mgmt.core import FileManager
+from earthscope_sfg_workflows.data_mgmt.model import DirectoryTree
 from earthscope_sfg_workflows.data_mgmt.ports import (
     ArchiveSourcePort,
     AssetCatalogPort,
@@ -29,30 +31,23 @@ class Workspace:
         self,
         root_dir: Path | str | None = None,
         *,
-        s3_sync_bucket: str | None = None,
         catalog: AssetCatalogPort | None = None,
         files: FileStorePort | None = None,
         archive: ArchiveSourcePort | None = None,
     ) -> None:
+        # Ensure Environment singleton has loaded current env vars.
+        Environment.load_working_environment()
+
         # Resolve root directory
         if root_dir is not None:
             self._root = Path(root_dir)
-        elif os.environ.get("MAIN_DIRECTORY_GEOLAB"):
-            self._root = Path(os.environ["MAIN_DIRECTORY_GEOLAB"])
-        elif os.environ.get("MAIN_DIRECTORY"):
-            self._root = Path(os.environ["MAIN_DIRECTORY"])
+        elif Environment.main_directory_GEOLAB():
+            self._root = Path(Environment.main_directory_GEOLAB())  # type: ignore[arg-type]
         else:
             self._root = Path(".")
 
-        # Resolve remote bucket
-        if s3_sync_bucket is not None:
-            self._s3_sync_bucket: str | None = s3_sync_bucket
-        else:
-            raw = os.environ.get("S3_SYNC_BUCKET")
-            if raw:
-                self._s3_sync_bucket = raw if raw.startswith("s3://") else f"s3://{raw}"
-            else:
-                self._s3_sync_bucket = None
+    
+        self._s3_sync_bucket = Environment.s3_sync_bucket()
 
         # Build production ports when not injected
         if catalog is None or files is None or archive is None:
@@ -77,20 +72,8 @@ class Workspace:
         return self._root
 
     @property
-    def s3_sync_bucket(self) -> str | None:
-        return self._s3_sync_bucket
-
-    @property
     def catalog(self) -> AssetCatalogPort:
         return self._catalog
-
-    @property
-    def files(self) -> FileStorePort:
-        return self._files
-
-    @property
-    def archive(self) -> ArchiveSourcePort:
-        return self._archive
 
     @property
     def session(self) -> StationSession:
@@ -123,9 +106,6 @@ class Workspace:
     def _get_or_build_session(self, network: str, station: str) -> StationSession:
         key = (network, station)
         if key not in self._sessions:
-            from earthscope_sfg_workflows.data_mgmt.core import FileManager
-            from earthscope_sfg_workflows.data_mgmt.model import DirectoryTree
-
             file_manager = FileManager(DirectoryTree(root=self._root), self._files)
             self._sessions[key] = StationSession(
                 network,
@@ -158,33 +138,6 @@ class Workspace:
         kind: "AssetKind | None" = None,
     ) -> "list[AssetEntry]":
         return self._catalog.assets_for(network=network, station=station, kind=kind)
-
-    # ------------------------------------------------------------------
-    # Test factory
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def for_test(
-        cls,
-        *,
-        root: str | Path | None = None,
-        catalog: AssetCatalogPort | None = None,
-        files: FileStorePort | None = None,
-        archive: ArchiveSourcePort | None = None,
-    ) -> "Workspace":
-        """Build a ``Workspace`` backed by in-memory adapters (no disk/network)."""
-        from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
-            FakeArchive,
-            InMemoryAssetStore,
-            InMemoryFileStore,
-        )
-
-        return cls(
-            root_dir=root or Path("/ws"),
-            catalog=catalog or InMemoryAssetStore(),
-            files=files or InMemoryFileStore(),
-            archive=archive or FakeArchive(),
-        )
 
 
 # ---------------------------------------------------------------------------

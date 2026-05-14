@@ -66,7 +66,6 @@ class MergeJobs(Base):
 
 
 def _row_to_entry(row: Assets) -> AssetEntry:
-    from ..model import SFGScope
     return AssetEntry(
         id=row.id,
         kind=AssetKind(row.type),
