@@ -89,7 +89,7 @@ from earthscope_sfg_tools.tiledb_integration import (
 )
 from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
 from earthscope_sfg_workflows.logging import ProcessLogger
-from tqdm.auto import tqdm
+from rich.progress import track
 
 # local
 from ..data_mgmt.model import AssetEntry, AssetKind, CampaignLayout, SFGScope, TileDBLayout
@@ -114,9 +114,12 @@ def _pipeline_method(fn):
             raise Exception(
                 f"Pipeline is busy: cannot call '{fn.__name__}' while another method is running."
             )
+        _t0 = datetime.datetime.now()
         try:
             return fn(self, *args, **kwargs)
         finally:
+            elapsed = (datetime.datetime.now() - _t0).total_seconds()
+            ProcessLogger.debug(f"{fn.__name__} completed in {elapsed:.1f}s")
             self._lock.release()
     return wrapper
 
@@ -322,10 +325,7 @@ class SV3Pipeline:
                     response = f"Added merge job for {len(novatel_770_entries)} Novatel 770 Entries to the catalog"
                     ProcessLogger.info(response)
                 except Exception as e:
-                    if (
-                        message := ProcessLogger.error(f"Error processing Novatel 770 files: {e}")
-                    ) is not None:
-                        print(message)
+                    ProcessLogger.error(f"Error processing Novatel 770 files: {e}")
                     
             else:
                 response = f"Novatel 770 Data Already Processed for {self.scope.network} {self.scope.station} {self.scope.campaign}"
@@ -369,10 +369,7 @@ class SV3Pipeline:
                         f"Added merge job for {len(novatel_000_entries)} Novatel 000 Entries to the catalog"
                     )
                 except Exception as e:
-                    if (
-                        message := ProcessLogger.error(f"Error processing Novatel 000 files: {e}")
-                    ) is not None:
-                        print(message)
+                    ProcessLogger.error(f"Error processing Novatel 000 files: {e}")
                     sys.exit(1)
 
         else:
@@ -440,10 +437,10 @@ class SV3Pipeline:
         with _ctx.Pool() as pool:
             _dfop00_to_shotdata = partial(sv3_ops.dfop00_to_shotdata, logger=ProcessLogger.logger)
             results = pool.imap(_dfop00_to_shotdata, [x.local_path for x in dfop00_entries])
-            for shotdata_df, dfo_entry in tqdm(
+            for shotdata_df, dfo_entry in track(
                 zip(results, dfop00_entries, strict=False),
                 total=len(dfop00_entries),
-                desc="Processing DFOP00 Files",
+                description="Processing DFOP00 Files",
             ):
                 if shotdata_df is not None and not shotdata_df.empty:
                     self.shotDataPreTDB.write_df(shotdata_df)
@@ -632,11 +629,6 @@ class SV3Pipeline:
         )
         gnss_uri = self._tiledb_layout.gnss_obs
 
-        ProcessLogger.info(
-            f"Generating RINEX files for {self.scope.network} "
-            f"{self.scope.station} {year}. This may take a few minutes..."
-        )
-
         parent_ids = (
             f"N-{self.scope.network}"
             f"|ST-{self.scope.station}"
@@ -653,6 +645,10 @@ class SV3Pipeline:
         if rinex_cfg.override or not self.catalog.is_merge_complete(
             **merge_signature
         ):
+            ProcessLogger.info(
+                f"Generating RINEX files for {self.scope.network} "
+                f"{self.scope.station} {year}. This may take a few minutes..."
+            )
             try:
                 # tdb2rnx writes RINEX files to CWD; run from rinex_dest.
                 # Remove any pre-existing .??o files so the post-run glob is clean.
@@ -726,10 +722,7 @@ class SV3Pipeline:
                 raise NoRinexBuilt("tdb2rnx is not yet implemented") from e
 
             except Exception as e:
-                if (
-                    message := ProcessLogger.error(f"Error generating RINEX files: {e}")
-                ) is not None:
-                    print(message)
+                ProcessLogger.error(f"Error generating RINEX files: {e}")
                 raise NoRinexBuilt(f"RINEX generation failed: {e}") from e
 
         else:
@@ -739,10 +732,10 @@ class SV3Pipeline:
                 campaign=self.scope.campaign,
                 kind=AssetKind.RINEX2,
             )
-            ProcessLogger.debug(
-                f"RINEX already generated for {self.scope.network}, "
-                f"{self.scope.station}, {year}. "
-                f"Found {len(rinex_entries)} entries."
+            ProcessLogger.info(
+                f"RINEX already generated for {self.scope.network} "
+                f"{self.scope.station} {year} — skipping tdb2rnx. "
+                f"Found {len(rinex_entries)} catalog entries."
             )
 
     @_pipeline_method
@@ -803,13 +796,13 @@ class SV3Pipeline:
         rinex_path_map = {e.local_path: e for e in rinex_entries}
         kin_count = res_count = upload_count = 0
 
-        for result in tqdm(
+        for result in track(
             processor.process_batch(
                 [e.local_path for e in rinex_entries],
                 max_workers=pride_cfg.n_processes,
                 override=pride_cfg.override,
             ),
-            desc=(
+            description=(
                 f"Processing RINEX with PRIDE-PPPAR for "
                 f"{self.scope.network} {self.scope.station} "
                 f"{self.scope.campaign} using {pride_cfg.n_processes} workers"
@@ -898,7 +891,7 @@ class SV3Pipeline:
         ProcessLogger.info(f"Found {len(kin_entries)} KIN files to process")
 
         processed_count = 0
-        for entry in tqdm(kin_entries, desc="Processing KIN files"):
+        for entry in track(kin_entries, description="Processing KIN files"):
             try:
                 df = kin_to_kin_position_df(entry.local_path)
                 if df is not None:
@@ -940,35 +933,35 @@ class SV3Pipeline:
         )
         try:
             self.pre_process_novatel()
-        except NoNovatelFound:
-            pass
+        except NoNovatelFound as e:
+            ProcessLogger.warning(f"Skipping Novatel processing: {e}")
 
         try:
             self.get_rinex_files()
-        except NoRinexBuilt:
-            pass
+        except NoRinexBuilt as e:
+            ProcessLogger.warning(f"Skipping RINEX generation: {e}")
 
         try:
             self.process_rinex()
-        except NoRinexFound:
-            pass
+        except NoRinexFound as e:
+            ProcessLogger.warning(f"Skipping PRIDE-PPP: {e}")
 
         try:
             self.process_kin()
-        except NoKinFound:
-            pass
+        except NoKinFound as e:
+            ProcessLogger.warning(f"Skipping KIN processing: {e}")
 
         try:
             self.process_dfop00()
-        except NoDFOP00Found:
-            pass
+        except NoDFOP00Found as e:
+            ProcessLogger.warning(f"Skipping DFOP00 processing: {e}")
 
         self.update_shotdata()
 
         try:
             self.process_svp()
-        except NoSVPFound:
-            pass
+        except NoSVPFound as e:
+            ProcessLogger.warning(f"Skipping SVP processing: {e}")
 
         ProcessLogger.info(
             f"Completed SV3 Processing Pipeline for {self.scope.network} {self.scope.station} {self.scope.campaign}"

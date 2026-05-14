@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import boto3
 import fsspec
-from tqdm.auto import tqdm
+from rich.progress import track
 from upath import UPath
 
 from earthscope_sfg_workflows.data_mgmt.core import DEFAULT_PATTERNS, FileTypeDetector
@@ -519,7 +519,7 @@ class IngestService:
         downloaded = 0
         errors: list[str] = []
 
-        for asset in tqdm(http_assets, desc="Downloading files"):
+        for asset in track(http_assets, description="Downloading files"):
             local_dir = layout.intermediate if asset.kind is AssetKind.RINEX2 else layout.raw
             self._file_backend.mkdir(UPath(local_dir))
             assert asset.remote_path is not None

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Callable
 
 from pride_ppp import PrideProcessor, ProcessingMode, kin_to_kin_position_df, rinex_get_time_range
-from tqdm.auto import tqdm
+from rich.progress import track
 
 # Local Imports
 from earthscope_sfg_tools.novatel_tools.rangea_parser import (
@@ -324,10 +324,10 @@ class QCPipeline:
         second_step.start()
         with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
             futures = [executor.submit(process_func_partial, entry) for entry in qcpin_entries]
-            for future in tqdm(
+            for future in track(
                 concurrent.futures.as_completed(futures),
                 total=len(qcpin_entries),
-                desc="Processing QCPIN files",
+                description="Processing QCPIN files",
             ):
                 if future.result():
                     count += 1
@@ -537,13 +537,13 @@ class QCPipeline:
         rinex_path_map = {e.local_path: e for e in rinex_entries}
         kin_count = res_count = upload_count = 0
 
-        for result in tqdm(
+        for result in track(
             processor.process_batch(
                 [e.local_path for e in rinex_entries],
                 max_workers=pride_cfg.n_processes,
                 override=pride_cfg.override,
             ),
-            desc=(
+            description=(
                 f"Processing QC RINEX with PRIDE-PPPAR for "
                 f"{self.scope.network} {self.scope.station} "
                 f"{self.scope.campaign} using {pride_cfg.n_processes} workers"
@@ -620,7 +620,7 @@ class QCPipeline:
         ProcessLogger.info(f"Found {len(kin_entries)} KIN files to process")
 
         processed_count = 0
-        for entry in tqdm(kin_entries, desc="Processing QC KIN files"):
+        for entry in track(kin_entries, description="Processing QC KIN files"):
             try:
                 df = kin_to_kin_position_df(entry.local_path)
                 if df is not None:

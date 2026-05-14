@@ -26,6 +26,7 @@ def run_manifest(manifest_object):
     from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
     from earthscope_sfg_workflows.modeling.garpos_tools.load_utils import get_lib_paths
     from earthscope_sfg_workflows.workflows.workflow_handler import WorkflowHandler
+    from earthscope_sfg_workflows.logging import ProcessLogger
 
     from .manifest import GARPOSConfig
     from .utils import display_pipelinemanifest
@@ -55,7 +56,7 @@ def run_manifest(manifest_object):
         )
         report = wfh.ingest_discover_archive()
         if report.cataloged == 0:
-            print(f"No Remote Assets Found For {job.model_dump()}")
+            ProcessLogger.info(f"No Remote Assets Found For {job.model_dump()}")
         else:
             wfh.download_data()
 

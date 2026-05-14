@@ -15,7 +15,6 @@ dependencies = [
   "botocore>=1.40",
   "sqlalchemy>=2.0",
   "python-dotenv>=1.1",
-  "tqdm>=4.60",
   "seaborn>=0.13",
   "earthscope-sdk>=1.1",
   "earthscope-cli>=1.0",
