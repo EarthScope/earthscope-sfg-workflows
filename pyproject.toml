@@ -27,7 +27,7 @@ dependencies = [
   "rich>=13.0",
   "pyyaml>=6.0",
   "pride-ppp @ git+https://github.com/EarthScope/GNSSommelier.git#subdirectory=packages/pride-ppp"
-]
+, "scikit-sparse>=0.4.16,<0.5"]
 
 [project.scripts]
 sfgtools = "earthscope_sfg_cli.__main__:app"

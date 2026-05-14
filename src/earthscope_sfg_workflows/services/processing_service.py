@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 
 from pride_ppp import PrideCLIConfig
 
-from earthscope_sfg_workflows.logging import GarposLogger as logger
+from earthscope_sfg_workflows.logging import GarposLogger as logger, change_all_logger_dirs
 from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
 from earthscope_sfg_workflows.pipelines.config import (
     DFOP00Config,
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 _Config = SV3PipelineConfig | PrideCLIConfig | NovatelConfig | RinexConfig | DFOP00Config | PositionUpdateConfig
 
 
-class PipelineService:
+class ProcessingService:
     """Pipeline construction and execution scoped to a :class:`StationSession`.
 
     Owns the cached pipeline instances (``SV3Pipeline``, ``QCPipeline``) and
@@ -39,6 +39,12 @@ class PipelineService:
         self.config = config
         self._sv3_pipeline: Optional[SV3Pipeline] = None
         self._qc_pipeline: Optional[QCPipeline] = None
+
+    def _ensure_log_dir(self) -> None:
+        """Route all loggers to the active campaign's logs directory, if set."""
+        layout = self._s.active_campaign_layout
+        if layout is not None:
+            change_all_logger_dirs(layout.logs)
 
     # ------------------------------------------------------------------
     # SV3 pipeline
@@ -67,6 +73,8 @@ class PipelineService:
                 catalog=self._s._catalog,
                 scope=self._s.scope,
                 config=merged,
+                campaign_layout=self._s.campaign_layout,
+                tiledb_layout=self._s.tiledb_layout,
             )
         else:
             self._sv3_pipeline.config = merged
@@ -84,6 +92,7 @@ class PipelineService:
     ) -> None:
         """Run an ``SV3Pipeline`` *job* for the current scope."""
         assert job in SV3_JOBS, f"Job must be one of {list(SV3_JOBS.keys())}"
+        self._ensure_log_dir()
         pipeline = self.get_sv3(config=config, secondary_config=secondary_config)
         try:
             SV3_JOBS[job](pipeline)
@@ -113,6 +122,8 @@ class PipelineService:
                 catalog=self._s._catalog,
                 scope=self._s.scope,
                 config=merged,
+                campaign_layout=self._s.campaign_layout,
+                tiledb_layout=self._s.tiledb_layout,
             )
         else:
             self._qc_pipeline.config = merged
@@ -128,6 +139,7 @@ class PipelineService:
     ) -> None:
         """Run a ``QCPipeline`` *job* for the current scope."""
         assert job in QC_JOBS, f"Job must be one of {list(QC_JOBS.keys())}"
+        self._ensure_log_dir()
         pipeline = self.get_qc(config=config)
         try:
             QC_JOBS[job](pipeline)
@@ -150,6 +162,7 @@ class PipelineService:
 
         Raises ``ValueError`` if site metadata or campaign metadata is not loaded.
         """
+        self._ensure_log_dir()
         from earthscope_sfg_tools.tiledb_integration import (
             TDBIMUPositionArray,
             TDBKinPositionArray,
@@ -165,7 +178,7 @@ class PipelineService:
         if campaign_meta is None:
             raise ValueError("Campaign metadata must be loaded before parse_surveys")
 
-        tiledb = self._s.tiledb_layout()
+        tiledb = self._s.tiledb_layout
         campaign = self._s.ensure_campaign()
 
         shotDataTDB = TDBShotDataArray(tiledb.shotdata)
@@ -221,5 +234,5 @@ class PipelineService:
                 json.dump(survey.model_dump(mode="json"), f, indent=4)
 
 
-__all__ = ["PipelineService"]
+__all__ = ["ProcessingService"]
 

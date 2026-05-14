@@ -100,7 +100,7 @@ class TestSessionDecorators:
     def test_campaign_layout_requires_campaign(self):
         ws = Workspace.for_test(network="N", station="S")
         with pytest.raises(ValueError, match="campaign"):
-            ws.campaign_layout()
+            _ = ws.campaign_layout
 
     def test_ensure_campaign_requires_campaign(self):
         ws = Workspace.for_test(network="N", station="S")
@@ -128,7 +128,7 @@ class TestSessionDecorators:
     def test_tiledb_layout_available_without_campaign(self):
         """TileDB is station-scoped — no campaign needed."""
         ws = Workspace.for_test(network="N", station="S")
-        layout = ws.tiledb_layout()
+        layout = ws.tiledb_layout
         assert layout is not None
 
     def test_station_dir_available_without_campaign(self):
@@ -154,7 +154,7 @@ class TestLayoutFacade:
 
         assert ws.network_dir == tree.network_dir("N")
         assert ws.station_dir == tree.station_dir(scope)
-        assert ws.campaign_layout().root == tree.campaign(scope).root
+        assert ws.campaign_layout.root == tree.campaign(scope).root
 
     def test_garpos_survey_requires_survey(self):
         ws = Workspace.for_test(root="/data", network="N", station="S", campaign="C")

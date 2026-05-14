@@ -29,6 +29,7 @@ from earthscope_sfg_tools.tiledb_integration import (
 from earthscope_sfg_workflows.logging import ProcessLogger
 
 from ..data_mgmt.model import AssetEntry, AssetKind, SFGScope, TileDBLayout
+from ..data_mgmt.model import AssetEntry, AssetKind, CampaignLayout, SFGScope, TileDBLayout
 from ..data_mgmt.ports import AssetCatalogPort
 from ..data_mgmt.utils import get_merge_signature_shotdata
 from .config import PrideConfig, QCPipelineConfig, RinexConfig
@@ -145,6 +146,8 @@ class QCPipeline:
         catalog: AssetCatalogPort,
         scope: SFGScope | None = None,
         config: QCPipelineConfig | None = None,
+        campaign_layout: CampaignLayout | None = None,
+        tiledb_layout: TileDBLayout | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -172,8 +175,10 @@ class QCPipeline:
 
         self.scope: SFGScope = scope
         self.catalog: AssetCatalogPort = catalog
+        self._campaign_layout = campaign_layout
+        self._tiledb_layout = tiledb_layout
 
-        tiledb: TileDBLayout = self.scope.station.layout.tiledb
+        tiledb = tiledb_layout
         self.qcShotDataPreTDB = TDBShotDataArray(tiledb.qc_shotdata_pre)
         self.qcShotDataPreTDB.consolidate()
         self.qcKinPositionTDB = TDBKinPositionArray(tiledb.qc_kin_position)
@@ -189,15 +194,15 @@ class QCPipeline:
 
     @property
     def current_network_name(self) -> str:
-        return self.scope.network.name
+        return self.scope.network
 
     @property
     def current_station_name(self) -> str:
-        return self.scope.station.name
+        return self.scope.station
 
     @property
     def current_campaign_name(self) -> str | None:
-        return self.scope.campaign.name
+        return self.scope.campaign
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -205,7 +210,7 @@ class QCPipeline:
 
     def _build_rinex_meta(self) -> None:
         """Write RINEX metadata JSON files for the current campaign if absent."""
-        meta_dir = self.scope.campaign.layout.metadata_dir
+        meta_dir = self._campaign_layout.metadata_dir
         meta_dir.mkdir(parents=True, exist_ok=True)
         rinex_metav2 = meta_dir / "rinex_metav2.json"
         rinex_metav1 = meta_dir / "rinex_metav1.json"
@@ -313,7 +318,7 @@ class QCPipeline:
             NoRinexBuilt: If ``tdb2rnx`` produces no files.
         """
         rinex_cfg: RinexConfig = self.config.rinex_config
-        rinex_dest = self.scope.campaign.layout.rinex
+        rinex_dest = self._campaign_layout.rinex
 
         year = (
             rinex_cfg.processing_year
@@ -385,9 +390,7 @@ class QCPipeline:
                     start, end = rinex_get_time_range(rinex_path)
                     entry = AssetEntry(
                         kind=AssetKind.RINEX2,
-                        network=self.current_network_name,
-                        station=self.current_station_name,
-                        campaign=self.current_campaign_name,
+                        scope=self.scope,
                         local_path=rinex_path,
                         timestamp_data_start=start,
                         timestamp_data_end=end,
@@ -445,7 +448,7 @@ class QCPipeline:
             "This may take a few minutes..."
         )
 
-        intermediate_dir = self.scope.campaign.layout.intermediate
+        intermediate_dir = self._campaign_layout.intermediate
         pride_dir = intermediate_dir / "pride"
         pride_dir.mkdir(parents=True, exist_ok=True)
 
@@ -497,9 +500,7 @@ class QCPipeline:
                 self.catalog.update(rinex_entry)
                 kin_entry = AssetEntry(
                     kind=AssetKind.KIN,
-                    network=self.current_network_name,
-                    station=self.current_station_name,
-                    campaign=self.current_campaign_name,
+                    scope=self.scope,
                     local_path=result.kin_path,
                     parent_id=rinex_entry.id,
                     timestamp_data_start=rinex_entry.timestamp_data_start,
@@ -514,9 +515,7 @@ class QCPipeline:
                 res_count += 1
                 res_entry = AssetEntry(
                     kind=AssetKind.KINRESIDUALS,
-                    network=self.current_network_name,
-                    station=self.current_station_name,
-                    campaign=self.current_campaign_name,
+                    scope=self.scope,
                     local_path=res_path,
                     parent_id=rinex_entry.id,
                     timestamp_data_start=rinex_entry.timestamp_data_start,

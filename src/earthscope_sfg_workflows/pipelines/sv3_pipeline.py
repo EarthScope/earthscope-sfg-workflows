@@ -84,7 +84,7 @@ from tqdm.auto import tqdm
 from earthscope_sfg_tools.tiledb_integration import tdb2rnx
 
 # Local imports
-from ..data_mgmt.model import AssetEntry, AssetKind, SFGScope, TileDBLayout
+from ..data_mgmt.model import AssetEntry, AssetKind, CampaignLayout, SFGScope, TileDBLayout
 from ..data_mgmt.utils import get_merge_signature_shotdata
 from .config import PrideConfig, RinexConfig, SV3PipelineConfig
 from .exceptions import (
@@ -181,6 +181,8 @@ class SV3Pipeline:
         catalog: AssetCatalogPort,
         scope: SFGScope | None = None,
         config: SV3PipelineConfig | None = None,
+        campaign_layout: CampaignLayout | None = None,
+        tiledb_layout: TileDBLayout | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -204,8 +206,10 @@ class SV3Pipeline:
 
         self.scope: SFGScope = scope
         self.catalog: AssetCatalogPort = catalog
+        self._campaign_layout = campaign_layout
+        self._tiledb_layout = tiledb_layout
 
-        tiledb: TileDBLayout = self.scope.station.layout.tiledb
+        tiledb = tiledb_layout
         self.shotDataPreTDB = TDBShotDataArray(tiledb.shotdata_pre)
         self.shotDataPreTDB.consolidate()
         self.kinPositionTDB = TDBKinPositionArray(tiledb.kin_position)
@@ -227,18 +231,18 @@ class SV3Pipeline:
 
     @property
     def current_network_name(self) -> str:
-        """Active network name; alias for `self.scope.network.name`."""
-        return self.scope.network.name
+        """Active network name; alias for `self.scope.network`."""
+        return self.scope.network
 
     @property
     def current_campaign_name(self) -> str | None:
-        """Active campaign name; alias for `self.scope.campaign.name`."""
-        return self.scope.campaign.name
+        """Active campaign name; alias for `self.scope.campaign`."""
+        return self.scope.campaign
 
     @property
     def current_station_name(self) -> str:
-        """Active station name; alias for `self.scope.station.name`."""
-        return self.scope.station.name
+        """Active station name; alias for `self.scope.station`."""
+        return self.scope.station
 
     @_pipeline_method
     def pre_process_novatel(self) -> None:
@@ -266,9 +270,9 @@ class SV3Pipeline:
         found_novatel_000 = False
 
         novatel_770_entries: list[AssetEntry] = self.catalog.assets_for(
-            network=self.scope.network.name,
-            station=self.scope.station.name,
-            campaign=self.scope.campaign.name,
+            network=self.scope.network,
+            station=self.scope.station,
+            campaign=self.scope.campaign,
             kind=AssetKind.NOVATEL770,
         )
 
@@ -322,9 +326,9 @@ class SV3Pipeline:
             f"Processing Novatel 000 data for {self.current_network_name} {self.current_station_name} {self.current_campaign_name}"
         )
         novatel_000_entries: list[AssetEntry] = self.catalog.assets_for(
-            network=self.scope.network.name,
-            station=self.scope.station.name,
-            campaign=self.scope.campaign.name,
+            network=self.scope.network,
+            station=self.scope.station,
+            campaign=self.scope.campaign,
             kind=AssetKind.NOVATEL000,
         )
 
@@ -383,9 +387,9 @@ class SV3Pipeline:
 
         # 1. Get all catalogued DFOP00 files (not just unprocessed ones).
         dfop00_entries: list[AssetEntry] = self.catalog.assets_for(
-            network=self.scope.network.name,
-            station=self.scope.station.name,
-            campaign=self.scope.campaign.name,
+            network=self.scope.network,
+            station=self.scope.station,
+            campaign=self.scope.campaign,
             kind=AssetKind.DFOP00,
         )
         if not dfop00_entries:
@@ -500,18 +504,18 @@ class SV3Pipeline:
         Args:
             override: If True, forces reprocessing even if SVP file exists. Default is False.
         """
-        svp_df_destination = self.scope.campaign.layout.root / f"{self.current_station_name}_svp.csv"
+        svp_df_destination = self._campaign_layout.root / f"{self.current_station_name}_svp.csv"
         if svp_df_destination.exists() and not override:
             return
 
         # Get the CTD and Seabird files to process
-        ctd_entries: list[AssetEntry] = self.catalog.assets_for(network=self.scope.network.name,
-            station=self.scope.station.name,
-            campaign=self.scope.campaign.name,
+        ctd_entries: list[AssetEntry] = self.catalog.assets_for(network=self.scope.network,
+            station=self.scope.station,
+            campaign=self.scope.campaign,
             kind=AssetKind.CTD)
-        seabird_entries: list[AssetEntry] = self.catalog.assets_for(network=self.scope.network.name,
-            station=self.scope.station.name,
-            campaign=self.scope.campaign.name,
+        seabird_entries: list[AssetEntry] = self.catalog.assets_for(network=self.scope.network,
+            station=self.scope.station,
+            campaign=self.scope.campaign,
             kind=AssetKind.SEABIRD)
 
         if not ctd_entries and not seabird_entries:
@@ -567,7 +571,7 @@ class SV3Pipeline:
         ``<campaign_root>/metadata/`` and updates the rinex config's
         ``settings_path`` to point at the v2 file.
         """
-        meta_dir = self.scope.campaign.layout.metadata_dir
+        meta_dir = self._campaign_layout.metadata_dir
         meta_dir.mkdir(parents=True, exist_ok=True)
         rinex_metav2 = meta_dir / "rinex_metav2.json"
         rinex_metav1 = meta_dir / "rinex_metav1.json"
@@ -596,14 +600,14 @@ class SV3Pipeline:
         """
         self._build_rinex_meta()
         rinex_cfg:RinexConfig = self.config.rinex_config
-        rinex_dest = self.scope.campaign.layout.rinex
+        rinex_dest = self._campaign_layout.rinex
 
         year = (
             rinex_cfg.processing_year
             if rinex_cfg.processing_year != -1
             else int(self.current_campaign_name.split("_")[0])
         )
-        gnss_uri = self.scope.station.layout.tiledb.gnss_obs
+        gnss_uri = self._tiledb_layout.gnss_obs
 
         ProcessLogger.info(
             f"Generating RINEX files for {self.current_network_name} "
@@ -669,9 +673,7 @@ class SV3Pipeline:
                     start, end = rinex_get_time_range(rinex_path)
                     entry = AssetEntry(
                         kind=AssetKind.RINEX2,
-                        network=self.current_network_name,
-                        station=self.current_station_name,
-                        campaign=self.current_campaign_name,
+                        scope=self.scope,
                         local_path=rinex_path,
                         timestamp_data_start=start,
                         timestamp_data_end=end,
@@ -742,8 +744,8 @@ class SV3Pipeline:
             "This may take a few minutes..."
         )
 
-        pride_dir = self.scope.campaign.layout.intermediate / "pride"
-        intermediate_dir = self.scope.campaign.layout.intermediate
+        pride_dir = self._campaign_layout.intermediate / "pride"
+        intermediate_dir = self._campaign_layout.intermediate
         pride_dir.mkdir(parents=True, exist_ok=True)
 
         rinex_entries: list[AssetEntry] = self.catalog.assets_to_process(
@@ -795,9 +797,7 @@ class SV3Pipeline:
 
                 kin_entry = AssetEntry(
                     kind=AssetKind.KIN,
-                    network=self.current_network_name,
-                    station=self.current_station_name,
-                    campaign=self.current_campaign_name,
+                    scope=self.scope,
                     local_path=result.kin_path,
                     parent_id=rinex_entry.id,
                     timestamp_data_start=rinex_entry.timestamp_data_start,
@@ -815,9 +815,7 @@ class SV3Pipeline:
                 res_count += 1
                 res_entry = AssetEntry(
                     kind=AssetKind.KINRESIDUALS,
-                    network=self.current_network_name,
-                    station=self.current_station_name,
-                    campaign=self.current_campaign_name,
+                    scope=self.scope,
                     local_path=res_path,
                     parent_id=rinex_entry.id,
                     timestamp_data_start=rinex_entry.timestamp_data_start,

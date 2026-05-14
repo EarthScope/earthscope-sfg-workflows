@@ -229,7 +229,7 @@ class GarposHandler:
 
         survey_root = self.station_session.survey_dir
         campaign = self.station_session.ensure_campaign()
-        tiledb = self.station_session.tiledb_layout()
+        tiledb = self.station_session.tiledb_layout
 
         shotdata_file_name = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(" ", "")
         shotdata_path = survey_root / shotdata_file_name

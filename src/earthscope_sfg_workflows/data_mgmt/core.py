@@ -418,9 +418,8 @@ class Ingestor:
                                 skipped += 1
                                 continue
                             dest.write_bytes(reader.read())
-                            #TODO - use sta and qcpin kinds separately
                             asset = AssetEntry(
-                                kind=AssetKind.QCPIN,
+                                kind=self.detect(member.name),
                                 scope=scope,
                                 local_path=UPath(dest),
                                 timestamp_created=_now(),

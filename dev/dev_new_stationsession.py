@@ -22,7 +22,7 @@ Stop and debug when necessary. Look to the legacy repo when the solution is not 
 """
 from pathlib import Path
 from earthscope_sfg_workflows.workflows import WorkflowHandler
-from earthscope_sfg_workflows.workflows.pipelines.config import (
+from earthscope_sfg_workflows.pipelines.config import (
     SV3PipelineConfig,
     QCPipelineConfig,
     RinexConfig,
@@ -37,7 +37,7 @@ if __name__ == "__main__":
     handler.set_network_station_campaign(network, station, campaign)
     session = handler._session
 
-    campaign_layout = session.campaign.layout
+    campaign_layout = session.campaign_layout
     print(f"Campaign directory: {campaign_layout.root}")
     print(f"  raw:  {campaign_layout.raw}")
     print(f"  qc:   {campaign_layout.qc}")
@@ -60,7 +60,8 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------------
     print("\n--- Running SV3 pipeline (PRIDE decimated to 1 Hz) ---")
     sv3_config = SV3PipelineConfig(
-        rinex_config=RinexConfig(modulo_millis=1000),
+        rinex_config=RinexConfig(override=True),
+        pride_config=PrideConfig(override=True),
     )
     handler.preprocess_run_pipeline_sv3(job="all", primary_config=sv3_config)
 

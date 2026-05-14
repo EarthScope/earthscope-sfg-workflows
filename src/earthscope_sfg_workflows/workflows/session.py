@@ -60,7 +60,7 @@ if TYPE_CHECKING:  # pragma: no cover
         TDBGNSSObsArray,
     )
     from earthscope_sfg_workflows.services.ingest_service import IngestService
-    from earthscope_sfg_workflows.services.pipeline_service import PipelineService
+    from earthscope_sfg_workflows.services.processing_service import ProcessingService
     from earthscope_sfg_workflows.services.sync_service import SyncService
 
 _F = TypeVar("_F", bound=Callable)
@@ -335,6 +335,7 @@ class StationSession:
     # Convenience layout helpers
     # ------------------------------------------------------------------
 
+    @property
     def tiledb_layout(self) -> TileDBLayout:
         """Return the TileDB layout for the current station."""
         return self._file_manager.directory_tree.tiledb(
@@ -382,6 +383,7 @@ class StationSession:
             network=self._scope.network, station=self._scope.station
         ))
 
+    @property
     def campaign_layout(self) -> CampaignLayout:
         """Return the campaign layout. Raises if campaign not set."""
         if not self._scope.campaign:
@@ -446,11 +448,11 @@ class StationSession:
         return self._ingest_service
 
     @property
-    def pipeline(self) -> "PipelineService":
+    def pipeline(self) -> "ProcessingService":
         """Pipeline construction and execution scoped to this session."""
-        from earthscope_sfg_workflows.services.pipeline_service import PipelineService
+        from earthscope_sfg_workflows.services.processing_service import ProcessingService
         if self._pipeline_service is None:
-            self._pipeline_service = PipelineService(self)
+            self._pipeline_service = ProcessingService(self)
         return self._pipeline_service
 
     @property
