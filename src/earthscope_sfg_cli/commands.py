@@ -18,7 +18,12 @@ def run_manifest(manifest_object):
     Raises:
         AssertionError: If a directory listed in an ingestion job does not exist.
     """
+    from earthscope_sfg_workflows.config.env_config import Environment
     from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
+
+    # Load environment early so GEOLAB directory / S3 config is available
+    # before WorkflowHandler resolves paths.
+    Environment.load_working_environment()
     from earthscope_sfg_workflows.data_mgmt import SFGScope
     from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import (
         list_campaign_archive_urls,
@@ -107,7 +112,10 @@ def run_preprocessing(directory, network_id: str, campaign_id: str, stations: li
         campaign_id: The campaign identifier.
         stations: A list of station identifiers.
     """
+    from earthscope_sfg_workflows.config.env_config import Environment
     from earthscope_sfg_workflows.workflows.workflow_handler import WorkflowHandler
+
+    Environment.load_working_environment()
 
     wfh = WorkflowHandler(directory=directory)
     for station_id in stations:

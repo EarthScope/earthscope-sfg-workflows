@@ -154,15 +154,11 @@ class StationSession:
         catalog: AssetCatalogPort,
         file_manager: FileManager,
         archive: ArchiveSourcePort,
-        remote_root: str | None = None,
     ) -> None:
 
         self._catalog = catalog
         self._file_manager = file_manager
         self._archive = archive
-
-        if remote_root is not None:
-            self.configure_remote(remote_root)
 
         self._scope = SFGScope(network=network, station=station)
 

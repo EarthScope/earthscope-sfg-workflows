@@ -77,58 +77,32 @@ class WorkflowHandler:
     def __init__(
         self,
         directory: Path | str | None = None,
-        s3_sync_bucket: str | None = None,
         *,
         workspace: Workspace | None = None,
     ) -> None:
         if directory is None:
-            directory = os.environ.get("MAIN_DIRECTORY", ".")
-        self._workspace: Workspace = workspace or Workspace(
-            root_dir=directory,
-            s3_sync_bucket=s3_sync_bucket,
-        )
+            # Leave as None when MAIN_DIRECTORY is unset so Workspace can fall
+            # back to Environment.main_directory_GEOLAB() for GEOLAB deployments.
+            directory = os.environ.get("MAIN_DIRECTORY")
+        self._workspace: Workspace = workspace or Workspace(root_dir=directory)
         self._garpos_handlers: dict[tuple[str, str], GarposHandler] = {}
-
-    @property
-    def _directory(self) -> Path:
-        return self._workspace.root
-
-    @property
-    def s3_sync_bucket(self) -> str | None:
-        return self._workspace.s3_sync_bucket
-
-    @property
-    def _active(self) -> StationSession | None:
-        return self._workspace._active
 
     # ------------------------------------------------------------------
     # Session registry
     # ------------------------------------------------------------------
 
-    def _get_or_build_session(self, network: str, station: str) -> StationSession:
-        return self._workspace._get_or_build_session(network, station)
-
     @property
     def _session(self) -> StationSession:
         """The active session; raises if none has been set yet."""
-        if self._active is None:
+        if self._workspace._active is None:
             raise ValueError(
                 "No active session. Call set_network_station_campaign() first."
             )
-        return self._active
-
+        return self._workspace._active
 
     # ------------------------------------------------------------------
     # Scope management
     # ------------------------------------------------------------------
-
-    @property
-    def current_network_name(self) -> str | None:
-        return self._active.scope.network if self._active else None
-
-    @property
-    def current_station_name(self) -> str | None:
-        return self._active.scope.station if self._active else None
 
     def set_network_station_campaign(
         self,
@@ -148,7 +122,7 @@ class WorkflowHandler:
     def list_campaign_directories(self) -> list[Path]:
         """List campaign subdirectories for the current station."""
         station_dir = (
-            self._directory / self.current_network_name / self.current_station_name
+            self._workspace.root / self._session.scope.network / self._session.scope.station
         )
         return [
             x for x in station_dir.iterdir()
@@ -295,7 +269,7 @@ class WorkflowHandler:
         survey_id: str | None = None,
     ) -> None:
         """Parse surveys for the active campaign and write shot-data CSVs."""
-        if self.s3_sync_bucket is not None:
+        if self._workspace.s3_sync_bucket is not None:
             self.sync_from_s3(overwrite=override)
         self._session.pipeline.parse_surveys(
             survey_id=survey_id,
@@ -335,12 +309,14 @@ class WorkflowHandler:
         *require* is ``False``; raises :class:`RuntimeError` when *require* is
         ``True``.
         """
-        if self.s3_sync_bucket is None:
+        if self._workspace.s3_sync_bucket is None:
             if require:
-                raise RuntimeError("S3 bucket not configured; set s3_sync_bucket.")
-            logger.warning("S3 synchronization skipped: s3_sync_bucket not configured")
+                raise RuntimeError(
+                    "S3 bucket not configured; set the S3_SYNC_BUCKET environment variable."
+                )
+            logger.warning("S3 synchronization skipped: S3_SYNC_BUCKET not configured")
             return False
-        self._session.configure_remote(self.s3_sync_bucket)
+        self._session.configure_remote(self._workspace.s3_sync_bucket)
         return True
 
     def midprocess_sync_station_data_s3(self, overwrite: bool = False, **_) -> None:

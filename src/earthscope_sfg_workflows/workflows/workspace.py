@@ -46,9 +46,6 @@ class Workspace:
         else:
             self._root = Path(".")
 
-    
-        self._s3_sync_bucket = Environment.s3_sync_bucket()
-
         # Build production ports when not injected
         if catalog is None or files is None or archive is None:
             _p = _build_ports(self._root)
@@ -70,6 +67,10 @@ class Workspace:
     @property
     def root(self) -> Path:
         return self._root
+
+    @property
+    def s3_sync_bucket(self) -> str | None:
+        return Environment.s3_sync_bucket()
 
     @property
     def catalog(self) -> AssetCatalogPort:
@@ -113,7 +114,6 @@ class Workspace:
                 catalog=self._catalog,
                 file_manager=file_manager,
                 archive=self._archive,
-                remote_root=self._s3_sync_bucket,
             )
         return self._sessions[key]
 
