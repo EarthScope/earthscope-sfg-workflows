@@ -18,7 +18,6 @@ from earthscope_sfg_workflows.data_mgmt import (
     DirectoryTree,
     FileManager,
     FileTypeDetector,
-    Ingestor,
 )
 from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import (
     FakeArchive,
@@ -277,75 +276,82 @@ class TestFileManager:
 
 
 # ---------------------------------------------------------------------------
-# Ingestor — end-to-end orchestration
+# IngestService — end-to-end orchestration
 # ---------------------------------------------------------------------------
 
 
-class TestIngestor:
-    def _ingestor(
-        self, scope: SFGScope, tree: DirectoryTree
-    ) -> tuple[Ingestor, InMemoryAssetStore, InMemoryFileStore, FakeArchive]:
-        catalog = InMemoryAssetStore()
-        files = InMemoryFileStore()
-        archive = FakeArchive()
-        ing = Ingestor(
-            catalog=catalog,
-            file_manager=FileManager(tree, files),
-            archive=archive,
-            detector=FileTypeDetector(),
-        )
-        return ing, catalog, files, archive
+class TestIngestService:
+    def _session(self, scope: SFGScope, files: InMemoryFileStore | None = None):
+        from earthscope_sfg_workflows.workflows.session import StationSession
 
-    def test_ingest_local(self, scope: SFGScope, workspace_tree: DirectoryTree) -> None:
-        ing, catalog, files, _ = self._ingestor(scope, workspace_tree)
+        catalog = InMemoryAssetStore()
+        fs = files if files is not None else InMemoryFileStore()
+        archive = FakeArchive()
+        session = StationSession.for_test(
+            network=scope.network,
+            station=scope.station,
+            campaign=scope.campaign,
+            catalog=catalog,
+            archive=archive,
+        )
+        # Replace the test session's file backend so we control its contents.
+        from earthscope_sfg_workflows.data_mgmt.core import FileManager
+
+        session._file_manager = FileManager(DirectoryTree(root=Path("/ws")), fs)
+        return session, catalog, fs, archive
+
+    def test_ingest_local(self, scope: SFGScope) -> None:
+        session, catalog, files, _ = self._session(scope)
         files.write_bytes(Path("/in/foo.24o"), b"R")
         files.write_bytes(Path("/in/sonardyne.log"), b"S")
         files.write_bytes(Path("/in/random.xyz"), b"?")
         files.write_bytes(Path("/in/._mac"), b"!")
 
-        report = ing.ingest_local(scope, Path("/in"))
+        report = session.ingest.local(Path("/in"))
         assert report.ok
         assert report.cataloged == 2
         # Hidden ._mac is filtered at the FileStore boundary; only random.xyz
-        # reaches the Ingestor and gets counted as skipped.
+        # reaches the service and gets counted as skipped.
         assert report.skipped == 1
 
         kinds = {a.kind for a in catalog.assets_for(scope)}
         assert kinds == {AssetKind.RINEX2, AssetKind.SONARDYNE}
 
-    def test_discover_archive_sets_remote_only(
-        self, scope: SFGScope, workspace_tree: DirectoryTree
-    ) -> None:
-        ing, catalog, _, archive = self._ingestor(scope, workspace_tree)
+    def test_discover_archive_sets_remote_only(self, scope: SFGScope) -> None:
+        session, catalog, _, archive = self._session(scope)
         archive.seed("https://arc/a/foo.24o", b"R")
         archive.seed("https://arc/a/sonardyne.bin", b"S")
 
-        report = ing.discover_archive(scope, "https://arc/a")
+        report = session.ingest._discover_archive(scope, "https://arc/a")
         assert report.cataloged == 2
         for a in catalog.assets_for(scope):
             assert a.remote_path is not None
             assert a.local_path is None
 
-    def test_download_marks_local_path(
-        self, scope: SFGScope, workspace_tree: DirectoryTree, tmp_path: Path
-    ) -> None:
+    def test_download_marks_local_path(self, scope: SFGScope, tmp_path: Path) -> None:
         # Need a real local fs for download because FakeArchive writes to disk.
         from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
+        from earthscope_sfg_workflows.data_mgmt.core import FileManager
+        from earthscope_sfg_workflows.workflows.session import StationSession
 
         catalog = InMemoryAssetStore()
         files = FsspecFileStore(root=str(tmp_path))
         archive = FakeArchive()
         archive.seed("https://arc/a/foo.24o", b"R")
-        tree = DirectoryTree(root=tmp_path)
 
-        ing = Ingestor(
+        # Build session without campaign so we can swap the file backend
+        # to a real on-disk store before the campaign layout is computed.
+        session = StationSession.for_test(
+            network=scope.network,
+            station=scope.station,
             catalog=catalog,
-            file_manager=FileManager(tree, files),
             archive=archive,
-            detector=FileTypeDetector(),
         )
-        ing.discover_archive(scope, "https://arc/a")
-        report = ing.download(scope)
+        session._file_manager = FileManager(DirectoryTree(root=tmp_path), files)
+        session.set_campaign(scope.campaign)
+
+        session.ingest._discover_archive(scope, "https://arc/a")
+        report = session.ingest.download_remote()
         assert report.ok
         assert report.downloaded == 1
 
@@ -353,3 +359,4 @@ class TestIngestor:
         assert asset.local_path is not None
         assert asset.local_path.exists()
         assert asset.local_path.read_bytes() == b"R"
+

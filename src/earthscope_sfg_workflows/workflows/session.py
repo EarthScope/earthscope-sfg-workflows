@@ -25,7 +25,6 @@ from upath import UPath
 
 from earthscope_sfg_workflows.data_mgmt.core import (
     FileManager,
-    Ingestor,
 )
 from earthscope_sfg_workflows.data_mgmt.ports import ArchiveNotFoundError
 from earthscope_sfg_workflows.data_mgmt.model import (
@@ -175,12 +174,6 @@ class StationSession:
         self._campaign_layout: "CampaignLayout | None" = None
         self._survey_layout: "SurveyLayout | None" = None
         self._campaign_meta: "Campaign | None" = None
-
-        self._ingestor = Ingestor(
-            catalog=self._catalog,
-            file_manager=self._file_manager,
-            archive=self._archive,
-        )
 
         # Lazy-initialised service instances.
         self._ingest_service = None
@@ -367,11 +360,6 @@ class StationSession:
         return self._file_manager.file_backend
 
     @property
-    def ingestor(self) -> Ingestor:
-        """Ingestor bound to the current catalog/files/archive."""
-        return self._ingestor
-
-    @property
     def network_dir(self) -> Path:
         """Root directory for this network."""
         return Path(self._file_manager.directory_tree.network_dir(self._scope.network))
@@ -414,6 +402,10 @@ class StationSession:
             survey=self._scope.survey,
         )
 
+    def load_site_metadata(self, site: object) -> None:
+        """Load pre-fetched site metadata into this session (test helper)."""
+        self._site = site  # type: ignore[assignment]
+
     def list_campaigns(self) -> list[str]:
         """Return campaign names seen in the catalog for this network/station."""
         assets = self._catalog.assets_for(
@@ -425,10 +417,6 @@ class StationSession:
             if a.scope.campaign:
                 seen[a.scope.campaign] = None
         return list(seen.keys())
-
-    def load_site_metadata(self, site: object) -> None:
-        """Load pre-fetched site metadata into this session (test helper)."""
-        self._site = site  # type: ignore[assignment]
 
     @property
     def active_campaign_layout(self) -> "CampaignLayout | None":
@@ -518,11 +506,6 @@ class StationSession:
         object.__setattr__(self, "_ingest_service", None)
         object.__setattr__(self, "_pipeline_service", None)
         object.__setattr__(self, "_sync_service", None)
-        object.__setattr__(
-            self,
-            "_ingestor",
-            Ingestor(catalog=in_catalog, file_manager=file_manager, archive=in_archive),
-        )
 
         if campaign is not None:
             self.set_campaign(campaign)

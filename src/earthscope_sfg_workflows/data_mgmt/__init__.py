@@ -3,7 +3,7 @@ Ports & adapters layer for managing seafloor-geodesy data assets.
 See ``plans/rfc-a-data-mgmt-ports-and-adapters.md``.
 """
 
-from .core import DEFAULT_PATTERNS, FileManager, FileTypeDetector, Ingestor, LayoutInspector
+from .core import DEFAULT_PATTERNS, FileManager, FileTypeDetector, LayoutInspector
 from .model import (
     ArchiveFile,
     AssetEntry,
@@ -48,6 +48,5 @@ __all__ = [
     "DEFAULT_PATTERNS",
     "FileManager",
     "FileTypeDetector",
-    "Ingestor",
     "LayoutInspector",
 ]

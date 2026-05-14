@@ -1,6 +1,6 @@
 """Tests for the post-RFC-A workflow infrastructure: ``Workspace``, the four
-façades, plus the new ``Ingestor.discover_campaign`` and
-``LayoutInspector`` domain primitives.
+façades, plus campaign-discovery helpers and the ``LayoutInspector`` domain
+primitive.
 
 These tests run entirely against in-memory adapters — no disk, no network,
 no database.
@@ -28,12 +28,6 @@ from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import
 from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import (
     FakeArchive,
     InMemoryAssetStore,
-    InMemoryFileStore,
-)
-from earthscope_sfg_workflows.data_mgmt.core import (
-    FileManager,
-    FileTypeDetector,
-    Ingestor,
 )
 from earthscope_sfg_workflows.workflows.session import StationSession as Workspace
 
@@ -216,7 +210,7 @@ class TestAssetQueryFacade:
 
 
 # ---------------------------------------------------------------------------
-# Ingestor.discover_campaign
+# IngestService.discover_remote
 # ---------------------------------------------------------------------------
 
 
@@ -231,29 +225,20 @@ class TestDiscoverCampaign:
         assert urls[3].endswith("/CAS/2026/NCB1/2026_A_FOO/rinex_10Hz")
 
     def test_discover_campaign_aggregates_four_urls(self):
-        catalog = InMemoryAssetStore()
-        files = InMemoryFileStore()
-        archive = FakeArchive()
-        scope = SFGScope("CAS", "NCB1", "2026_A")
+        ws = Workspace.for_test(network="CAS", station="NCB1", campaign="2026_A")
+        scope = ws.scope
 
-        raw, meta, r1, r10 = canonical_campaign_urls(scope)
-        archive.seed(f"{raw}/NOV770_data.bin", b"x")
-        archive.seed(f"{meta}/master.xml", b"<x/>")
-        archive.seed(f"{r1}/foo.23o", b"r")
+        raw, meta, r1, _r10 = canonical_campaign_urls(scope)
+        ws._archive.seed(f"{raw}/NOV770_data.bin", b"x")  # type: ignore[attr-defined]
+        ws._archive.seed(f"{meta}/master.xml", b"<x/>")  # type: ignore[attr-defined]
+        ws._archive.seed(f"{r1}/foo.23o", b"r")  # type: ignore[attr-defined]
         # rinex 10Hz intentionally empty — partial success path
 
-        ingestor = Ingestor(
-            catalog=catalog,
-            file_manager=FileManager(DirectoryTree(root=Path("/")), files),
-            archive=archive,
-            detector=FileTypeDetector(),
-        )
-
-        report = ingestor.discover_campaign(scope)
+        report = ws.ingest.discover_remote()
 
         # NOV770, MASTER, RINEX2 each match a default detector pattern.
         assert report.cataloged == 3
-        kinds = {a.kind for a in catalog.assets_for(scope)}
+        kinds = {a.kind for a in ws._catalog.assets_for(scope)}
         assert AssetKind.NOVATEL770 in kinds
         assert AssetKind.MASTER in kinds
         assert AssetKind.RINEX2 in kinds
@@ -293,7 +278,7 @@ class TestDiscoverCampaign:
         ws._archive.seed(f"{raw}/NOV770_data.bin", b"x")  # type: ignore[attr-defined]
         ws._archive.seed(f"{meta}/ctd/CTD.txt", b"c")  # type: ignore[attr-defined]
 
-        urls = ws.ingestor.list_archive_urls(ws.scope)
+        urls = ws.ingest.list_archive_urls()
 
         assert sorted(urls) == sorted([f"{raw}/NOV770_data.bin", f"{meta}/ctd/CTD.txt"])
 

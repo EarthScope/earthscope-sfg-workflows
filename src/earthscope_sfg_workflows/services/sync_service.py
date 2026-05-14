@@ -8,11 +8,15 @@ from upath import UPath
 from earthscope_sfg_workflows.logging import GarposLogger as logger
 
 if TYPE_CHECKING:
+    from earthscope_sfg_workflows.data_mgmt.ports import FileStorePort
     from earthscope_sfg_workflows.workflows.session import StationSession
 
 
 class SyncService:
     """Remote push/pull operations scoped to a :class:`StationSession`.
+
+    Holds the file-backend ports directly so all push/pull logic lives here
+    without delegating to ``FileManager``.
 
     Requires that the session's remote backend has been configured via
     :meth:`~earthscope_sfg_workflows.workflows.session.StationSession.configure_remote`
@@ -21,6 +25,60 @@ class SyncService:
 
     def __init__(self, session: "StationSession") -> None:
         self._s = session
+        self._fm = session._file_manager
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @property
+    def _has_remote(self) -> bool:
+        return self._fm.has_remote
+
+    def _remote_path_for(self, local_path: UPath) -> UPath | None:
+        return self._fm.remote_path_for(local_path)
+
+    def _push_dir(self, local_root: UPath, overwrite: bool = False) -> int:
+        """Upload all files under *local_root* to the mirrored remote path."""
+        if not self._has_remote:
+            return 0
+        local_root = UPath(local_root)
+        remote_root = self._remote_path_for(local_root)
+        if remote_root is None:
+            return 0
+        remote_backend: FileStorePort = self._fm.remote_backend
+        count = 0
+        for info in self._fm.file_backend.list_files(local_root, recursive=True):
+            local_path = UPath(info.path)
+            remote_path = self._remote_path_for(local_path)
+            if remote_path is None:
+                continue
+            if overwrite or not remote_backend.exists(remote_path):
+                remote_backend.put_remote(local_path, str(remote_path))
+                count += 1
+        return count
+
+    def _pull_dir(self, local_root: UPath, overwrite: bool = False) -> int:
+        """Download all files from the mirrored remote path into *local_root*."""
+        if not self._has_remote:
+            return 0
+        local_root = UPath(local_root)
+        remote_root = self._remote_path_for(local_root)
+        if remote_root is None:
+            return 0
+        remote_backend: FileStorePort = self._fm.remote_backend
+        count = 0
+        for info in remote_backend.list_files(remote_root, recursive=True):
+            remote_path = UPath(info.path)
+            try:
+                rel = remote_path.relative_to(remote_root)
+            except ValueError:
+                rel = UPath(remote_path.name)
+            local_path = local_root / rel
+            if overwrite or not self._fm.file_backend.exists(local_path):
+                self._fm.file_backend.get_remote(str(remote_path), local_path)
+                count += 1
+        return count
 
     # ------------------------------------------------------------------
     # Push
@@ -28,23 +86,23 @@ class SyncService:
 
     def push_station(self, overwrite: bool = False) -> None:
         """Upload TileDB arrays for the current station to the remote backend."""
-        if not self._s._file_manager.has_remote:
+        if not self._has_remote:
             logger.warning("push_station: no remote configured, skipping.")
             return
         tiledb = self._s.tiledb_layout()
         for path in tiledb.all_paths:
-            count = self._s._file_manager.push_dir(UPath(path), overwrite=overwrite)
+            count = self._push_dir(UPath(path), overwrite=overwrite)
             logger.info(f"Pushed {count} files from {path}")
 
     def push_campaign(self, overwrite: bool = False) -> None:
         """Upload SVP, RINEX, and log files for the active campaign to the remote backend."""
-        if not self._s._file_manager.has_remote:
+        if not self._has_remote:
             logger.warning("push_campaign: no remote configured, skipping.")
             return
         campaign = self._s.ensure_campaign()
         self._compress_rinex(UPath(campaign.intermediate))
         for dir_path in (campaign.processed, campaign.intermediate, campaign.logs):
-            count = self._s._file_manager.push_dir(UPath(dir_path), overwrite=overwrite)
+            count = self._push_dir(UPath(dir_path), overwrite=overwrite)
             logger.info(f"Pushed {count} files from {dir_path}")
 
     # ------------------------------------------------------------------
@@ -53,16 +111,16 @@ class SyncService:
 
     def pull(self, overwrite: bool = False) -> None:
         """Download TileDB arrays and active campaign files from the remote mirror."""
-        if not self._s._file_manager.has_remote:
+        if not self._has_remote:
             logger.warning("pull: no remote configured, skipping.")
             return
         tiledb = self._s.tiledb_layout()
         for path in tiledb.all_paths:
-            count = self._s._file_manager.pull_dir(UPath(path), overwrite=overwrite)
+            count = self._pull_dir(UPath(path), overwrite=overwrite)
             logger.info(f"Pulled {count} files to {path}")
         if self._s.scope.campaign:
             campaign = self._s.ensure_campaign()
-            count = self._s._file_manager.pull_dir(UPath(campaign.root), overwrite=overwrite)
+            count = self._pull_dir(UPath(campaign.root), overwrite=overwrite)
             logger.info(f"Pulled {count} campaign files to {campaign.root}")
 
     # ------------------------------------------------------------------
