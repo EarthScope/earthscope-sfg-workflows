@@ -28,6 +28,7 @@ from pride_ppp.specifications.config import PRIDEPPPFileConfig as _PRIDEPPPFileC
 # pdp3 >= 3.2.7 requires it.  Patch write_config_file to inject the line.
 _pride_write_config_orig = _PRIDEPPPFileConfig.write_config_file
 
+
 def _pride_write_config_patched(self, filepath):
     _pride_write_config_orig(self, filepath)
     p = Path(filepath)
@@ -43,7 +44,9 @@ def _pride_write_config_patched(self, filepath):
                 )
         p.write_text("\n".join(patched) + "\n")
 
+
 _PRIDEPPPFileConfig.write_config_file = _pride_write_config_patched
+
 
 # pride_ppp _validate_kinfile uses `if kin_df` on a DataFrame — raises ValueError.
 # Patch to use `is not None` check instead.
@@ -56,7 +59,9 @@ def _pride_validate_kinfile_patched(_self, kin_path, override=False):
             return True
     return False
 
+
 _PrideProcessorCls._validate_kinfile = _pride_validate_kinfile_patched
+
 
 # TBDArray.write_df passes the DataFrame directly to tiledb.from_pandas, but
 # tiledb requires the sparse dimension ('time') to be the pandas index, not a
@@ -68,6 +73,7 @@ def _tbd_write_df_patched(self, df, validate: bool = True):
     if "time" in df.columns:
         df = df.set_index("time")
     _tiledb.from_pandas(str(self.uri), df, mode="append")
+
 
 _TBDArray.write_df = _tbd_write_df_patched
 
@@ -108,6 +114,7 @@ from .shotdata_gnss_refinement import merge_shotdata_kinposition
 
 def _pipeline_method(fn):
     """Wrap a pipeline method so only one runs at a time per instance."""
+
     @wraps(fn)
     def wrapper(self, *args, **kwargs):
         if not self._lock.acquire(blocking=False):
@@ -121,6 +128,7 @@ def _pipeline_method(fn):
             elapsed = (datetime.datetime.now() - _t0).total_seconds()
             ProcessLogger.debug(f"{fn.__name__} completed in {elapsed:.1f}s")
             self._lock.release()
+
     return wrapper
 
 
@@ -208,7 +216,6 @@ class SV3Pipeline:
         network: str | None = None,
         station: str | None = None,
         campaign: str | None = None,
-
     ):
         """Initialise the SV3Pipeline with a scope, catalog, and configuration.
 
@@ -326,7 +333,7 @@ class SV3Pipeline:
                     ProcessLogger.info(response)
                 except Exception as e:
                     ProcessLogger.error(f"Error processing Novatel 770 files: {e}")
-                    
+
             else:
                 response = f"Novatel 770 Data Already Processed for {self.scope.network} {self.scope.station} {self.scope.campaign}"
                 ProcessLogger.info(response)
@@ -421,7 +428,9 @@ class SV3Pipeline:
         }
 
         # 2. Skip if all files have already been merged into shotdata (idempotency).
-        if not self.config.dfop00_config.override and self.catalog.is_merge_complete(**merge_signature):
+        if not self.config.dfop00_config.override and self.catalog.is_merge_complete(
+            **merge_signature
+        ):
             ProcessLogger.info(
                 f"DFOP00 data already merged for {self.scope.network} "
                 f"{self.scope.station} {self.scope.campaign}, skipping."
@@ -533,14 +542,18 @@ class SV3Pipeline:
             return
 
         # Get the CTD and Seabird files to process
-        ctd_entries: list[AssetEntry] = self.catalog.assets_for(network=self.scope.network,
+        ctd_entries: list[AssetEntry] = self.catalog.assets_for(
+            network=self.scope.network,
             station=self.scope.station,
             campaign=self.scope.campaign,
-            kind=AssetKind.CTD)
-        seabird_entries: list[AssetEntry] = self.catalog.assets_for(network=self.scope.network,
+            kind=AssetKind.CTD,
+        )
+        seabird_entries: list[AssetEntry] = self.catalog.assets_for(
+            network=self.scope.network,
             station=self.scope.station,
             campaign=self.scope.campaign,
-            kind=AssetKind.SEABIRD)
+            kind=AssetKind.SEABIRD,
+        )
 
         if not ctd_entries and not seabird_entries:
             response = f"No CTD or SEABIRD Files Found to Process for {self.scope.network} {self.scope.station} {self.scope.campaign}"
@@ -619,7 +632,7 @@ class SV3Pipeline:
             return code.
         """
         self._build_rinex_meta()
-        rinex_cfg:RinexConfig = self.config.rinex_config
+        rinex_cfg: RinexConfig = self.config.rinex_config
         rinex_dest = self._campaign_layout.rinex
 
         year = (
@@ -642,9 +655,7 @@ class SV3Pipeline:
             "parent_ids": [parent_ids],
         }
 
-        if rinex_cfg.override or not self.catalog.is_merge_complete(
-            **merge_signature
-        ):
+        if rinex_cfg.override or not self.catalog.is_merge_complete(**merge_signature):
             ProcessLogger.info(
                 f"Generating RINEX files for {self.scope.network} "
                 f"{self.scope.station} {year}. This may take a few minutes..."
@@ -670,9 +681,7 @@ class SV3Pipeline:
                     os.chdir(old_cwd)
 
                 if result.returncode != 0:
-                    raise NoRinexBuilt(
-                        f"tdb2rnx exited with code {result.returncode}"
-                    )
+                    raise NoRinexBuilt(f"tdb2rnx exited with code {result.returncode}")
 
                 rinex_paths = sorted(rinex_dest.glob("*.??o"))
 
@@ -756,7 +765,7 @@ class SV3Pipeline:
             If no processable RINEX files are found in the catalog for the
             active campaign.
         """
-        pride_cfg:PrideConfig = self.config.pride_config
+        pride_cfg: PrideConfig = self.config.pride_config
 
         ProcessLogger.info(
             f"Running PRIDE-PPPAR on RINEX for {self.scope.network} "
@@ -828,9 +837,7 @@ class SV3Pipeline:
                     upload_count += 1
 
             # Handle both attribute names used across pipeline versions
-            res_path = getattr(result, "res_path", None) or getattr(
-                result, "residual_path", None
-            )
+            res_path = getattr(result, "res_path", None) or getattr(result, "residual_path", None)
             if res_path is not None:
                 res_count += 1
                 res_entry = AssetEntry(

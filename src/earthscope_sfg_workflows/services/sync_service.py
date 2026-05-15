@@ -1,4 +1,5 @@
 """SyncService — remote sync operations for a StationSession."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -233,4 +234,3 @@ class SyncService:
 
 
 __all__ = ["SyncService"]
-

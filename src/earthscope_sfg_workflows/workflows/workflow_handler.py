@@ -204,9 +204,7 @@ class WorkflowHandler:
     def _session(self) -> StationSession:
         """Return the active session; raises if none has been set yet."""
         if self._workspace._active is None:
-            raise ValueError(
-                "No active session. Call set_network_station_campaign() first."
-            )
+            raise ValueError("No active session. Call set_network_station_campaign() first.")
         return self._workspace._active
 
     @property
@@ -263,10 +261,7 @@ class WorkflowHandler:
         station_dir = (
             self._workspace.root / self._session.scope.network / self._session.scope.station
         )
-        return [
-            x for x in station_dir.iterdir()
-            if x.is_dir() and re.match(r"^\d{4}", x.name)
-        ]
+        return [x for x in station_dir.iterdir() if x.is_dir() and re.match(r"^\d{4}", x.name)]
 
     # ------------------------------------------------------------------
     # Ingest
@@ -343,7 +338,6 @@ class WorkflowHandler:
             override=override,
             rinex_1hz=rinex_1hz,
         )
-
 
     # ------------------------------------------------------------------
     # Pre-Processing — SV3 pipeline

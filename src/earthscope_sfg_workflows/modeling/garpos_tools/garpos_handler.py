@@ -109,7 +109,6 @@ class GarposHandler:
         Plot the time series results for a given survey.
     """
 
-
     def __init__(self, station_session: StationSession) -> None:
         """Initialize the GarposHandler.
 
@@ -152,9 +151,7 @@ class GarposHandler:
         logger.info(f"Using data file {data_files[-1]} for plotting.")
         return data_files[-1]
 
-    def set_campaign(
-        self, campaign_id: str
-    ) -> None:
+    def set_campaign(self, campaign_id: str) -> None:
         """Set the active campaign on the underlying station session.
 
         Network and station are already fixed on the underlying
@@ -993,13 +990,17 @@ class GarposHandler:
 
         results_df_raw = pd.read_csv(garpos_results.shot_data)
         results_df_raw = ObservationData.validate(results_df_raw, lazy=True)
-        results_df_raw["time"] = results_df_raw.ST.apply(lambda x: datetime.fromtimestamp(x, tz=UTC))
+        results_df_raw["time"] = results_df_raw.ST.apply(
+            lambda x: datetime.fromtimestamp(x, tz=UTC)
+        )
         df_filter_2 = ~results_df_raw["flag"]
         results_df = results_df_raw[df_filter_2]
         unique_ids = results_df_raw["MT"].unique()
         # make a plot with 3 subplots showing ResiRange vs time for each unique_id
         fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
-        fig.suptitle(f"Residuals for {self.station_session.station_name} {survey_id} (Run {run_id})")
+        fig.suptitle(
+            f"Residuals for {self.station_session.station_name} {survey_id} (Run {run_id})"
+        )
         for i, unique_id in enumerate(unique_ids):
             transponder_df_raw = results_df_raw[results_df_raw["MT"] == unique_id].sort_values(
                 "time"
@@ -1116,7 +1117,9 @@ class GarposHandler:
 
         results_df_raw = pd.read_csv(garpos_results.shot_data)
         results_df_raw = ObservationData.validate(results_df_raw, lazy=True)
-        results_df_raw["time"] = results_df_raw.ST.apply(lambda x: datetime.fromtimestamp(x, tz=UTC))
+        results_df_raw["time"] = results_df_raw.ST.apply(
+            lambda x: datetime.fromtimestamp(x, tz=UTC)
+        )
         df_filter_2 = ~results_df_raw["flag"]
         results_df = results_df_raw[df_filter_2]
         unique_ids = results_df_raw["MT"].unique()
@@ -1124,7 +1127,9 @@ class GarposHandler:
         if subplots:
             # make a plot with 3 subplots showing ResiRange vs time for each unique_id
             fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
-            fig.suptitle(f"Residuals for {self.station_session.station_name} {survey_id} (Run {run_id})")
+            fig.suptitle(
+                f"Residuals for {self.station_session.station_name} {survey_id} (Run {run_id})"
+            )
             for i, unique_id in enumerate(unique_ids):
                 transponder_df = results_df[results_df["MT"] == unique_id].sort_values("time")
                 axs[i].scatter(
@@ -1257,7 +1262,9 @@ class GarposHandler:
 
         results_df_raw = pd.read_csv(garpos_results.shot_data)
         results_df_raw = ObservationData.validate(results_df_raw, lazy=True)
-        results_df_raw["time"] = results_df_raw.ST.apply(lambda x: datetime.fromtimestamp(x, tz=UTC))
+        results_df_raw["time"] = results_df_raw.ST.apply(
+            lambda x: datetime.fromtimestamp(x, tz=UTC)
+        )
         df_filter_1 = results_df_raw["ResiRange"].abs() < res_filter
         df_filter_2 = results_df_raw["flag"].eq(False)
         results_df = results_df_raw[df_filter_1 & df_filter_2]

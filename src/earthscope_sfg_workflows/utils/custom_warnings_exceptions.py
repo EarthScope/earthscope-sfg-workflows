@@ -39,4 +39,3 @@ EXCEPTIONS_DICT_MACOS = {"Library not loaded: @rpath/libtiledb.dylib ": DYLDLibr
 
 class MetadataRequiredError(RuntimeError):
     """Raised when a service method is called without required session metadata."""
-

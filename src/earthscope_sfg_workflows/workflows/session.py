@@ -107,8 +107,7 @@ def _require_campaign(method: _F) -> _F:
     def wrapper(self: "StationSession", *args, **kwargs):
         if self._scope.campaign is None:
             raise ValueError(
-                f"{method.__name__} requires a campaign to be set; "
-                "call set_campaign() first"
+                f"{method.__name__} requires a campaign to be set; call set_campaign() first"
             )
         return method(self, *args, **kwargs)
 
@@ -138,12 +137,12 @@ def _require_survey(method: _F) -> _F:
     def wrapper(self: "StationSession", *args, **kwargs):
         if self._scope.survey is None:
             raise ValueError(
-                f"{method.__name__} requires a survey to be set; "
-                "call set_survey() first"
+                f"{method.__name__} requires a survey to be set; call set_survey() first"
             )
         return method(self, *args, **kwargs)
 
     return wrapper  # type: ignore[return-value]
+
 
 def _require_site_metadata(method: _F) -> _F:
     """Decorator: raise if the session's station metadata is not available.
@@ -174,6 +173,7 @@ def _require_site_metadata(method: _F) -> _F:
         return method(self, *args, **kwargs)
 
     return wrapper  # type: ignore[return-value]
+
 
 # ---------------------------------------------------------------------------
 # TileDB handle registry
@@ -209,6 +209,7 @@ class TileDBRegistry:
     shotdata_pre: "TDBShotDataArray"
     gnss_obs: "TDBGNSSObsArray"
     gnss_obs_secondary: "TDBGNSSObsArray"
+
 
 # ---------------------------------------------------------------------------
 # CampaignSession
@@ -319,7 +320,9 @@ class StationSession:
         self._scope = SFGScope(network=network, station=station)
 
         self._network_layout: NetworkLayout = self._file_manager.ensure_network(network)
-        self._station_layout: StationLayout = self._file_manager.ensure_station(network=network, station=station)
+        self._station_layout: StationLayout = self._file_manager.ensure_station(
+            network=network, station=station
+        )
         self._site: "Site | None" = self._fetch_site_metadata(network, station)
 
         # Mutable campaign/survey slots — None until explicitly set.
@@ -403,7 +406,8 @@ class StationSession:
         """
 
         write_dest = (
-            self._file_manager.directory_tree.station_dir(network=network, station=station) / "site_metadata.json"
+            self._file_manager.directory_tree.station_dir(network=network, station=station)
+            / "site_metadata.json"
         )
 
         if write_dest.exists():
@@ -413,14 +417,11 @@ class StationSession:
                 warnings.warn(f"Error loading site metadata from disk: {exc}")
 
         try:
-            site = self._archive.load_site_metadata(
-                network=network, station=station
-            )
+            site = self._archive.load_site_metadata(network=network, station=station)
             with open(write_dest, "w") as f:
                 json.dump(site.model_dump(mode="json"), f, indent=4)
             return site
         except Exception as exc:
-
             if not isinstance(exc, ArchiveNotFoundError):
                 warnings.warn(f"Error loading site metadata from EarthScope archive: {exc}")
 
@@ -524,7 +525,11 @@ class StationSession:
         )
         self._scope.survey = survey_id
         self._survey_layout = layout
-        self._campaign_meta = self._resolve_campaign_in_site(self._scope.campaign) if self._campaign_meta is None else self._campaign_meta
+        self._campaign_meta = (
+            self._resolve_campaign_in_site(self._scope.campaign)
+            if self._campaign_meta is None
+            else self._campaign_meta
+        )
 
     # ------------------------------------------------------------------
     # Convenience accessors (metadata slots and layout helpers)
@@ -556,7 +561,9 @@ class StationSession:
     def survey_metadata_file(self) -> Path:
         """Metadata file path for the active survey."""
         if self._survey_layout is None:
-            raise ValueError("survey_metadata_file requires a survey to be set; call set_survey() first")
+            raise ValueError(
+                "survey_metadata_file requires a survey to be set; call set_survey() first"
+            )
         return Path(self._survey_layout.metadata_file)  # type: ignore[arg-type]
 
     # ------------------------------------------------------------------
@@ -584,7 +591,9 @@ class StationSession:
             If a campaign has not been set.
         """
         if self._scope.campaign is None:
-            raise ValueError("ensure_campaign requires a campaign to be set; call set_campaign() first")
+            raise ValueError(
+                "ensure_campaign requires a campaign to be set; call set_campaign() first"
+            )
         return self._file_manager.ensure_campaign(
             network=self._scope.network,
             station=self._scope.station,
@@ -613,15 +622,19 @@ class StationSession:
     @property
     def station_dir(self) -> Path:
         """Root directory for this station."""
-        return Path(self._file_manager.directory_tree.station_dir(
-            network=self._scope.network, station=self._scope.station
-        ))
+        return Path(
+            self._file_manager.directory_tree.station_dir(
+                network=self._scope.network, station=self._scope.station
+            )
+        )
 
     @property
     def campaign_layout(self) -> CampaignLayout:
         """Return the campaign layout. Raises if campaign not set."""
         if not self._scope.campaign:
-            raise ValueError("campaign_layout requires a campaign to be set; call set_campaign() first")
+            raise ValueError(
+                "campaign_layout requires a campaign to be set; call set_campaign() first"
+            )
         return self._file_manager.directory_tree.campaign(
             network=self._scope.network, station=self._scope.station, campaign=self._scope.campaign
         )
@@ -634,7 +647,9 @@ class StationSession:
         Use :meth:`prepare_garpos_survey` to materialise directories first.
         """
         if not self._scope.survey:
-            raise ValueError("garpos_survey_layout requires a survey to be set; call set_survey() first")
+            raise ValueError(
+                "garpos_survey_layout requires a survey to be set; call set_survey() first"
+            )
         return self._file_manager.directory_tree.garpos(
             network=self._scope.network,
             station=self._scope.station,
@@ -659,7 +674,9 @@ class StationSession:
             If a survey has not been set.
         """
         if not self._scope.survey:
-            raise ValueError("prepare_garpos_survey requires a survey to be set; call set_survey() first")
+            raise ValueError(
+                "prepare_garpos_survey requires a survey to be set; call set_survey() first"
+            )
         return self._file_manager.ensure_garpos_survey(
             network=self._scope.network,
             station=self._scope.station,
@@ -713,6 +730,7 @@ class StationSession:
     def ingest(self) -> "IngestService":
         """Ingest operations scoped to this session."""
         from earthscope_sfg_workflows.services.ingest_service import IngestService
+
         if self._ingest_service is None:
             self._ingest_service = IngestService(self)
         return self._ingest_service
@@ -721,6 +739,7 @@ class StationSession:
     def pipeline(self) -> "ProcessingService":
         """Pipeline construction and execution scoped to this session."""
         from earthscope_sfg_workflows.services.processing_service import ProcessingService
+
         if self._pipeline_service is None:
             self._pipeline_service = ProcessingService(self)
         return self._pipeline_service
@@ -729,6 +748,7 @@ class StationSession:
     def sync(self) -> "SyncService":
         """Remote sync operations scoped to this session."""
         from earthscope_sfg_workflows.services.sync_service import SyncService
+
         if self._sync_service is None:
             self._sync_service = SyncService(self)
         return self._sync_service

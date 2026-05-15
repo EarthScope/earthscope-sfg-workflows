@@ -240,8 +240,8 @@ class FileManager:
         for path in network_layout.standard_dirs:
             self.file_backend.mkdir(path)
         return network_layout
-    
-    def ensure_station(self,*,network:str,station:str) -> StationLayout:
+
+    def ensure_station(self, *, network: str, station: str) -> StationLayout:
         """Materialize the station and TileDB array directories; return the layout.
 
         Parameters
@@ -257,7 +257,9 @@ class FileManager:
             The layout object for the newly created station directory.
         """
         self.file_backend.mkdir(self.directory_tree.station_dir(network=network, station=station))
-        station_layout:StationLayout = self.directory_tree.station(network=network, station=station)
+        station_layout: StationLayout = self.directory_tree.station(
+            network=network, station=station
+        )
         for path in station_layout.standard_dirs:
             self.file_backend.mkdir(path)
         return station_layout
@@ -381,9 +383,7 @@ class FileManager:
         surv = scope.survey if scope is not None else survey
         if surv is None:
             raise ValueError("survey is required for ensure_garpos_survey")
-        layout = self.directory_tree.garpos(
-            network=net, station=sta, campaign=camp, survey=surv
-        )
+        layout = self.directory_tree.garpos(network=net, station=sta, campaign=camp, survey=surv)
         for path in layout.standard_dirs:
             self.file_backend.mkdir(path)
         return layout

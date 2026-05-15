@@ -24,6 +24,7 @@ ssl._create_default_https_context = ssl._create_stdlib_context
 
 ARCHIVE_PREFIX = "https://data.earthscope.org/archive/seafloor"
 
+
 def retrieve_token(profile=None):
     """Retrieve or generate a token for the public archive.
 
@@ -357,9 +358,7 @@ def load_vessel_metadata(
         return vessel
 
 
-def load_site_metadata(
-    network: str, station: str, profile: str = None
-) -> Site:
+def load_site_metadata(network: str, station: str, profile: str = None) -> Site:
     """Load the site metadata from the s3 archive.
 
     Note
@@ -384,12 +383,10 @@ def load_site_metadata(
     Site
         An instance of the Site class with the metadata loaded.
     """
- 
+
     site_json_url = generate_archive_site_json_url(network, station, profile)
     logger.info(f"Loading site metadata from {site_json_url}")
-    download_file_from_archive(
-        site_json_url, dest_dir="./", profile=profile, show_details=False
-    )
+    download_file_from_archive(site_json_url, dest_dir="./", profile=profile, show_details=False)
     # Load the site metadata from the downloaded JSON file
     site_file_path = Path(f"./{station}.json")
     site = import_site(site_file_path)
@@ -588,7 +585,7 @@ def list_s3_directory_files(bucket_name: str, prefix: str) -> list[str]:
 
     return file_paths
 
-    
+
 if __name__ == "__main__":
     # Example usage
 

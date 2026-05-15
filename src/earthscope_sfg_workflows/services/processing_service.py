@@ -1,4 +1,5 @@
 """PipelineService — pipeline construction and execution for a StationSession."""
+
 from __future__ import annotations
 
 import json
@@ -23,7 +24,14 @@ from earthscope_sfg_workflows.pipelines.sv3_pipeline import SV3_JOBS, SV3Pipelin
 if TYPE_CHECKING:
     from earthscope_sfg_workflows.workflows.session import StationSession
 
-_Config = SV3PipelineConfig | PrideCLIConfig | NovatelConfig | RinexConfig | DFOP00Config | PositionUpdateConfig
+_Config = (
+    SV3PipelineConfig
+    | PrideCLIConfig
+    | NovatelConfig
+    | RinexConfig
+    | DFOP00Config
+    | PositionUpdateConfig
+)
 
 
 class ProcessingService:
@@ -83,7 +91,9 @@ class ProcessingService:
     # SV3 pipeline
     # ------------------------------------------------------------------
 
-    def get_sv3(self, config: "_Config | None" = None, secondary_config: "_Config | None" = None) -> SV3Pipeline:
+    def get_sv3(
+        self, config: "_Config | None" = None, secondary_config: "_Config | None" = None
+    ) -> SV3Pipeline:
         """Return a configured ``SV3Pipeline`` for the current scope.
 
         Config merging order: defaults → construction config → *config* →
@@ -130,9 +140,15 @@ class ProcessingService:
     def run_sv3(
         self,
         job: Literal[
-            "all", "intermediate", "process_novatel", "build_rinex",
-            "run_pride", "process_kinematic", "process_dfop00",
-            "refine_shotdata", "process_svp",
+            "all",
+            "intermediate",
+            "process_novatel",
+            "build_rinex",
+            "run_pride",
+            "process_kinematic",
+            "process_dfop00",
+            "refine_shotdata",
+            "process_svp",
         ] = "all",
         config: "_Config | None" = None,
         secondary_config: "_Config | None" = None,
@@ -172,7 +188,9 @@ class ProcessingService:
     # QC pipeline
     # ------------------------------------------------------------------
 
-    def get_qc(self, config: "QCPipelineConfig | None" = None, secondary_config: "_Config | None" = None) -> QCPipeline:
+    def get_qc(
+        self, config: "QCPipelineConfig | None" = None, secondary_config: "_Config | None" = None
+    ) -> QCPipeline:
         """Return a configured ``QCPipeline`` for the current scope.
 
         Parameters
@@ -214,8 +232,12 @@ class ProcessingService:
     def run_qc(
         self,
         job: Literal[
-            "all", "process_qcpin", "build_rinex", "run_pride",
-            "process_kinematic", "refine_shotdata",
+            "all",
+            "process_qcpin",
+            "build_rinex",
+            "run_pride",
+            "process_kinematic",
+            "refine_shotdata",
         ] = "all",
         config: "QCPipelineConfig | None" = None,
     ) -> None:
@@ -352,4 +374,3 @@ class ProcessingService:
 
 
 __all__ = ["ProcessingService"]
-

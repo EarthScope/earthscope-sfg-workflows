@@ -15,8 +15,6 @@ from upath import UPath
 from ..model import FileInfo
 
 
-
-
 def _is_s3(url: str) -> bool:
     """Return True for any ``s3:`` URI, including POSIX-normalized ``s3:/`` variants."""
     return url.startswith("s3:")
@@ -27,6 +25,7 @@ def _normalize_url(url: str) -> str:
     if url.startswith("s3:/") and not url.startswith("s3://"):
         return "s3://" + url[4:]
     return url
+
 
 def _open_fs(url: str, storage_options: dict) -> fsspec.AbstractFileSystem:
     url = _normalize_url(url)
@@ -81,7 +80,9 @@ class FsspecFileStore:
         No-op; fsspec manages its own connection pools.
     """
 
-    def __init__(self, root: UPath | str | None = None, storage_options: dict | None = None) -> None:
+    def __init__(
+        self, root: UPath | str | None = None, storage_options: dict | None = None
+    ) -> None:
         """Initialize the store, optionally pinning it to a fixed *root*.
 
         Parameters
@@ -95,7 +96,9 @@ class FsspecFileStore:
         """
         self._root = UPath(root) if root is not None else None
         self._storage_options: dict = storage_options or {}
-        self._fs: fsspec.AbstractFileSystem | None = _open_fs(str(self._root), self._storage_options) if self._root is not None else None
+        self._fs: fsspec.AbstractFileSystem | None = (
+            _open_fs(str(self._root), self._storage_options) if self._root is not None else None
+        )
 
     def _get_fs(self, path: UPath | str) -> fsspec.AbstractFileSystem:
         """Return the filesystem for *path*.

@@ -41,6 +41,7 @@ try:
         TDBShotDataArray,
         TDBIMUPositionArray,
     )
+
     _TILEDB_DEPS = True
 except ImportError:
     _TILEDB_DEPS = False
@@ -59,8 +60,10 @@ CAMPAIGN = "2025_A_1126"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_scope():
     from earthscope_sfg_workflows.data_mgmt.model import SFGScope
+
     return SFGScope(network=NETWORK, station=STATION, campaign=CAMPAIGN)
 
 
@@ -68,6 +71,7 @@ def _build_tiledb_layout(base: Path):
     """Create a TileDBLayout rooted under *base*/TileDB."""
     from upath import UPath
     from earthscope_sfg_workflows.data_mgmt.model import TileDBLayout
+
     return TileDBLayout.for_station(UPath(base))
 
 
@@ -75,6 +79,7 @@ def _build_campaign_layout(base: Path):
     """Create a CampaignLayout rooted at *base*."""
     from upath import UPath
     from earthscope_sfg_workflows.data_mgmt.model import CampaignLayout
+
     layout = CampaignLayout.for_campaign(UPath(base))
     for d in layout.standard_dirs:
         d.mkdir(parents=True, exist_ok=True)
@@ -144,10 +149,12 @@ def _seed_tiledb_from_parquet(pipeline) -> None:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def catalog():
     """Fresh InMemoryAssetStore for each test."""
     from earthscope_sfg_workflows.data_mgmt.adapters.memory import InMemoryAssetStore
+
     return InMemoryAssetStore()
 
 
@@ -168,6 +175,7 @@ def seeded_pipeline(tmp_path, catalog):
 # ---------------------------------------------------------------------------
 # Tests: process_kin
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.skipif(not _TILEDB_DEPS, reason="earthscope_sfg_tools not installed")
 class TestProcessKin:
@@ -199,6 +207,7 @@ class TestProcessKin:
     def test_raises_no_kin_found_when_catalog_empty(self, pipeline):
         """process_kin raises NoKinFound when no KIN entries exist."""
         from earthscope_sfg_workflows.pipelines.exceptions import NoKinFound
+
         with pytest.raises(NoKinFound):
             pipeline.process_kin()
 
@@ -250,12 +259,15 @@ class TestProcessKin:
             end=datetime.datetime(2025, 9, 8, 0, 1, tzinfo=datetime.timezone.utc),
         )
         assert len(df) > 0, "Need rows to check longitude"
-        assert (df["longitude"] <= 180).all(), "All longitudes should be <= 180 after wraparound fix"
+        assert (df["longitude"] <= 180).all(), (
+            "All longitudes should be <= 180 after wraparound fix"
+        )
 
 
 # ---------------------------------------------------------------------------
 # Tests: update_shotdata
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.skipif(not _TILEDB_DEPS, reason="earthscope_sfg_tools not installed")
 class TestUpdateShotdata:
@@ -324,6 +336,7 @@ class TestUpdateShotdata:
 # Tests: process_dfop00 exception path
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.skipif(not _TILEDB_DEPS, reason="earthscope_sfg_tools not installed")
 class TestProcessDFOP00:
     """Tests for SV3Pipeline.process_dfop00() exception paths."""
@@ -331,6 +344,7 @@ class TestProcessDFOP00:
     def test_raises_no_dfop00_when_catalog_empty(self, pipeline):
         """process_dfop00 raises NoDFOP00Found when no DFOP00 entries are cataloged."""
         from earthscope_sfg_workflows.pipelines.exceptions import NoDFOP00Found
+
         with pytest.raises(NoDFOP00Found):
             pipeline.process_dfop00()
 
@@ -338,6 +352,7 @@ class TestProcessDFOP00:
 # ---------------------------------------------------------------------------
 # Tests: catalog de-duplication (InMemoryAssetStore)
 # ---------------------------------------------------------------------------
+
 
 class TestCatalogDeduplication:
     """Tests for de-duplication behavior in the in-memory catalog."""
@@ -420,8 +435,12 @@ class TestCatalogDeduplication:
         catalog.add(AssetEntry(kind=AssetKind.KIN, scope=scope_a, local_path=UPath("/a.kin")))
         catalog.add(AssetEntry(kind=AssetKind.KIN, scope=scope_b, local_path=UPath("/b.kin")))
 
-        results_a = catalog.assets_to_process(kind=AssetKind.KIN, network=NETWORK, station=STATION, campaign="2025_A_1126")
-        results_b = catalog.assets_to_process(kind=AssetKind.KIN, network=NETWORK, station=STATION, campaign="2024_A_0101")
+        results_a = catalog.assets_to_process(
+            kind=AssetKind.KIN, network=NETWORK, station=STATION, campaign="2025_A_1126"
+        )
+        results_b = catalog.assets_to_process(
+            kind=AssetKind.KIN, network=NETWORK, station=STATION, campaign="2024_A_0101"
+        )
 
         assert len(results_a) == 1
         assert len(results_b) == 1
@@ -431,6 +450,7 @@ class TestCatalogDeduplication:
 # ---------------------------------------------------------------------------
 # Tests: data round-trip (parquet → TileDB → DataFrame)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.skipif(not _TILEDB_DEPS, reason="earthscope_sfg_tools not installed")
 class TestTileDBRoundTrip:
@@ -570,7 +590,9 @@ class TestPreProcessNovatel:
 
         mock_tile.assert_called_once()
         call_kwargs = mock_tile.call_args
-        assert fake_nov in call_kwargs.kwargs.get("files", call_kwargs.args[0] if call_kwargs.args else [])
+        assert fake_nov in call_kwargs.kwargs.get(
+            "files", call_kwargs.args[0] if call_kwargs.args else []
+        )
 
         assert catalog.is_merge_complete(
             parent_type=AssetKind.NOVATEL770.value,
@@ -697,9 +719,7 @@ class TestGetRinexFiles:
 
         tdb_uri = pipeline._tiledb_layout.gnss_obs
         year = int(CAMPAIGN.split("_")[0])
-        parent_ids = (
-            f"N-{NETWORK}|ST-{STATION}|SV-{CAMPAIGN}|TDB-{tdb_uri}|YEAR-{year}"
-        )
+        parent_ids = f"N-{NETWORK}|ST-{STATION}|SV-{CAMPAIGN}|TDB-{tdb_uri}|YEAR-{year}"
         assert catalog.is_merge_complete(
             parent_type=AssetKind.GNSSOBSTDB.value,
             child_type=AssetKind.RINEX2.value,
@@ -738,9 +758,7 @@ class TestGetRinexFiles:
             pipeline.get_rinex_files()
             pipeline.get_rinex_files()
 
-        assert mock_tdb.call_count == 2, (
-            "tdb2rnx should be invoked both times when override=True"
-        )
+        assert mock_tdb.call_count == 2, "tdb2rnx should be invoked both times when override=True"
 
     def test_raises_no_rinex_built_on_nonzero_returncode(self, tmp_path, catalog):
         """``tdb2rnx`` non-zero exit raises ``NoRinexBuilt``."""
@@ -826,7 +844,9 @@ class TestRinexFixture:
             if header_done and line.startswith(" 25"):
                 parts = line.split()
                 try:
-                    int(parts[0]); int(parts[1]); int(parts[2])
+                    int(parts[0])
+                    int(parts[1])
+                    int(parts[2])
                     epoch_count += 1
                 except (ValueError, IndexError):
                     pass

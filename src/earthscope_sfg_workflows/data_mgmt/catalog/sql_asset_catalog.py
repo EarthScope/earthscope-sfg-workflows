@@ -168,8 +168,6 @@ class AssetCatalog:
             bind=engine, expire_on_commit=False, future=True
         )
 
-
-
     # -- factories ---------------------------------------------------------
 
     @classmethod
@@ -242,9 +240,7 @@ class AssetCatalog:
                 return _row_to_entry(row)
         except IntegrityError:
             # Duplicate local_path or remote_path — return existing entry.
-            existing = (
-                self.by_local_path(Path(asset.local_path)) if asset.local_path else []
-            )
+            existing = self.by_local_path(Path(asset.local_path)) if asset.local_path else []
             if existing:
                 return existing[0]
             raise

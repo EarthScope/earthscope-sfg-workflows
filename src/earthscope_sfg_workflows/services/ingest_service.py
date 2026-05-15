@@ -1,4 +1,5 @@
 """IngestService — data ingest operations for a StationSession."""
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -197,9 +198,7 @@ class IngestService:
         skipped = 0
         errors: list[str] = []
 
-        tarballs = sorted(
-            p for p in tarball_dir.glob("*.tar.gz") if not p.name.startswith("._")
-        )
+        tarballs = sorted(p for p in tarball_dir.glob("*.tar.gz") if not p.name.startswith("._"))
 
         for tb in tarballs:
             extract_dir = tarball_dir / tb.name.removesuffix(".tar.gz")
@@ -207,7 +206,8 @@ class IngestService:
                 with fsspec.open(str(tb), "rb") as fo:
                     with tarfile.open(fileobj=fo, mode="r:*") as tf:
                         pin_members = [
-                            m for m in tf.getmembers()
+                            m
+                            for m in tf.getmembers()
                             if m.isfile()
                             and self.detect(m.name) in (AssetKind.QCPIN, AssetKind.QCSTA)
                         ]
@@ -373,7 +373,8 @@ class IngestService:
         candidates = self._collect_remote_candidates(scope, kinds)
         if not effective_override:
             candidates = [
-                a for a in candidates
+                a
+                for a in candidates
                 if a.local_path is None or not Path(str(a.local_path)).exists()
             ]
 
@@ -451,11 +452,13 @@ class IngestService:
             _path = Path(asset.remote_path)
             local_dir = layout.intermediate if asset.kind is AssetKind.RINEX2 else layout.raw
             bucket = _path.root
-            plan.append({
-                "bucket": bucket,
-                "prefix": str(_path.relative_to(bucket)),
-                "local_dir": local_dir,
-            })
+            plan.append(
+                {
+                    "bucket": bucket,
+                    "prefix": str(_path.relative_to(bucket)),
+                    "local_dir": local_dir,
+                }
+            )
 
         downloaded = 0
         errors: list[str] = []
@@ -559,4 +562,3 @@ class IngestService:
 
 
 __all__ = ["IngestService"]
-

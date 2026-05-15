@@ -172,8 +172,12 @@ class TestLayoutFacade:
 class TestAssetQueryFacade:
     def _seed(self) -> Workspace:
         ws = make_session(network="N", station="S", campaign="C")
-        ws.catalog.add(AssetEntry(kind=AssetKind.NOVATEL, scope=ws.scope, local_path=Path("/tmp/a.bin")))
-        ws.catalog.add(AssetEntry(kind=AssetKind.RINEX2, scope=ws.scope, local_path=Path("/tmp/b.23o")))
+        ws.catalog.add(
+            AssetEntry(kind=AssetKind.NOVATEL, scope=ws.scope, local_path=Path("/tmp/a.bin"))
+        )
+        ws.catalog.add(
+            AssetEntry(kind=AssetKind.RINEX2, scope=ws.scope, local_path=Path("/tmp/b.23o"))
+        )
         return ws
 
     def test_all_filters_by_kind(self):
@@ -371,8 +375,20 @@ class TestRealWorkspace:
         from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind, SFGScope
 
         cat = InMemoryAssetStore()
-        cat.add(AssetEntry(scope=SFGScope("NET", "STA", "2025_A"), kind=AssetKind.NOVATEL, local_path=Path("/f1")))
-        cat.add(AssetEntry(scope=SFGScope("NET", "STA", "2026_B"), kind=AssetKind.NOVATEL, local_path=Path("/f2")))
+        cat.add(
+            AssetEntry(
+                scope=SFGScope("NET", "STA", "2025_A"),
+                kind=AssetKind.NOVATEL,
+                local_path=Path("/f1"),
+            )
+        )
+        cat.add(
+            AssetEntry(
+                scope=SFGScope("NET", "STA", "2026_B"),
+                kind=AssetKind.NOVATEL,
+                local_path=Path("/f2"),
+            )
+        )
         ws = self._ws(catalog=cat)
         campaigns = ws.list_campaigns("NET", "STA")
         assert campaigns == ["2025_A", "2026_B"]
@@ -382,8 +398,16 @@ class TestRealWorkspace:
         from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind, SFGScope
 
         cat = InMemoryAssetStore()
-        cat.add(AssetEntry(scope=SFGScope("NET1", "STA1", "C"), kind=AssetKind.NOVATEL, local_path=Path("/a")))
-        cat.add(AssetEntry(scope=SFGScope("NET2", "STA2", "C"), kind=AssetKind.NOVATEL, local_path=Path("/b")))
+        cat.add(
+            AssetEntry(
+                scope=SFGScope("NET1", "STA1", "C"), kind=AssetKind.NOVATEL, local_path=Path("/a")
+            )
+        )
+        cat.add(
+            AssetEntry(
+                scope=SFGScope("NET2", "STA2", "C"), kind=AssetKind.NOVATEL, local_path=Path("/b")
+            )
+        )
         ws = self._ws(catalog=cat)
         assert ws.list_stations("NET1") == ["STA1"]
         assert ws.list_stations("NET2") == ["STA2"]
@@ -394,4 +418,3 @@ class TestRealWorkspace:
         cat = InMemoryAssetStore()
         ws = self._ws(catalog=cat)
         assert ws.catalog is cat
-

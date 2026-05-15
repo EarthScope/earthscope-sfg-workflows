@@ -56,9 +56,7 @@ class TestPureModel:
         assert s.survey == "S1"
         assert scope.survey is None  # original untouched
 
-    def test_directory_tree_paths(
-        self, workspace_tree: DirectoryTree, scope: SFGScope
-    ) -> None:
+    def test_directory_tree_paths(self, workspace_tree: DirectoryTree, scope: SFGScope) -> None:
         assert workspace_tree.station_dir(scope) == Path("/ws/cascadia/NCB1")
         assert workspace_tree.campaign_dir(scope) == Path("/ws/cascadia/NCB1/2024_A")
         assert workspace_tree.catalog_db == Path("/ws/catalog.sqlite")
@@ -69,9 +67,7 @@ class TestPureModel:
         with pytest.raises(ValueError):
             workspace_tree.survey_dir(scope)
 
-    def test_tiledb_layout_is_pure(
-        self, workspace_tree: DirectoryTree, scope: SFGScope
-    ) -> None:
+    def test_tiledb_layout_is_pure(self, workspace_tree: DirectoryTree, scope: SFGScope) -> None:
         layout = workspace_tree.tiledb(scope)
         assert layout.acoustic == Path("/ws/cascadia/NCB1/TileDB/acoustic.tdb")
         # All child paths share the layout root.
@@ -265,9 +261,7 @@ class TestFileManager:
         with pytest.raises(ValueError):
             tb.ensure_garpos_survey(scope)
 
-    def test_ensure_garpos_survey(
-        self, workspace_tree: DirectoryTree, scope: SFGScope
-    ) -> None:
+    def test_ensure_garpos_survey(self, workspace_tree: DirectoryTree, scope: SFGScope) -> None:
         fs = InMemoryFileStore()
         tb = FileManager(workspace_tree, fs)
         layout = tb.ensure_garpos_survey(scope.with_survey("S1"))
@@ -359,4 +353,3 @@ class TestIngestService:
         assert asset.local_path is not None
         assert asset.local_path.exists()
         assert asset.local_path.read_bytes() == b"R"
-

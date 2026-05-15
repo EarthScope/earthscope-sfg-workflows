@@ -18,6 +18,7 @@ import requests
 from ..model import ArchiveFile, SFGScope
 from ..ports import ArchiveAuthError, ArchiveError, ArchiveNotFoundError
 
+
 def _campaign_year(campaign: str) -> str:
     """Extract the four-digit year prefix from a campaign identifier.
 
@@ -95,7 +96,7 @@ class EarthScopeArchive:
 
     # -- auth --------------------------------------------------------------
 
-    def authenticate(self, profile: str = 'default') -> bool:
+    def authenticate(self, profile: str = "default") -> bool:
         """Acquire or refresh an access token from the EarthScope SDK.
 
         Parameters
@@ -256,7 +257,6 @@ class EarthScopeArchive:
         self.download_file(file_url, dest_path)
         return dest_path
 
-
     def canonical_campaign_urls(self, scope: SFGScope) -> tuple[str, str, str, str]:
         """Return the four canonical archive directory URLs for a campaign.
 
@@ -278,7 +278,6 @@ class EarthScopeArchive:
             self.campaign_rinex_url(scope, "1Hz"),
             self.campaign_rinex_url(scope, "10Hz"),
         )
-
 
     def list_campaign_archive_urls(
         self,
@@ -306,9 +305,7 @@ class EarthScopeArchive:
             All file URLs found across the campaign's archive directories.
         """
         urls: list[str] = []
-        raw_url, metadata_url, rinex_1hz_url, rinex_10hz_url = self.canonical_campaign_urls(
-            scope
-        )
+        raw_url, metadata_url, rinex_1hz_url, rinex_10hz_url = self.canonical_campaign_urls(scope)
         for dir_url in (
             raw_url,
             metadata_url,
@@ -336,9 +333,7 @@ class EarthScopeArchive:
             URL of the campaign's ``raw`` directory on the archive.
         """
         year = _campaign_year(scope.campaign)
-        return (
-            f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/raw"
-        )
+        return f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/raw"
 
     def campaign_metadata_url(self, scope: SFGScope) -> str:
         """Return the archive URL for the metadata directory of a campaign.
@@ -434,7 +429,9 @@ class EarthScopeArchive:
                 pass
         return vessel
 
-    def load_site_metadata(self, scope: SFGScope=None,*,network: str=None,station:str=None) -> Site:
+    def load_site_metadata(
+        self, scope: SFGScope = None, *, network: str = None, station: str = None
+    ) -> Site:
         """Load a :class:`Site` from the archive, populating per-campaign vessels.
 
         Downloads the station's site JSON, parses it, then attempts to attach
@@ -466,7 +463,7 @@ class EarthScopeArchive:
             if network is None or station is None:
                 raise ValueError("Must provide either scope or both network and station")
             scope = SFGScope(network=network, station=station, campaign="")
-            
+
         url = self.site_metadata_url(scope)
         local = self.download_to_dir(url, Path("./"))
         try:

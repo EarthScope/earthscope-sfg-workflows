@@ -112,22 +112,26 @@ class AssetKind(str, Enum):
 
 
 # Default download sets used by WorkflowHandler.download_data().
-DEFAULT_PREPROCESS_KINDS: frozenset["AssetKind"] = frozenset({
-    AssetKind.SONARDYNE,
-    AssetKind.NOVATEL,
-    AssetKind.NOVATEL000,
-    AssetKind.NOVATEL770,
-    AssetKind.DFOP00,
-    AssetKind.CTD,
-    AssetKind.SEABIRD,
-})
+DEFAULT_PREPROCESS_KINDS: frozenset["AssetKind"] = frozenset(
+    {
+        AssetKind.SONARDYNE,
+        AssetKind.NOVATEL,
+        AssetKind.NOVATEL000,
+        AssetKind.NOVATEL770,
+        AssetKind.DFOP00,
+        AssetKind.CTD,
+        AssetKind.SEABIRD,
+    }
+)
 
-DEFAULT_INTERMEDIATE_KINDS: frozenset["AssetKind"] = frozenset({
-    AssetKind.RINEX2,
-    AssetKind.CTD,
-    AssetKind.SEABIRD,
-    AssetKind.DFOP00,
-})
+DEFAULT_INTERMEDIATE_KINDS: frozenset["AssetKind"] = frozenset(
+    {
+        AssetKind.RINEX2,
+        AssetKind.CTD,
+        AssetKind.SEABIRD,
+        AssetKind.DFOP00,
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +227,7 @@ class SFGScope:
             campaign=campaign_name,
             survey=survey_name,
         )
+
 
 # ---------------------------------------------------------------------------
 # Asset entry (pure data; replaces Pydantic AssetEntry with embedded I/O)
@@ -551,7 +556,16 @@ class CampaignLayout:
         tuple[UPath, ...]
             Ordered tuple of required campaign directories.
         """
-        return (self.root, self.raw, self.processed, self.intermediate, self.logs, self.qc, self.metadata_dir)
+        return (
+            self.root,
+            self.raw,
+            self.processed,
+            self.intermediate,
+            self.logs,
+            self.qc,
+            self.metadata_dir,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class StationLayout:
@@ -575,7 +589,7 @@ class StationLayout:
     """
 
     root: UPath
-    campaigns : dict[str, CampaignLayout | None] = field(default_factory=dict)
+    campaigns: dict[str, CampaignLayout | None] = field(default_factory=dict)
     metadata: UPath | None = None
     tiledb: TileDBLayout | None = None
 
@@ -589,7 +603,8 @@ class StationLayout:
             Ordered tuple of required station directories.
         """
         return (self.root,)
-    
+
+
 @dataclass
 class NetworkLayout:
     """All paths for a network directory. Pure.
@@ -621,7 +636,7 @@ class NetworkLayout:
         """
         return (self.root,)
 
-    
+
 @dataclass
 class SurveyLayout:
     """All paths for a survey directory. Pure.
@@ -815,7 +830,7 @@ class DirectoryTree:
 
     root: UPath
     catalog_db: UPath = field(default=None, init=False)  # type: ignore[assignment]
-    pride_dir: UPath = field(default=None, init=False)   # type: ignore[assignment]
+    pride_dir: UPath = field(default=None, init=False)  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         if self.catalog_db is None:
@@ -1078,7 +1093,9 @@ class DirectoryTree:
         camp = scope.campaign if scope is not None else campaign
         if net is None or sta is None or camp is None:
             raise ValueError("Provide scope with campaign or (network, station, campaign)")
-        return CampaignLayout.for_campaign(self.campaign_dir(network=net, station=sta, campaign=camp))
+        return CampaignLayout.for_campaign(
+            self.campaign_dir(network=net, station=sta, campaign=camp)
+        )
 
     def survey(
         self,
@@ -1113,7 +1130,9 @@ class DirectoryTree:
         sta = scope.station if scope is not None else station
         camp = scope.campaign if scope is not None else campaign
         surv = scope.survey if scope is not None else survey
-        return SurveyLayout.for_survey(self.survey_dir(network=net, station=sta, campaign=camp, survey=surv))
+        return SurveyLayout.for_survey(
+            self.survey_dir(network=net, station=sta, campaign=camp, survey=surv)
+        )
 
     def garpos(
         self,
@@ -1148,7 +1167,9 @@ class DirectoryTree:
         sta = scope.station if scope is not None else station
         camp = scope.campaign if scope is not None else campaign
         surv = scope.survey if scope is not None else survey
-        return GARPOSLayout.for_survey(self.survey_dir(network=net, station=sta, campaign=camp, survey=surv))
+        return GARPOSLayout.for_survey(
+            self.survey_dir(network=net, station=sta, campaign=camp, survey=surv)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1266,7 +1287,6 @@ class ArchiveFile:
             The final path component of :attr:`url`.
         """
         return UPath(self.url).name
-
 
 
 __all__ = [

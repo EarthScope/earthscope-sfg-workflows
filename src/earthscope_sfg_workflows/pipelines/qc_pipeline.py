@@ -45,6 +45,7 @@ from .shotdata_gnss_refinement import merge_shotdata_qc
 
 def _pipeline_method(fn):
     """Wrap a pipeline method so only one runs at a time per instance."""
+
     @wraps(fn)
     def wrapper(self, *args, **kwargs):
         if not self._lock.acquire(blocking=False):
@@ -55,6 +56,7 @@ def _pipeline_method(fn):
             return fn(self, *args, **kwargs)
         finally:
             self._lock.release()
+
     return wrapper
 
 
@@ -86,7 +88,9 @@ def process_single_qcpin(
         df = qcjson_to_shotdata(entry.local_path, ProcessLogger.logger)
         rangea_strings: list[str] = extract_rangea_strings_from_qcpin(entry.local_path)
         if df is None or df.empty:
-            ProcessLogger.warning(f"No valid shotdata parsed from {entry.local_path}, skipping write")
+            ProcessLogger.warning(
+                f"No valid shotdata parsed from {entry.local_path}, skipping write"
+            )
             return False
         entry = replace(entry, is_processed=True)
         shotdata_df_queue.append(df)
@@ -425,9 +429,7 @@ class QCPipeline:
                     os.chdir(old_cwd)
 
                 if result.returncode != 0:
-                    raise NoRinexBuilt(
-                        f"tdb2rnx exited with code {result.returncode}"
-                    )
+                    raise NoRinexBuilt(f"tdb2rnx exited with code {result.returncode}")
 
                 rinex_paths = sorted(rinex_dest.glob("*.??o"))
 
@@ -471,7 +473,9 @@ class QCPipeline:
                 raise
 
             except Exception as e:
-                if (message := ProcessLogger.error(f"Error generating QC RINEX files: {e}")) is not None:
+                if (
+                    message := ProcessLogger.error(f"Error generating QC RINEX files: {e}")
+                ) is not None:
                     print(message)
                 raise NoRinexBuilt(f"QC RINEX generation failed: {e}") from e
 
@@ -664,7 +668,10 @@ class QCPipeline:
             "parent_ids": merge_signature,
         }
 
-        if not self.catalog.is_merge_complete(**merge_job) or self.config.position_update_config.override:
+        if (
+            not self.catalog.is_merge_complete(**merge_job)
+            or self.config.position_update_config.override
+        ):
             dates.append(dates[-1] + datetime.timedelta(days=1))
             merge_shotdata_qc(
                 shotdata_pre=self.qcShotDataPreTDB,

@@ -96,6 +96,3 @@ def run_manifest(manifest_object):
                 survey_id=survey_id,
                 custom_settings=config.inversion_params,
             )
-
-
-
