@@ -8,7 +8,7 @@ import yaml
 
 # External package imports
 from pride_ppp.specifications.cli import PrideCLIConfig
-from pydantic import BaseModel, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 class PrideConfig(BaseModel):
@@ -54,8 +54,7 @@ class RinexConfig(BaseModel):
         description="If True, uses the secondary GNSS observation data for processing.",
     )
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @field_serializer("settings_path")
     def _s_path(self, v):
@@ -91,9 +90,7 @@ class SV3PipelineConfig(BaseModel):
     dfop00_config: DFOP00Config = DFOP00Config()
     position_update_config: PositionUpdateConfig = PositionUpdateConfig()
 
-    class Config:
-        title = "SV3 Pipeline Configuration"
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(title="SV3 Pipeline Configuration", arbitrary_types_allowed=True)
 
     def update(self, update_dict: dict) -> "SV3PipelineConfig":
         """Return a new config with values from `update_dict` merged over current values."""
@@ -129,8 +126,7 @@ class PrepSiteData(BaseModel):
     kin_position_data_dest: str | Path = Field(..., title="Kin Position Data Destination")
     shot_data_dest: str | Path = Field(..., title="Shot Data Destination")
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @field_serializer(
         "inter_dir",
@@ -166,9 +162,7 @@ class QCPipelineConfig(BaseModel):
     rinex_config: RinexConfig = RinexConfig()
     position_update_config: PositionUpdateConfig = PositionUpdateConfig()
 
-    class Config:
-        title = "QC Pipeline Configuration"
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(title="QC Pipeline Configuration", arbitrary_types_allowed=True)
 
     def update(self, update_dict: dict) -> "QCPipelineConfig":
         """Update the object with values from a dict and return a new copy."""

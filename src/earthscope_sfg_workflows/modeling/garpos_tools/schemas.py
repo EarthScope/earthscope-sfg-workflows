@@ -12,6 +12,7 @@ from pandera.typing import Series
 from pydantic import (
     AliasChoices,
     BaseModel,
+    ConfigDict,
     Field,
     field_serializer,
     model_validator,
@@ -68,8 +69,7 @@ class GPTransponder(BaseModel):
     id: str | None = Field(None, alias=AliasChoices("id", "address"))
     delta_center_position: GPPositionENU | None = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class GPATDOffset(BaseModel):
@@ -310,9 +310,6 @@ class InversionParams(BaseModel):
                     logger.info(f"    {param2[0]} : {param2[1]}")
             else:
                 logger.info(f"  {param[0]} : {param[1]}")
-
-    class Config:
-        coerce = True
 
     @model_validator(mode="after")
     def validate(cls, values):

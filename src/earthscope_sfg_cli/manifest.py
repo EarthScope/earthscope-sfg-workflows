@@ -11,7 +11,7 @@ from enum import StrEnum
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from earthscope_sfg_workflows.modeling.garpos_tools.schemas import InversionParams
 from earthscope_sfg_workflows.prefiltering.schemas import FilterConfig
@@ -61,8 +61,7 @@ class PipelineIngestJob(BaseModel):
     campaign: str = Field(..., title="Campaign Name")
     directory: Path = Field(..., title="Directory Data Path")
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @field_serializer("directory")
     def _directory_s(cls, v: Path):
@@ -117,9 +116,7 @@ class GARPOSConfig(BaseModel):
         description="Configuration for prefiltering GARPOS shot data",
     )
 
-    class Config:
-        arbitrary_types_allowed = True
-        coerce = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @field_serializer("garpos_path")
     def _garpos_path_s(v: Path):
@@ -157,8 +154,7 @@ class GARPOSProcessJob(BaseModel):
         default_factory=dict, title="Secondary Configuration Overrides"
     )
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class PipelineManifest(BaseModel):
@@ -182,8 +178,7 @@ class PipelineManifest(BaseModel):
     )
     global_config: SV3PipelineConfig = Field(..., title="Global Config")
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @classmethod
     def _load(cls, data: dict) -> "PipelineManifest":
