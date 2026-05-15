@@ -4,9 +4,9 @@
 - :class:`AssetCatalog` — SQLite-backed asset catalog
 - :class:`FsspecFileStore` — unified local and S3 filesystem store
 
-For in-memory test doubles, import from :mod:`test_adapters` instead::
+For in-memory test doubles, import from :mod:`memory` instead::
 
-    from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import (
+    from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
         FakeArchive, InMemoryAssetStore, InMemoryFileStore
     )
 """

@@ -18,6 +18,8 @@ import requests
 from ..model import ArchiveFile, SFGScope
 from ..ports import ArchiveAuthError, ArchiveError, ArchiveNotFoundError
 
+ARCHIVE_PREFIX = "https://data.earthscope.org/archive/seafloor"
+
 
 def _campaign_year(campaign: str) -> str:
     """Extract the four-digit year prefix from a campaign identifier.
@@ -34,6 +36,40 @@ def _campaign_year(campaign: str) -> str:
         The ``YYYY`` year portion of *campaign*.
     """
     return campaign.split("_", 1)[0]
+
+
+def canonical_campaign_urls(scope: SFGScope) -> tuple[str, str, str, str]:
+    """Return ``(raw_url, metadata_url, rinex_1hz_url, rinex_10hz_url)`` for a campaign."""
+    year = _campaign_year(scope.campaign)
+    base = f"{ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}"
+    return (
+        f"{base}/raw",
+        f"{base}/metadata",
+        f"{base}/rinex_1Hz",
+        f"{base}/rinex_10Hz",
+    )
+
+
+def list_campaign_archive_urls(archive: object, scope: SFGScope) -> list[str]:
+    """List every file URL for a campaign without writing to any catalog.
+
+    Lists raw, metadata, metadata/ctd, rinex_1Hz, and rinex_10Hz; skips
+    missing directories silently.
+    """
+    raw_url, metadata_url, rinex_1hz_url, rinex_10hz_url = canonical_campaign_urls(scope)
+    urls: list[str] = []
+    for dir_url in (
+        raw_url,
+        metadata_url,
+        f"{metadata_url}/ctd",
+        rinex_1hz_url,
+        rinex_10hz_url,
+    ):
+        try:
+            urls.extend(af.url for af in archive.list_files(dir_url))
+        except Exception:
+            continue
+    return urls
 
 
 class EarthScopeArchive:
@@ -486,4 +522,9 @@ class EarthScopeArchive:
         self._token = None
 
 
-__all__ = ["EarthScopeArchive"]
+__all__ = [
+    "ARCHIVE_PREFIX",
+    "canonical_campaign_urls",
+    "list_campaign_archive_urls",
+    "EarthScopeArchive",
+]

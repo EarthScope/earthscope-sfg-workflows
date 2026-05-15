@@ -20,12 +20,12 @@ from earthscope_sfg_workflows.data_mgmt import (
     DirectoryTree,
     LayoutInspector,
 )
-from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import (
+from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
     ARCHIVE_PREFIX,
     canonical_campaign_urls,
     list_campaign_archive_urls,
 )
-from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import (
+from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
     FakeArchive,
     InMemoryAssetStore,
 )
@@ -106,7 +106,7 @@ class TestSessionDecorators:
     def test_garpos_survey_requires_survey(self):
         ws = make_session(network="N", station="S", campaign="C")
         with pytest.raises(ValueError, match="survey"):
-            ws.garpos_survey()
+            _ = ws.garpos_survey_layout
 
     def test_survey_dir_requires_survey(self):
         ws = make_session(network="N", station="S", campaign="C")
@@ -155,7 +155,7 @@ class TestLayoutFacade:
     def test_garpos_survey_requires_survey(self):
         ws = make_session(root="/data", network="N", station="S", campaign="C")
         with pytest.raises(ValueError, match="survey"):
-            ws.garpos_survey()
+            _ = ws.garpos_survey_layout
 
     def test_ensure_campaign_materializes_dirs(self):
         ws = make_session(root="/data", network="N", station="S", campaign="2026_A")
@@ -182,7 +182,7 @@ class TestAssetQueryFacade:
 
     def test_all_filters_by_kind(self):
         ws = self._seed()
-        novatels = ws.catalog.assets_for(ws.scope, AssetKind.NOVATEL)
+        novatels = ws.catalog.assets_for(kind=AssetKind.NOVATEL, network=ws.scope.network, station=ws.scope.station, campaign=ws.scope.campaign)
         assert len(novatels) == 1
         assert novatels[0].kind == AssetKind.NOVATEL
 
@@ -194,7 +194,8 @@ class TestAssetQueryFacade:
 
     def test_update_returns_new_frozen_entry(self):
         ws = self._seed()
-        entry = ws.catalog.assets_for(ws.scope, AssetKind.NOVATEL)[0]
+        kw = dict(kind=AssetKind.NOVATEL, network=ws.scope.network, station=ws.scope.station, campaign=ws.scope.campaign)
+        entry = ws.catalog.assets_for(**kw)[0]
         assert entry.is_processed is False
 
         updated = replace(entry, is_processed=True)
@@ -202,7 +203,7 @@ class TestAssetQueryFacade:
 
         assert updated is not entry  # frozen — different object
         assert updated.is_processed is True
-        assert ws.catalog.assets_for(ws.scope, AssetKind.NOVATEL)[0].is_processed is True
+        assert ws.catalog.assets_for(**kw)[0].is_processed is True
 
     def test_update_unknown_id_returns_false(self):
         ws = make_session(network="N", station="S", campaign="C")
@@ -244,7 +245,7 @@ class TestDiscoverCampaign:
 
         # NOV770, MASTER, RINEX2 each match a default detector pattern.
         assert report.cataloged == 3
-        kinds = {a.kind for a in ws._catalog.assets_for(scope)}
+        kinds = {a.kind for a in ws._catalog.assets_for(network=scope.network, station=scope.station, campaign=scope.campaign)}
         assert AssetKind.NOVATEL770 in kinds
         assert AssetKind.MASTER in kinds
         assert AssetKind.RINEX2 in kinds
@@ -297,8 +298,8 @@ class TestDiscoverCampaign:
 class TestLayoutInspector:
     def test_is_garpos_directory_requires_both_default_files(self):
         ws = make_session(root="/d", network="N", station="S", campaign="C", survey="V")
-        ws.ensure_garpos_survey()
-        layout = ws.garpos_survey()
+        ws.prepare_garpos_survey()
+        layout = ws.garpos_survey_layout
         inspector = LayoutInspector(ws._files)
 
         assert inspector.is_garpos_directory(layout) is False
@@ -311,8 +312,8 @@ class TestLayoutInspector:
 
     def test_find_rectified_shotdata_returns_none_if_missing(self):
         ws = make_session(root="/d", network="N", station="S", campaign="C", survey="V")
-        ws.ensure_garpos_survey()
-        layout = ws.garpos_survey()
+        ws.prepare_garpos_survey()
+        layout = ws.garpos_survey_layout
         inspector = LayoutInspector(ws._files)
 
         assert inspector.find_rectified_shotdata(layout) is None

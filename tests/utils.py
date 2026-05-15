@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from earthscope_sfg_workflows.data_mgmt.adapters.test_adapters import (
+from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
     FakeArchive,
     InMemoryAssetStore,
     InMemoryFileStore,

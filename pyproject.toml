@@ -112,6 +112,20 @@ PATH = "$PIXI_PROJECT_ROOT/.pixi/.PRIDE_PPPAR_BIN:$PATH"
 PYTHONPATH = "$PIXI_PROJECT_ROOT/.pixi/garpos/bin:$PYTHONPATH"
 CGO_ENABLED = "1"
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    # third-party packages we don't control
+    "ignore::DeprecationWarning:tiledb",
+    "ignore::DeprecationWarning:pydantic",
+    "ignore::DeprecationWarning:nptyping",
+    "ignore::DeprecationWarning:earthscope_sfg_tools",
+    "ignore::FutureWarning:earthscope_sfg_tools",
+    # expected in test environment: FakeArchive has no load_site_metadata
+    "ignore:Error loading site metadata:UserWarning",
+    # expected in test environment: S3_SYNC_BUCKET not configured
+    "ignore:Environment variable S3_SYNC_BUCKET:UserWarning",
+]
+
 [tool.ruff]
 line-length = 100
 

@@ -254,7 +254,7 @@ class IngestService:
         IngestReport
             Summary of cataloged, skipped, and errored items.
         """
-        from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import (
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
             canonical_campaign_urls,
         )
 
@@ -329,7 +329,7 @@ class IngestService:
         list of str
             All archive file URLs found for the given scope.
         """
-        from earthscope_sfg_workflows.data_mgmt.archives.earthscope._archive_urls import (
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
             list_campaign_archive_urls,
         )
 

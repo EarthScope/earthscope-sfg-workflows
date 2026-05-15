@@ -534,7 +534,7 @@ _RINEX_FIXTURE = FIXTURES / "NCC12510.25o"
 def _make_fake_tdb2rnx(rinex_dest: Path, filenames: list[str] | None = None):
     """Return a side-effect callable that copies the real RINEX fixture into CWD.
 
-    The pipeline ``chdir``\s into *rinex_dest* before calling ``tdb2rnx``, so
+    The pipeline ``chdir``s into *rinex_dest* before calling ``tdb2rnx``, so
     the side effect writes to ``Path.cwd()`` at call time.  Using the real
     RINEX fixture means ``rinex_get_time_range`` runs on actual data and the
     catalog entries receive genuine timestamps — no extra mock needed.
