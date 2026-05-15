@@ -129,8 +129,22 @@ class TestInMemoryAssetStore:
         store.add(AssetEntry(kind=AssetKind.KIN, scope=scope))
         store.add(AssetEntry(kind=AssetKind.KIN, scope=other))
 
-        assert len(store.assets_for(network=scope.network, station=scope.station, campaign=scope.campaign)) == 2
-        assert len(store.assets_for(network=other.network, station=other.station, campaign=other.campaign)) == 1
+        assert (
+            len(
+                store.assets_for(
+                    network=scope.network, station=scope.station, campaign=scope.campaign
+                )
+            )
+            == 2
+        )
+        assert (
+            len(
+                store.assets_for(
+                    network=other.network, station=other.station, campaign=other.campaign
+                )
+            )
+            == 1
+        )
 
     def test_count_by_kind(self, scope: SFGScope) -> None:
         store = InMemoryAssetStore()
@@ -170,14 +184,26 @@ class TestAssetCatalog:
             assert fetched.kind == AssetKind.NOVATEL
             assert fetched.local_path == Path("/data/n.bin")
 
-            assert store.assets_for(network=scope.network, station=scope.station, campaign=scope.campaign) == [fetched]
-            assert store.count_by_kind(network=scope.network, station=scope.station, campaign=scope.campaign) == {AssetKind.NOVATEL: 1}
+            assert store.assets_for(
+                network=scope.network, station=scope.station, campaign=scope.campaign
+            ) == [fetched]
+            assert store.count_by_kind(
+                network=scope.network, station=scope.station, campaign=scope.campaign
+            ) == {AssetKind.NOVATEL: 1}
 
             assert store.update(fetched.with_local_path(Path("/data/n2.bin")))
             assert store.by_id(a.id).local_path == Path("/data/n2.bin")  # type: ignore[arg-type]
 
-            assert store.delete(network=scope.network, station=scope.station, campaign=scope.campaign) == 1
-            assert store.assets_for(network=scope.network, station=scope.station, campaign=scope.campaign) == []
+            assert (
+                store.delete(network=scope.network, station=scope.station, campaign=scope.campaign)
+                == 1
+            )
+            assert (
+                store.assets_for(
+                    network=scope.network, station=scope.station, campaign=scope.campaign
+                )
+                == []
+            )
         finally:
             store.close()
 
@@ -308,7 +334,12 @@ class TestIngestService:
         # reaches the service and gets counted as skipped.
         assert report.skipped == 1
 
-        kinds = {a.kind for a in catalog.assets_for(network=scope.network, station=scope.station, campaign=scope.campaign)}
+        kinds = {
+            a.kind
+            for a in catalog.assets_for(
+                network=scope.network, station=scope.station, campaign=scope.campaign
+            )
+        }
         assert kinds == {AssetKind.RINEX2, AssetKind.SONARDYNE}
 
     def test_discover_archive_sets_remote_only(self, scope: SFGScope) -> None:
@@ -348,7 +379,9 @@ class TestIngestService:
         assert report.ok
         assert report.downloaded == 1
 
-        [asset] = catalog.assets_for(network=scope.network, station=scope.station, campaign=scope.campaign)
+        [asset] = catalog.assets_for(
+            network=scope.network, station=scope.station, campaign=scope.campaign
+        )
         assert asset.local_path is not None
         assert asset.local_path.exists()
         assert asset.local_path.read_bytes() == b"R"

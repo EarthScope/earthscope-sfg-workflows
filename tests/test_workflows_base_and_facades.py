@@ -182,7 +182,12 @@ class TestAssetQueryFacade:
 
     def test_all_filters_by_kind(self):
         ws = self._seed()
-        novatels = ws.catalog.assets_for(kind=AssetKind.NOVATEL, network=ws.scope.network, station=ws.scope.station, campaign=ws.scope.campaign)
+        novatels = ws.catalog.assets_for(
+            kind=AssetKind.NOVATEL,
+            network=ws.scope.network,
+            station=ws.scope.station,
+            campaign=ws.scope.campaign,
+        )
         assert len(novatels) == 1
         assert novatels[0].kind == AssetKind.NOVATEL
 
@@ -194,7 +199,12 @@ class TestAssetQueryFacade:
 
     def test_update_returns_new_frozen_entry(self):
         ws = self._seed()
-        kw = dict(kind=AssetKind.NOVATEL, network=ws.scope.network, station=ws.scope.station, campaign=ws.scope.campaign)
+        kw = dict(
+            kind=AssetKind.NOVATEL,
+            network=ws.scope.network,
+            station=ws.scope.station,
+            campaign=ws.scope.campaign,
+        )
         entry = ws.catalog.assets_for(**kw)[0]
         assert entry.is_processed is False
 
@@ -245,7 +255,12 @@ class TestDiscoverCampaign:
 
         # NOV770, MASTER, RINEX2 each match a default detector pattern.
         assert report.cataloged == 3
-        kinds = {a.kind for a in ws._catalog.assets_for(network=scope.network, station=scope.station, campaign=scope.campaign)}
+        kinds = {
+            a.kind
+            for a in ws._catalog.assets_for(
+                network=scope.network, station=scope.station, campaign=scope.campaign
+            )
+        }
         assert AssetKind.NOVATEL770 in kinds
         assert AssetKind.MASTER in kinds
         assert AssetKind.RINEX2 in kinds
