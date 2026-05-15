@@ -26,7 +26,7 @@ dependencies = [
   "rich>=13.0",
   "pyyaml>=6.0",
   "pride-ppp @ git+https://github.com/EarthScope/GNSSommelier.git#subdirectory=packages/pride-ppp"
-, "scikit-sparse>=0.4.16,<0.5"]
+]
 
 [project.scripts]
 sfgtools = "earthscope_sfg_cli.__main__:app"
@@ -52,6 +52,20 @@ pytest = ">=8"
 ruff = ">=0.4"
 fsspec = ">=2024.5.0,<2025"
 universal_pathlib = "<=0.3.10"
+scikit-sparse = ">=0.4.16,<0.5"
+numpy = ">=1.26,<2"
+gfortran = ">=14"
+make = ">=4"
+clang = ">=14"
+go = ">=1.25"
+go-cgo = ">=1.25"
+
+[tool.pixi.target.linux-64.dependencies]
+gcc = ">=14"
+libstdcxx-ng = ">=14"
+bc = ">=1"
+sqlite = ">=3.40"
+nodejs = ">=20"
 
 [tool.pixi.pypi-dependencies]
 earthscope_sfg_workflows = { path = ".", editable = true }
@@ -96,6 +110,7 @@ DYLD_LIBRARY_PATH = "$PIXI_PROJECT_ROOT/.pixi/envs/$PIXI_ENVIRONMENT_NAME/lib:$D
 LD_LIBRARY_PATH = "$PIXI_PROJECT_ROOT/.pixi/envs/$PIXI_ENVIRONMENT_NAME/lib:$LD_LIBRARY_PATH"
 PATH = "$PIXI_PROJECT_ROOT/.pixi/.PRIDE_PPPAR_BIN:$PATH"
 PYTHONPATH = "$PIXI_PROJECT_ROOT/.pixi/garpos/bin:$PYTHONPATH"
+CGO_ENABLED = "1"
 
 [tool.ruff]
 line-length = 100
