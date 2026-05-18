@@ -1,0 +1,129 @@
+{
+    "name": "2025_A_1126",
+    "type": "measure",
+    "vesselCode": "1126",
+    "start": "2025-09-07T20:27:00Z",
+    "end": "2025-09-13T07:12:00Z",
+    "vessel": {
+        "name": "1126",
+        "type": "waveglider",
+        "model": "sv3",
+        "serialNumber": null,
+        "start": "2023-02-01T00:00:00Z",
+        "end": null,
+        "imuSensors": [],
+        "atdOffsets": [
+            {
+                "serialNumber": "641-0654",
+                "x": 0.0,
+                "y": 0.00053,
+                "z": 0.92813
+            }
+        ],
+        "gnssAntennas": [
+            {
+                "type": "novatel",
+                "serialNumber": "NMLM22110020V",
+                "start": "2023-02-28T00:00:00Z",
+                "order": "primary",
+                "model": "GNSS-802L",
+                "radomeSerialNumber": null,
+                "end": null
+            },
+            {
+                "type": "novatel",
+                "serialNumber": "NMLM22090012Z",
+                "start": "2023-02-28T00:00:00Z",
+                "order": "secondary",
+                "model": "GNSS-802L",
+                "radomeSerialNumber": null,
+                "end": null
+            }
+        ],
+        "gnssReceivers": [
+            {
+                "type": "Novatel OEM7720-1.00",
+                "serialNumber": "DMMU18390089G",
+                "start": "2023-05-04T00:00:00Z",
+                "model": null,
+                "firmwareVersion": "7.09.00",
+                "end": "2026-03-27T00:00:00Z"
+            },
+            {
+                "type": "Novatel OEM7720-1.00",
+                "serialNumber": "DMMU18390089G",
+                "start": "2026-03-27T00:00:00Z",
+                "model": null,
+                "firmwareVersion": "7.10.00",
+                "end": null
+            }
+        ],
+        "acousticTransducers": [
+            {
+                "type": "641-0654",
+                "serialNumber": "0",
+                "frequency": "MF",
+                "start": "2023-02-28T00:00:00Z",
+                "end": null
+            }
+        ],
+        "acousticTransceivers": [
+            {
+                "type": "null",
+                "serialNumber": "0",
+                "frequency": "MF",
+                "start": "2023-02-28T00:00:00Z",
+                "triggerDelay": 0.13,
+                "delayIncludedInTWTT": true,
+                "end": null
+            }
+        ]
+    },
+    "principalInvestigator": "Todd Erickson",
+    "launchVesselName": "North Wind",
+    "recoveryVesselName": null,
+    "cruiseName": null,
+    "technicianName": null,
+    "technicianContact": null,
+    "surveys": [
+        {
+            "id": "2025_A_1126_1",
+            "type": "circledrive",
+            "benchmarkIDs": [
+                "NCC1-1",
+                "NCC1-2",
+                "NCC1-3-2"
+            ],
+            "start": "2025-09-07T20:27:00Z",
+            "end": "2025-09-08T13:40:00Z",
+            "notes": null,
+            "commands": null
+        },
+        {
+            "id": "2025_A_1126_2",
+            "type": "center",
+            "benchmarkIDs": [
+                "NCC1-1",
+                "NCC1-2",
+                "NCC1-3-2"
+            ],
+            "start": "2025-09-08T13:40:00Z",
+            "end": "2025-09-12T19:33:00Z",
+            "notes": null,
+            "commands": null
+        },
+        {
+            "id": "2025_A_1126_3",
+            "type": "movearound",
+            "benchmarkIDs": [
+                "NCC1-1",
+                "NCC1-2",
+                "NCC1-3-2"
+            ],
+            "start": "2025-09-12T19:33:00Z",
+            "end": "2025-09-13T07:12:00Z",
+            "notes": "GARPOS 1.5R",
+            "commands": null
+        }
+    ]
+}

@@ -1,0 +1,42 @@
+name: SFG workflow tests
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - '.github/workflows/test-python.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - '.github/workflows/test-python.yml'
+  workflow_dispatch:
+
+jobs:
+  test-formatting-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.9.5
+        with:
+          pixi-version: v0.67.2
+
+      - name: Check formatting with ruff
+        run: pixi run format-check
+
+      - name: Run tests
+        run: pixi run test
+
+      - name: Test PRIDE install
+        run: pixi run test-pride
+
+      - name: Test GARPOS install
+        run: pixi run test-garpos
+        
+
+
+
