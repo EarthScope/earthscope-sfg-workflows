@@ -45,9 +45,11 @@ pixi run lint
 pixi run test
 ```
 
-To install a specific version of the package use `pixi install -e version`.
+To install dependencies for a specific Pixi environment, use
+`pixi install -e <environment>`.
 
-To enter an environment run either `pixi shell` or `pixi shell -e version`.
+To enter an environment, run either `pixi shell` or
+`pixi shell -e <environment>`.
 
 Integration with GARPOS and PRIDE-PPPAR is bootstrapped via Pixi tasks:
 
