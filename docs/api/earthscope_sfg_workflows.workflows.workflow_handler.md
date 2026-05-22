@@ -91,7 +91,7 @@ qc_process_and_model(site_metadata, run_id, iterations, garpos_settings, garpos_
 
 **Methods**
 
-### `WorkflowHandler.download_data(self, kinds: 'list[AssetKind | str] | frozenset[AssetKind] | None' = frozenset({<AssetKind.SONARDYNE: 'sonardyne'>, <AssetKind.NOVATEL770: 'novatel770'>, <AssetKind.SEABIRD: 'seabird'>, <AssetKind.DFOP00: 'dfop00'>, <AssetKind.CTD: 'ctd'>, <AssetKind.NOVATEL000: 'novatel000'>, <AssetKind.NOVATEL: 'novatel'>}), override: bool = False, rinex_1hz: bool = False) -> None`
+### `WorkflowHandler.download_data(self, kinds: 'list[AssetKind | str] | frozenset[AssetKind] | None' = frozenset({<AssetKind.NOVATEL770: 'novatel770'>, <AssetKind.NOVATEL: 'novatel'>, <AssetKind.SEABIRD: 'seabird'>, <AssetKind.CTD: 'ctd'>, <AssetKind.DFOP00: 'dfop00'>, <AssetKind.SONARDYNE: 'sonardyne'>, <AssetKind.NOVATEL000: 'novatel000'>}), override: bool = False, rinex_1hz: bool = False) -> None`
 
 Download cataloged remote files for the active campaign.
 

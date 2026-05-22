@@ -152,23 +152,23 @@ Pandera schema for the post-inversion GARPOS observation output.
 
 | Name | Type | Description |
 |---|---|---|
-| `MT` | `<pandera.common.AnnotationInfo object at 0x30efdf8c0>` |  |
-| `TT` | `<pandera.common.AnnotationInfo object at 0x30e951e20>` |  |
-| `ST` | `<pandera.common.AnnotationInfo object at 0x30ef64560>` |  |
-| `RT` | `<pandera.common.AnnotationInfo object at 0x30e5cb290>` |  |
-| `flag` | `<pandera.common.AnnotationInfo object at 0x30e9f2d50>` |  |
-| `gamma` | `<pandera.common.AnnotationInfo object at 0x30effbfe0>` |  |
-| `ResiTT` | `<pandera.common.AnnotationInfo object at 0x30fc6c9e0>` |  |
-| `TakeOff` | `<pandera.common.AnnotationInfo object at 0x30fc6ce60>` |  |
-| `head1` | `<pandera.common.AnnotationInfo object at 0x30fc6f200>` |  |
-| `ResiRange` | `<pandera.common.AnnotationInfo object at 0x30fc6ce30>` |  |
-| `dVO` | `<pandera.common.AnnotationInfo object at 0x30fc6cc20>` |  |
-| `gradV1e` | `<pandera.common.AnnotationInfo object at 0x30fc6ca10>` |  |
-| `gradV1n` | `<pandera.common.AnnotationInfo object at 0x30fc6ca40>` |  |
-| `gradV2e` | `<pandera.common.AnnotationInfo object at 0x30fc6cd70>` |  |
-| `gradV2n` | `<pandera.common.AnnotationInfo object at 0x30f0c6a50>` |  |
-| `dV` | `<pandera.common.AnnotationInfo object at 0x30f0c6990>` |  |
-| `LogResidual` | `<pandera.common.AnnotationInfo object at 0x30f0c6960>` |  |
+| `MT` | `<pandera.common.AnnotationInfo object at 0x3030d5430>` |  |
+| `TT` | `<pandera.common.AnnotationInfo object at 0x16f864050>` |  |
+| `ST` | `<pandera.common.AnnotationInfo object at 0x3033a5700>` |  |
+| `RT` | `<pandera.common.AnnotationInfo object at 0x303b594c0>` |  |
+| `flag` | `<pandera.common.AnnotationInfo object at 0x302b06060>` |  |
+| `gamma` | `<pandera.common.AnnotationInfo object at 0x302d4e8d0>` |  |
+| `ResiTT` | `<pandera.common.AnnotationInfo object at 0x16faac4a0>` |  |
+| `TakeOff` | `<pandera.common.AnnotationInfo object at 0x16faacc20>` |  |
+| `head1` | `<pandera.common.AnnotationInfo object at 0x303132240>` |  |
+| `ResiRange` | `<pandera.common.AnnotationInfo object at 0x303132270>` |  |
+| `dVO` | `<pandera.common.AnnotationInfo object at 0x303132ba0>` |  |
+| `gradV1e` | `<pandera.common.AnnotationInfo object at 0x303130200>` |  |
+| `gradV1n` | `<pandera.common.AnnotationInfo object at 0x303133200>` |  |
+| `gradV2e` | `<pandera.common.AnnotationInfo object at 0x16e754110>` |  |
+| `gradV2n` | `<pandera.common.AnnotationInfo object at 0x303b071a0>` |  |
+| `dV` | `<pandera.common.AnnotationInfo object at 0x303b06780>` |  |
+| `LogResidual` | `<pandera.common.AnnotationInfo object at 0x302e9ec30>` |  |
 
 ## class `InversionLoop`
 
@@ -257,27 +257,27 @@ Example data:
 
 | Name | Type | Description |
 |---|---|---|
-| `SET` | `<pandera.common.AnnotationInfo object at 0x30f0feba0>` |  |
-| `LN` | `<pandera.common.AnnotationInfo object at 0x30e9f2db0>` |  |
-| `MT` | `<pandera.common.AnnotationInfo object at 0x30e256870>` |  |
-| `TT` | `<pandera.common.AnnotationInfo object at 0x30eda5760>` |  |
-| `ST` | `<pandera.common.AnnotationInfo object at 0x30f0a0da0>` |  |
-| `RT` | `<pandera.common.AnnotationInfo object at 0x30e87b860>` |  |
-| `ant_e0` | `<pandera.common.AnnotationInfo object at 0x310585970>` |  |
-| `ant_n0` | `<pandera.common.AnnotationInfo object at 0x3105855e0>` |  |
-| `ant_u0` | `<pandera.common.AnnotationInfo object at 0x310585610>` |  |
-| `head0` | `<pandera.common.AnnotationInfo object at 0x3105856a0>` |  |
-| `pitch0` | `<pandera.common.AnnotationInfo object at 0x310585a90>` |  |
-| `roll0` | `<pandera.common.AnnotationInfo object at 0x310585b20>` |  |
-| `ant_e1` | `<pandera.common.AnnotationInfo object at 0x310585a00>` |  |
-| `ant_n1` | `<pandera.common.AnnotationInfo object at 0x310585a30>` |  |
-| `ant_u1` | `<pandera.common.AnnotationInfo object at 0x310585ac0>` |  |
-| `head1` | `<pandera.common.AnnotationInfo object at 0x310585b50>` |  |
-| `pitch1` | `<pandera.common.AnnotationInfo object at 0x310585b80>` |  |
-| `roll1` | `<pandera.common.AnnotationInfo object at 0x310585bb0>` |  |
-| `flag` | `<pandera.common.AnnotationInfo object at 0x310585be0>` |  |
-| `lat` | `<pandera.common.AnnotationInfo object at 0x310585c10>` |  |
-| `lon` | `<pandera.common.AnnotationInfo object at 0x310585c40>` |  |
-| `gamma` | `<pandera.common.AnnotationInfo object at 0x310585c70>` |  |
-| `ResiTT` | `<pandera.common.AnnotationInfo object at 0x310585ca0>` |  |
-| `TakeOff` | `<pandera.common.AnnotationInfo object at 0x310585cd0>` |  |
+| `SET` | `<pandera.common.AnnotationInfo object at 0x303b8ec30>` |  |
+| `LN` | `<pandera.common.AnnotationInfo object at 0x3040ea900>` |  |
+| `MT` | `<pandera.common.AnnotationInfo object at 0x304065010>` |  |
+| `TT` | `<pandera.common.AnnotationInfo object at 0x304066db0>` |  |
+| `ST` | `<pandera.common.AnnotationInfo object at 0x304064800>` |  |
+| `RT` | `<pandera.common.AnnotationInfo object at 0x3046d9610>` |  |
+| `ant_e0` | `<pandera.common.AnnotationInfo object at 0x3046d9370>` |  |
+| `ant_n0` | `<pandera.common.AnnotationInfo object at 0x3046d92e0>` |  |
+| `ant_u0` | `<pandera.common.AnnotationInfo object at 0x3046d92b0>` |  |
+| `head0` | `<pandera.common.AnnotationInfo object at 0x3046d9730>` |  |
+| `pitch0` | `<pandera.common.AnnotationInfo object at 0x3046d97c0>` |  |
+| `roll0` | `<pandera.common.AnnotationInfo object at 0x3046d96a0>` |  |
+| `ant_e1` | `<pandera.common.AnnotationInfo object at 0x3046d96d0>` |  |
+| `ant_n1` | `<pandera.common.AnnotationInfo object at 0x3046d9760>` |  |
+| `ant_u1` | `<pandera.common.AnnotationInfo object at 0x3046d97f0>` |  |
+| `head1` | `<pandera.common.AnnotationInfo object at 0x3046d9820>` |  |
+| `pitch1` | `<pandera.common.AnnotationInfo object at 0x3046d9850>` |  |
+| `roll1` | `<pandera.common.AnnotationInfo object at 0x3046d9880>` |  |
+| `flag` | `<pandera.common.AnnotationInfo object at 0x3046d98b0>` |  |
+| `lat` | `<pandera.common.AnnotationInfo object at 0x3046d98e0>` |  |
+| `lon` | `<pandera.common.AnnotationInfo object at 0x3046d9910>` |  |
+| `gamma` | `<pandera.common.AnnotationInfo object at 0x3046d9940>` |  |
+| `ResiTT` | `<pandera.common.AnnotationInfo object at 0x3046d9970>` |  |
+| `TakeOff` | `<pandera.common.AnnotationInfo object at 0x3046d99a0>` |  |
