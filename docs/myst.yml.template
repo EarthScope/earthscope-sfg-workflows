@@ -1,0 +1,28 @@
+version: 1
+# When the root EarthScope docs repo exists, uncomment and update this path:
+# extends:
+#   - ../earthscope-docs/myst.yml
+
+project:
+  id: earthscope-sfg-workflows
+  title: EarthScope SFG Worflows
+  description: Parsing and core data primitives for Seafloor Geodesy processing
+  authors:
+    - name: Mike Gottlieb
+      email: mike.gottlieb@earthscope.org
+    - name: Franklyn Dunbar
+      email: franklyn.dunbar@earthscope.org
+    - name: Rachel Akie
+      email: rachel.akie@earthscope.org
+  github: https://github.com/EarthScope/earthscope-sfg-tools
+  toc:
+    - file: docs/index.md
+    - title: Getting Started
+      children:
+        - file: docs/installation.md
+        - file: docs/development.md
+{{ API_TOC }}
+site:
+  options:
+    base_url: /earthscope_sfg_workflows
+  title: EarthScope SFG Workflows

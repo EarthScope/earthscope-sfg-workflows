@@ -40,10 +40,14 @@ This repo uses [Pixi](https://pixi.sh) for environment management and is
 configured to coexist with `earthscope-sfg-tools` in the same Pixi workspace.
 
 ```bash
-pixi install
+pixi install 
 pixi run lint
 pixi run test
 ```
+
+To install a specific version of the package use `pixi install -e version`.
+
+To enter an environment run either `pixi shell` or `pixi shell -e version`.
 
 Integration with GARPOS and PRIDE-PPPAR is bootstrapped via Pixi tasks:
 
