@@ -79,7 +79,7 @@ Click a file below to open its API page.
 - [processing_service](./earthscope_sfg_workflows.services.processing_service)
 - [sync_service](./earthscope_sfg_workflows.services.sync_service)
 
-## Utilities
+## Utils
 
 ### General
 

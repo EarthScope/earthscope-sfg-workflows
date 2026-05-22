@@ -90,7 +90,7 @@ project:
                 - file: docs/api/earthscope_sfg_workflows.services.ingest_service.md
                 - file: docs/api/earthscope_sfg_workflows.services.processing_service.md
                 - file: docs/api/earthscope_sfg_workflows.services.sync_service.md
-        - title: Utilities
+        - title: Utils
           children:
             - title: General
               children:
