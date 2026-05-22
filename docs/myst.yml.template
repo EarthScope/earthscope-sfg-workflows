@@ -14,7 +14,7 @@ project:
       email: franklyn.dunbar@earthscope.org
     - name: Rachel Akie
       email: rachel.akie@earthscope.org
-  github: https://github.com/EarthScope/earthscope-sfg-tools
+  github: https://github.com/EarthScope/earthscope-sfg-workflows
   toc:
     - file: docs/index.md
     - title: Getting Started
