@@ -69,7 +69,7 @@ nodejs = ">=20"
 
 [tool.pixi.pypi-dependencies]
 earthscope_sfg_workflows = { path = ".", editable = true }
-earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-tools.git", branch = "feature/rinex-compression-utils", extras = ["tiledb"] }
+earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-tools.git", branch = "main", extras = ["tiledb"] }
 
 [tool.pixi.feature.tiledb.dependencies]
 tiledb = ">=2.27"
@@ -101,7 +101,7 @@ install-pride = { cmd = "chmod +x install.sh && echo 'N' | HOME=$PIXI_PROJECT_RO
 test-pride = { cmd = "chmod +x test.sh && ./test.sh", cwd = ".pixi/PRIDE-PPPAR/example", depends-on = ["install-pride"] }
 
 setup = { depends-on = ["compile-garpos", "install-pride"] }
-test-setup = {depends-on = ["test-garpos","test-pride"]}
+test-setup = { depends-on = ["test-garpos", "test-pride"] }
 
 
 [tool.pixi.activation]
