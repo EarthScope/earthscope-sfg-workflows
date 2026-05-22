@@ -319,7 +319,7 @@ def main() -> None:
     #
     # Example output:
     #   docs/api/index.md
-    #   docs/api/earthscope_sfg_tools.datamodels.metadata.community.site.md
+    #   docs/api/earthscope_sfg_workflows.datamodels.metadata.community.site.md
     # -------------------------------------------------------------------------
     API_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -329,7 +329,7 @@ def main() -> None:
     # Uses:
     #   iter_package_modules(PACKAGE)
     #
-    # This walks earthscope_sfg_tools and imports each Python module so we can
+    # This walks earthscope_sfg_workflows and imports each Python module so we can
     # inspect its public classes/functions.
     # -------------------------------------------------------------------------
     modules = list(iter_package_modules(PACKAGE))
@@ -409,7 +409,7 @@ def main() -> None:
     #   not ./api/<stem>.
     # -------------------------------------------------------------------------
     index_lines = [
-        "# Tools",
+        "# Workflows API Reference",
         "",
         "Click a file below to open its API page.",
         "",
@@ -450,7 +450,7 @@ def main() -> None:
     #   MyST warnings recommend including .md extensions explicitly.
     # -------------------------------------------------------------------------
     toc_lines = [
-    "    - title: Tools",
+    "    - title: API Reference",
     "      children:",
     "        - file: docs/api/index.md",
     ]

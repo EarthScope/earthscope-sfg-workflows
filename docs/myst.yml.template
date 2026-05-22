@@ -5,7 +5,7 @@ version: 1
 
 project:
   id: earthscope-sfg-workflows
-  title: EarthScope SFG Worflows
+  title: EarthScope SFG Workflows
   description: Parsing and core data primitives for Seafloor Geodesy processing
   authors:
     - name: Mike Gottlieb
