@@ -4,6 +4,7 @@ import dataclasses
 import importlib
 import inspect
 import pkgutil
+import re
 import sys
 from pathlib import Path
 from typing import Any, get_type_hints
@@ -53,6 +54,9 @@ def fmt_annotation(value: Any) -> str:
         return value.__name__
 
     text = str(value)
+    if re.fullmatch(r"<.+ object at 0x[0-9a-fA-F]+>", text):
+        return type(value).__name__
+
     return (
         text.replace("typing.", "")
         .replace("<class '", "")
