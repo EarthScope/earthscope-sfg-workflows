@@ -1,0 +1,110 @@
+version: 1
+# When the root EarthScope docs repo exists, uncomment and update this path:
+# extends:
+#   - ../earthscope-docs/myst.yml
+
+project:
+  id: earthscope-sfg-workflows
+  title: EarthScope SFG Workflows
+  description: Workflow orchestration and data manage for EarthScope Seafloor Geodesy pipelines
+  authors:
+    - name: Mike Gottlieb
+      email: mike.gottlieb@earthscope.org
+    - name: Franklyn Dunbar
+      email: franklyn.dunbar@earthscope.org
+    - name: Rachel Akie
+      email: rachel.akie@earthscope.org
+  github: https://github.com/EarthScope/earthscope-sfg-tools
+  toc:
+    - file: docs/index.md
+    - title: Getting Started
+      children:
+        - file: docs/installation.md
+        - file: docs/development.md
+    - title: API Reference
+      children:
+        - file: docs/api/index.md
+        - title: Config
+          children:
+            - title: General
+              children:
+                - file: docs/api/earthscope_sfg_workflows.config.env_config.md
+                - file: docs/api/earthscope_sfg_workflows.config.file_config.md
+                - file: docs/api/earthscope_sfg_workflows.config.garpos_config.md
+                - file: docs/api/earthscope_sfg_workflows.config.loadconfigs.md
+        - title: Data Management
+          children:
+            - title: Adapters
+              children:
+                - file: docs/api/earthscope_sfg_workflows.data_mgmt.adapters.memory.md
+            - title: Archives
+              children:
+                - file: docs/api/earthscope_sfg_workflows.data_mgmt.archives.archive_pull.md
+                - file: docs/api/earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive.md
+            - title: Catalog
+              children:
+                - file: docs/api/earthscope_sfg_workflows.data_mgmt.catalog.sql_asset_catalog.md
+            - title: Filestore
+              children:
+                - file: docs/api/earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore.md
+            - title: General
+              children:
+                - file: docs/api/earthscope_sfg_workflows.data_mgmt.core.md
+                - file: docs/api/earthscope_sfg_workflows.data_mgmt.model.md
+                - file: docs/api/earthscope_sfg_workflows.data_mgmt.ports.md
+                - file: docs/api/earthscope_sfg_workflows.data_mgmt.utils.md
+        - title: Logging
+          children:
+            - title: General
+              children:
+                - file: docs/api/earthscope_sfg_workflows.logging.loggers.md
+        - title: Modeling
+          children:
+            - title: Garpos Tools
+              children:
+                - file: docs/api/earthscope_sfg_workflows.modeling.garpos_tools.data_prep.md
+                - file: docs/api/earthscope_sfg_workflows.modeling.garpos_tools.functions.md
+                - file: docs/api/earthscope_sfg_workflows.modeling.garpos_tools.load_utils.md
+                - file: docs/api/earthscope_sfg_workflows.modeling.garpos_tools.plotting.md
+                - file: docs/api/earthscope_sfg_workflows.modeling.garpos_tools.schemas.md
+        - title: Pipelines
+          children:
+            - title: General
+              children:
+                - file: docs/api/earthscope_sfg_workflows.pipelines.config.md
+                - file: docs/api/earthscope_sfg_workflows.pipelines.exceptions.md
+                - file: docs/api/earthscope_sfg_workflows.pipelines.plotting.md
+                - file: docs/api/earthscope_sfg_workflows.pipelines.qc_pipeline.md
+                - file: docs/api/earthscope_sfg_workflows.pipelines.shotdata_gnss_refinement.md
+                - file: docs/api/earthscope_sfg_workflows.pipelines.sv3_pipeline.md
+        - title: Prefiltering
+          children:
+            - title: General
+              children:
+                - file: docs/api/earthscope_sfg_workflows.prefiltering.schemas.md
+                - file: docs/api/earthscope_sfg_workflows.prefiltering.utils.md
+        - title: Services
+          children:
+            - title: General
+              children:
+                - file: docs/api/earthscope_sfg_workflows.services.ingest_service.md
+                - file: docs/api/earthscope_sfg_workflows.services.processing_service.md
+                - file: docs/api/earthscope_sfg_workflows.services.sync_service.md
+        - title: Utils
+          children:
+            - title: General
+              children:
+                - file: docs/api/earthscope_sfg_workflows.utils.command_line_utils.md
+                - file: docs/api/earthscope_sfg_workflows.utils.custom_warnings_exceptions.md
+                - file: docs/api/earthscope_sfg_workflows.utils.model_update.md
+        - title: Workflows
+          children:
+            - title: General
+              children:
+                - file: docs/api/earthscope_sfg_workflows.workflows.session.md
+                - file: docs/api/earthscope_sfg_workflows.workflows.workflow_handler.md
+                - file: docs/api/earthscope_sfg_workflows.workflows.workspace.md
+site:
+  options:
+    base_url: /earthscope_sfg_workflows
+  title: EarthScope SFG Workflows

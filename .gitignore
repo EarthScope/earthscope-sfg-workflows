@@ -222,3 +222,5 @@ __marimo__/
 .plans/*
 .claude/*
 
+# MyST build output
+_build/

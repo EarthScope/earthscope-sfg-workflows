@@ -45,6 +45,12 @@ pixi run lint
 pixi run test
 ```
 
+To install dependencies for a specific Pixi environment, use
+`pixi install -e <environment>`.
+
+To enter an environment, run either `pixi shell` or
+`pixi shell -e <environment>`.
+
 Integration with GARPOS and PRIDE-PPPAR is bootstrapped via Pixi tasks:
 
 ```bash
@@ -161,6 +167,27 @@ pixi run test         # pytest
 Docstrings follow [Google style](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings).
 A repo-local converter (`dev/convert_docstrings.py`) is available for
 normalizing legacy NumPy/reST docstrings.
+
+## Docs
+
+API reference pages are auto-generated from docstrings. Regenerate them before
+building if you've changed any public interfaces:
+
+```bash
+pixi run -e docs python scripts/generate_api_md.py
+```
+
+Serve locally with live reload:
+
+```bash
+pixi run -e docs docs
+```
+
+Build static HTML (output goes to `_build/html/`):
+
+```bash
+pixi run -e docs docs-build
+```
 
 ## License
 

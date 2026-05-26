@@ -1,0 +1,12 @@
+[build]
+  publish = "publish"
+  command = """
+    npm install -g mystmd && \
+    myst build --html && \
+    mkdir -p "publish$BASE_URL" && \
+    mv _build/html/* "publish$BASE_URL/"
+  """
+
+[build.environment]
+  NODE_VERSION = "24"
+  BASE_URL     = "/<PATH>"

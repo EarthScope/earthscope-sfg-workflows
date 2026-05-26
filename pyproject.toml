@@ -28,6 +28,9 @@ dependencies = [
   "pride-ppp @ git+https://github.com/EarthScope/GNSSommelier.git#subdirectory=packages/pride-ppp"
 ]
 
+[project.optional-dependencies]
+docs = ["myst-parser>=5.1.0", "mystmd"]
+
 [project.scripts]
 sfgtools = "earthscope_sfg_cli.__main__:app"
 
@@ -80,15 +83,21 @@ tiledb = ">=0.30"
 [tool.pixi.feature.jupyter.dependencies]
 jupyter = ">=1.1.1"
 
+[tool.pixi.feature.docs.pypi-dependencies]
+myst-parser = ">=5.1.0"
+
 [tool.pixi.environments]
 default = { features = ["tiledb"], solve-group = "default" }
 geolab = { features = ["jupyter", "tiledb"], solve-group = "default" }
+docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
 test = { cmd = "pytest tests/ -v", description = "Run workflow test suite" }
 lint = { cmd = "ruff check src/ tests/", description = "Lint source and tests" }
 format-check = { cmd = "ruff format --check src/ tests/", description = "Check formatting" }
 format = { cmd = "ruff format src/ tests/", description = "Auto-format source" }
+docs = { cmd = "myst start", description = "Serve docs locally with live reload" }
+docs-build = { cmd = "myst build --html", description = "Build docs as static HTML" }
 
 # Clone and compile garpos from source (importable via PYTHONPATH set in activation)
 clone-garpos = { cmd = "bash -c 'if [ -d .pixi/garpos ]; then git -C .pixi/garpos pull; else git clone https://github.com/s-watanabe-jhod/garpos.git .pixi/garpos; fi'" }
