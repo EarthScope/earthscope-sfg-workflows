@@ -25,7 +25,7 @@ jobs:
         run: pixi run -e docs python scripts/generate_api_md.py
 
       - name: Build docs
-        run: pixi run docs-build
+        run: pixi run -e docs docs-build
 
       # Optionally, upload docs as artifact for inspection
       - name: Upload built docs
