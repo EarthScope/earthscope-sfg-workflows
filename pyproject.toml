@@ -72,7 +72,7 @@ nodejs = ">=20"
 
 [tool.pixi.pypi-dependencies]
 earthscope_sfg_workflows = { path = ".", editable = true }
-earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-tools.git", extras = ["tiledb"] }
+earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-tools.git", rev = "main", extras = ["tiledb"] }
 
 [tool.pixi.feature.tiledb.dependencies]
 tiledb = ">=2.27"
