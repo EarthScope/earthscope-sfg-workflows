@@ -10,7 +10,7 @@ authors = [
   { name = "Rachel Akie", email = "rachel.akie@earthscope.org" }
 ]
 dependencies = [
-  "earthscope-sfg-tools[tiledb]>=0.1.0",
+  "earthscope-sfg-tools[tiledb] @ git+https://github.com/EarthScope/earthscope-sfg-tools.git@main",
   "boto3>=1.40",
   "botocore>=1.40",
   "sqlalchemy>=2.0",
@@ -72,7 +72,7 @@ nodejs = ">=20"
 
 [tool.pixi.pypi-dependencies]
 earthscope_sfg_workflows = { path = ".", editable = true }
-earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-tools.git", branch = "feature/rinex-compression-utils", extras = ["tiledb"] }
+earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-tools.git", rev = "main", extras = ["tiledb"] }
 
 [tool.pixi.feature.tiledb.dependencies]
 tiledb = ">=2.27"

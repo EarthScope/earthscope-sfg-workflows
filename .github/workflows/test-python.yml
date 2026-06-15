@@ -24,6 +24,7 @@ jobs:
         uses: prefix-dev/setup-pixi@v0.9.6
         with:
           pixi-version: v0.67.2
+          locked: false
 
       - name: Check formatting with ruff
         run: pixi run format-check
