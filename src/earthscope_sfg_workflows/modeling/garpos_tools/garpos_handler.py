@@ -642,7 +642,7 @@ class GarposHandler:
         override: bool = False,
     ) -> None:
         """Run the GARPOS model for a specific survey layout directory."""
-        logger.info(
+        logger.debug(
             f"Running GARPOS model for survey {garpos_survey_dir.root.parent.name}. Run ID: {run_id}"
         )
 
@@ -674,11 +674,16 @@ class GarposHandler:
                 f"Iteration {i + 1} of {iterations} for survey {garpos_survey_dir.root.parent.name}"
             )
 
+            # Preserve the user-supplied run_id in result filenames so outputs
+            # in run_<run_id>/ are labeled consistently. For multi-iteration
+            # runs, append the iteration index to avoid filename collisions.
+            iteration_run_id = str(run_id) if iterations == 1 else f"{run_id}_{i}"
+
             obsfile_path = self._run_garpos(
                 custom_settings=custom_settings,
                 obsfile_path=obsfile_path,
                 results_dir=results_dir,
-                run_id=f"{i}",
+                run_id=iteration_run_id,
                 override=override,
             )
             if iterations > 1 and i < iterations - 1:
@@ -704,7 +709,7 @@ class GarposHandler:
         override: bool = False,
     ) -> None:
         """Run the GARPOS model for a survey identified by its string ID."""
-        logger.info(f"Running GARPOS model for survey {survey_id}. Run ID: {run_id}")
+        logger.debug(f"Running GARPOS model for survey {survey_id}. Run ID: {run_id}")
         try:
             self.set_survey(survey_id=survey_id)
         except ValueError as e:
@@ -999,7 +1004,7 @@ class GarposHandler:
         # make a plot with 3 subplots showing ResiRange vs time for each unique_id
         fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
         fig.suptitle(
-            f"Residuals for {self.station_session.station_name} {survey_id} (Run {run_id})"
+            f"Residuals for {self.station_session.scope.station} {survey_id} (Run {run_id})"
         )
         for i, unique_id in enumerate(unique_ids):
             transponder_df_raw = results_df_raw[results_df_raw["MT"] == unique_id].sort_values(
@@ -1033,7 +1038,7 @@ class GarposHandler:
         for ax in axs:
             ax.grid()
         plt.tight_layout()
-        fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.station_name}_{survey_id}_flagged_residuals.png"
+        fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.scope.station}_{survey_id}_flagged_residuals.png"
         if savefig:
             logger.info(f"Saving figure to {fig_path}")
             plt.savefig(
@@ -1128,7 +1133,7 @@ class GarposHandler:
             # make a plot with 3 subplots showing ResiRange vs time for each unique_id
             fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
             fig.suptitle(
-                f"Residuals for {self.station_session.station_name} {survey_id} (Run {run_id})"
+                f"Residuals for {self.station_session.scope.station} {survey_id} (Run {run_id})"
             )
             for i, unique_id in enumerate(unique_ids):
                 transponder_df = results_df[results_df["MT"] == unique_id].sort_values("time")
@@ -1166,7 +1171,7 @@ class GarposHandler:
             # add gridlines
             ax.grid()
         plt.tight_layout()
-        fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.station_name}_{survey_id}_garpos_residuals.png"
+        fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.scope.station}_{survey_id}_garpos_residuals.png"
         if savefig:
             logger.info(f"Saving figure to {fig_path}")
             plt.savefig(
@@ -1222,7 +1227,7 @@ class GarposHandler:
                     showfig=showfig,
                 )
             except Exception as e:
-                logger.warning(f"Skipping plotting for survey {survey_id}: {e}")
+                logger.warning(f"Skipping plotting for survey {sid}: {e}")
                 continue
 
     def _plot_ts_results(
@@ -1300,7 +1305,7 @@ class GarposHandler:
         total_height = (total_rows + extra_rows) * ts_row_height_in
 
         plt.figure(figsize=(20, total_height))
-        title = f"{self.station_session.station_name}"
+        title = f"{self.station_session.scope.station}"
         if survey_type is not None:
             title += f" {survey_type}"
         title += f" Survey {survey_id} Results"
