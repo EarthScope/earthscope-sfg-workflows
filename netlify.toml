@@ -11,4 +11,4 @@
 
 [build.environment]
   NODE_VERSION = "24"
-  BASE_URL     = "/<PATH>"
+  BASE_URL     = "/seafloor-geodesy/workflows"
