@@ -1,10 +1,12 @@
 [build]
   publish = "publish"
   command = """
-    npm install -g mystmd && \
+    npm install -g mystmd@~1.10.1 && \
+    myst --version && \
     myst build --html && \
     mkdir -p "publish$BASE_URL" && \
-    mv _build/html/* "publish$BASE_URL/"
+    mv _build/html/* "publish$BASE_URL/" && \
+    printf '/  %s/  301\n' "$BASE_URL" > publish/_redirects
   """
 
 [build.environment]
