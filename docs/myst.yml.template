@@ -1,7 +1,6 @@
 version: 1
-# When the root EarthScope docs repo exists, uncomment and update this path:
-# extends:
-#   - ../earthscope-docs/myst.yml
+extends:
+  - https://raw.githubusercontent.com/EarthScope/CloudDocs/main/es_config/earthscope.yml
 
 project:
   id: earthscope-sfg-workflows
