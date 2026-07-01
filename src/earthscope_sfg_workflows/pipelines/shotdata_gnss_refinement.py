@@ -368,40 +368,63 @@ def update_shotdata_with_smoothed_positions(
         logger.info("No smoothed results to interpolate from.")
         return shotdata
 
-    X_train = smoothed_results.time.to_numpy().reshape(-1, 1)
-    Y_train = smoothed_results[["ant_x", "ant_y", "ant_z"]].to_numpy()
+    # Evaluate the smoothed trajectory at the ping and return times by
+    # interpolating over time. The Kalman smoother only emits a state at each
+    # input observation (ping and kinematic epochs), so return times (ping +
+    # ~2.5 s two-way travel time) are never present in smoothed_results. A
+    # RadiusNeighborsRegressor with a fixed radius therefore returned NaN for
+    # essentially every return time. Linear interpolation of the continuous
+    # smoothed trajectory evaluates it at any query time within coverage.
+    def _to_seconds(values) -> np.ndarray:
+        s = pd.Series(np.asarray(values).ravel())
+        if s.dtype == object or np.issubdtype(s.dtype, np.datetime64):
+            return pd.to_datetime(s, utc=True).astype("int64").to_numpy() / 1e9
+        return s.astype("float64").to_numpy()
 
-    position_interpolator = RadiusNeighborsRegressor(radius=0.2, weights="distance")
-    position_interpolator.fit(X_train, Y_train)
+    smoothed = smoothed_results.sort_values("time")
+    t_smooth = _to_seconds(smoothed.time)
+    xyz_smooth = smoothed[["ant_x", "ant_y", "ant_z"]].to_numpy()
 
-    train_score = position_interpolator.score(X_train, Y_train)
-    logger.info(f"Position Interpolator Train Score: {train_score:.4f}")
+    def _interp_positions(query_times) -> np.ndarray:
+        tq = _to_seconds(query_times)
+        # Interpolate only within the smoothed time span; leave out-of-coverage
+        # times as NaN rather than clamping np.interp to an endpoint value.
+        in_range = (tq >= t_smooth[0]) & (tq <= t_smooth[-1])
+        out = np.full((tq.size, 3), np.nan)
+        for i in range(3):
+            out[in_range, i] = np.interp(tq[in_range], t_smooth, xyz_smooth[:, i])
+        return out
 
-    ping_times = shotdata.pingTime.to_numpy().reshape(-1, 1)
-    return_times = shotdata.returnTime.to_numpy().reshape(-1, 1)
+    predicted_ping_pos = _interp_positions(shotdata.pingTime)
+    predicted_return_pos = _interp_positions(shotdata.returnTime)
 
-    predicted_ping_pos = position_interpolator.predict(ping_times)
-    predicted_return_pos = position_interpolator.predict(return_times)
+    # Assign with a single .loc[row_mask, cols] call. The previous form,
+    # shotdata.loc[:, cols][mask] = ..., is chained indexing: .loc[:, cols]
+    # returns a copy, so the assignment was silently dropped and neither the
+    # refined positions nor isUpdated were persisted.
+    if "isUpdated" not in shotdata.columns:
+        shotdata["isUpdated"] = False
+    shotdata["isUpdated"] = shotdata["isUpdated"].astype(bool)
 
-    shotdata.loc[:, ["east0", "north0", "up0"]][~np.isnan(predicted_ping_pos[:, 0])] = (
-        predicted_ping_pos[~np.isnan(predicted_ping_pos[:, 0]), :]
-    )
-    shotdata.loc[:, ["isUpdated"]][~np.isnan(predicted_ping_pos[:, 0])] = True
+    mask_ping = ~np.isnan(predicted_ping_pos[:, 0])
+    shotdata.loc[mask_ping, ["east0", "north0", "up0"]] = predicted_ping_pos[mask_ping, :]
+    shotdata.loc[mask_ping, "isUpdated"] = True
 
-    shotdata.loc[:, ["east1", "north1", "up1"]][~np.isnan(predicted_return_pos[:, 0])] = (
-        predicted_return_pos[~np.isnan(predicted_return_pos[:, 0]), :]
-    )
-    shotdata.loc[:, ["isUpdated"]][~np.isnan(predicted_return_pos[:, 0])] = True
+    mask_return = ~np.isnan(predicted_return_pos[:, 0])
+    shotdata.loc[mask_return, ["east1", "north1", "up1"]] = predicted_return_pos[
+        mask_return, :
+    ]
+    shotdata.loc[mask_return, "isUpdated"] = True
 
     nan_pings = np.isnan(predicted_ping_pos).any(axis=1).sum()
     nan_returns = np.isnan(predicted_return_pos).any(axis=1).sum()
     if nan_pings > 0:
         logger.info(
-            f"Warning: {nan_pings} ping times could not be interpolated (no smoothed data within radius)."
+            f"Warning: {nan_pings} ping times outside smoothed trajectory coverage (left unrefined)."
         )
     if nan_returns > 0:
         logger.info(
-            f"Warning: {nan_returns} return times could not be interpolated (no smoothed data within radius)."
+            f"Warning: {nan_returns} return times outside smoothed trajectory coverage (left unrefined)."
         )
 
     return shotdata
