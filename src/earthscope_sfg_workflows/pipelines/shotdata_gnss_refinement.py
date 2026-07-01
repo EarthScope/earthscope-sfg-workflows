@@ -347,6 +347,41 @@ def analyze_offsets(merged_positions: pd.DataFrame) -> None:
     logger.info(summary_df.round(6).to_string())
 
 
+def _log_interpolated_offsets(label: str, predicted: np.ndarray, original: np.ndarray) -> None:
+    """Log interpolation coverage and |predicted - original| offset stats.
+
+    Reports, for one epoch (ping or return), how many rows were successfully
+    interpolated from the smoothed trajectory and the distribution of the
+    absolute offsets between the interpolated positions and the pre-refinement
+    positions. Unlike :func:`analyze_offsets` (ping-only, via merge_asof), this
+    covers both the transmit and receive epochs.
+
+    Parameters
+    ----------
+    label
+        Human-readable epoch name, e.g. ``"ping (transmit)"``.
+    predicted
+        (N, 3) array of interpolated ECEF positions; rows outside the smoothed
+        trajectory coverage are NaN.
+    original
+        (N, 3) array of the pre-refinement positions for the same rows.
+    """
+    n = predicted.shape[0]
+    valid = ~np.isnan(predicted).any(axis=1)
+    logger.info(f"--- {label} positions: {int(valid.sum())}/{n} interpolated ---")
+    if not valid.any():
+        return
+    offsets = np.abs(predicted[valid] - original[valid])
+    summary_df = pd.DataFrame(
+        {
+            "Offset X (m)": pd.Series(offsets[:, 0]).describe(),
+            "Offset Y (m)": pd.Series(offsets[:, 1]).describe(),
+            "Offset Z (m)": pd.Series(offsets[:, 2]).describe(),
+        }
+    )
+    logger.info(summary_df.round(6).to_string())
+
+
 def update_shotdata_with_smoothed_positions(
     shotdata: pd.DataFrame, smoothed_results: pd.DataFrame
 ) -> pd.DataFrame:
@@ -397,6 +432,13 @@ def update_shotdata_with_smoothed_positions(
 
     predicted_ping_pos = _interp_positions(shotdata.pingTime)
     predicted_return_pos = _interp_positions(shotdata.returnTime)
+
+    # Capture pre-refinement positions before overwriting, then report coverage
+    # and offset stats for BOTH the transmit and receive epochs.
+    orig_ping_pos = shotdata[["east0", "north0", "up0"]].to_numpy(dtype=float)
+    orig_return_pos = shotdata[["east1", "north1", "up1"]].to_numpy(dtype=float)
+    _log_interpolated_offsets("ping (transmit)", predicted_ping_pos, orig_ping_pos)
+    _log_interpolated_offsets("return (receive)", predicted_return_pos, orig_return_pos)
 
     # Assign with a single .loc[row_mask, cols] call. The previous form,
     # shotdata.loc[:, cols][mask] = ..., is chained indexing: .loc[:, cols]
