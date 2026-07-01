@@ -347,6 +347,41 @@ def analyze_offsets(merged_positions: pd.DataFrame) -> None:
     logger.info(summary_df.round(6).to_string())
 
 
+def _log_interpolated_offsets(label: str, predicted: np.ndarray, original: np.ndarray) -> None:
+    """Log interpolation coverage and |predicted - original| offset stats.
+
+    Reports, for one epoch (ping or return), how many rows were successfully
+    interpolated from the smoothed trajectory and the distribution of the
+    absolute offsets between the interpolated positions and the pre-refinement
+    positions. Unlike :func:`analyze_offsets` (ping-only, via merge_asof), this
+    covers both the transmit and receive epochs.
+
+    Parameters
+    ----------
+    label
+        Human-readable epoch name, e.g. ``"ping (transmit)"``.
+    predicted
+        (N, 3) array of interpolated ECEF positions; rows outside the smoothed
+        trajectory coverage are NaN.
+    original
+        (N, 3) array of the pre-refinement positions for the same rows.
+    """
+    n = predicted.shape[0]
+    valid = ~np.isnan(predicted).any(axis=1)
+    logger.info(f"--- {label} positions: {int(valid.sum())}/{n} interpolated ---")
+    if not valid.any():
+        return
+    offsets = np.abs(predicted[valid] - original[valid])
+    summary_df = pd.DataFrame(
+        {
+            "Offset X (m)": pd.Series(offsets[:, 0]).describe(),
+            "Offset Y (m)": pd.Series(offsets[:, 1]).describe(),
+            "Offset Z (m)": pd.Series(offsets[:, 2]).describe(),
+        }
+    )
+    logger.info(summary_df.round(6).to_string())
+
+
 def update_shotdata_with_smoothed_positions(
     shotdata: pd.DataFrame, smoothed_results: pd.DataFrame
 ) -> pd.DataFrame:
@@ -368,40 +403,70 @@ def update_shotdata_with_smoothed_positions(
         logger.info("No smoothed results to interpolate from.")
         return shotdata
 
-    X_train = smoothed_results.time.to_numpy().reshape(-1, 1)
-    Y_train = smoothed_results[["ant_x", "ant_y", "ant_z"]].to_numpy()
+    # Evaluate the smoothed trajectory at the ping and return times by
+    # interpolating over time. The Kalman smoother only emits a state at each
+    # input observation (ping and kinematic epochs), so return times (ping +
+    # ~2.5 s two-way travel time) are never present in smoothed_results. A
+    # RadiusNeighborsRegressor with a fixed radius therefore returned NaN for
+    # essentially every return time. Linear interpolation of the continuous
+    # smoothed trajectory evaluates it at any query time within coverage.
+    def _to_seconds(values) -> np.ndarray:
+        s = pd.Series(np.asarray(values).ravel())
+        if s.dtype == object or np.issubdtype(s.dtype, np.datetime64):
+            return pd.to_datetime(s, utc=True).astype("int64").to_numpy() / 1e9
+        return s.astype("float64").to_numpy()
 
-    position_interpolator = RadiusNeighborsRegressor(radius=0.2, weights="distance")
-    position_interpolator.fit(X_train, Y_train)
+    smoothed = smoothed_results.sort_values("time")
+    t_smooth = _to_seconds(smoothed.time)
+    xyz_smooth = smoothed[["ant_x", "ant_y", "ant_z"]].to_numpy()
 
-    train_score = position_interpolator.score(X_train, Y_train)
-    logger.info(f"Position Interpolator Train Score: {train_score:.4f}")
+    def _interp_positions(query_times) -> np.ndarray:
+        tq = _to_seconds(query_times)
+        # Interpolate only within the smoothed time span; leave out-of-coverage
+        # times as NaN rather than clamping np.interp to an endpoint value.
+        in_range = (tq >= t_smooth[0]) & (tq <= t_smooth[-1])
+        out = np.full((tq.size, 3), np.nan)
+        for i in range(3):
+            out[in_range, i] = np.interp(tq[in_range], t_smooth, xyz_smooth[:, i])
+        return out
 
-    ping_times = shotdata.pingTime.to_numpy().reshape(-1, 1)
-    return_times = shotdata.returnTime.to_numpy().reshape(-1, 1)
+    predicted_ping_pos = _interp_positions(shotdata.pingTime)
+    predicted_return_pos = _interp_positions(shotdata.returnTime)
 
-    predicted_ping_pos = position_interpolator.predict(ping_times)
-    predicted_return_pos = position_interpolator.predict(return_times)
+    # Capture pre-refinement positions before overwriting, then report coverage
+    # and offset stats for BOTH the transmit and receive epochs.
+    orig_ping_pos = shotdata[["east0", "north0", "up0"]].to_numpy(dtype=float)
+    orig_return_pos = shotdata[["east1", "north1", "up1"]].to_numpy(dtype=float)
+    _log_interpolated_offsets("ping (transmit)", predicted_ping_pos, orig_ping_pos)
+    _log_interpolated_offsets("return (receive)", predicted_return_pos, orig_return_pos)
 
-    shotdata.loc[:, ["east0", "north0", "up0"]][~np.isnan(predicted_ping_pos[:, 0])] = (
-        predicted_ping_pos[~np.isnan(predicted_ping_pos[:, 0]), :]
-    )
-    shotdata.loc[:, ["isUpdated"]][~np.isnan(predicted_ping_pos[:, 0])] = True
+    # Assign with a single .loc[row_mask, cols] call. The previous form,
+    # shotdata.loc[:, cols][mask] = ..., is chained indexing: .loc[:, cols]
+    # returns a copy, so the assignment was silently dropped and neither the
+    # refined positions nor isUpdated were persisted.
+    if "isUpdated" not in shotdata.columns:
+        shotdata["isUpdated"] = False
+    shotdata["isUpdated"] = shotdata["isUpdated"].astype(bool)
 
-    shotdata.loc[:, ["east1", "north1", "up1"]][~np.isnan(predicted_return_pos[:, 0])] = (
-        predicted_return_pos[~np.isnan(predicted_return_pos[:, 0]), :]
-    )
-    shotdata.loc[:, ["isUpdated"]][~np.isnan(predicted_return_pos[:, 0])] = True
+    mask_ping = ~np.isnan(predicted_ping_pos[:, 0])
+    shotdata.loc[mask_ping, ["east0", "north0", "up0"]] = predicted_ping_pos[mask_ping, :]
+    shotdata.loc[mask_ping, "isUpdated"] = True
+
+    mask_return = ~np.isnan(predicted_return_pos[:, 0])
+    shotdata.loc[mask_return, ["east1", "north1", "up1"]] = predicted_return_pos[
+        mask_return, :
+    ]
+    shotdata.loc[mask_return, "isUpdated"] = True
 
     nan_pings = np.isnan(predicted_ping_pos).any(axis=1).sum()
     nan_returns = np.isnan(predicted_return_pos).any(axis=1).sum()
     if nan_pings > 0:
         logger.info(
-            f"Warning: {nan_pings} ping times could not be interpolated (no smoothed data within radius)."
+            f"Warning: {nan_pings} ping times outside smoothed trajectory coverage (left unrefined)."
         )
     if nan_returns > 0:
         logger.info(
-            f"Warning: {nan_returns} return times could not be interpolated (no smoothed data within radius)."
+            f"Warning: {nan_returns} return times outside smoothed trajectory coverage (left unrefined)."
         )
 
     return shotdata
