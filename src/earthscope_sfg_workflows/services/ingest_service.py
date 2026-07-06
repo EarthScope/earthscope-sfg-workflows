@@ -420,10 +420,27 @@ class IngestService:
         kinds: "list[AssetKind] | None",
     ) -> "list[AssetEntry]":
         if kinds is None:
-            return [a for a in self._catalog.assets_for(scope) if a.remote_path]
+            return [
+                a
+                for a in self._catalog.assets_for(
+                    network=scope.network,
+                    station=scope.station,
+                    campaign=scope.campaign,
+                )
+                if a.remote_path
+            ]
         out: list[AssetEntry] = []
         for kind in kinds:
-            out.extend(a for a in self._catalog.assets_for(scope, kind) if a.remote_path)
+            out.extend(
+                a
+                for a in self._catalog.assets_for(
+                    kind,
+                    network=scope.network,
+                    station=scope.station,
+                    campaign=scope.campaign,
+                )
+                if a.remote_path
+            )
         return out
 
     def _download_s3_files(
