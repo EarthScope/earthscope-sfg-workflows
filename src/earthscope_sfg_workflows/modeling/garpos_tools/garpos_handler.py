@@ -419,7 +419,10 @@ class GarposHandler:
             garpos_input_configured.to_datafile(garpos_layout.obs_file)
 
     def get_pseudo_surveys(self, shotdatatdb: TDBShotDataArray) -> list[Survey]:
-        """Generate pseudo-surveys from unique shotdata dates.
+        """Generate a single pseudo-survey spanning all available shotdata.
+
+        All QC shotdata for the active campaign year is treated as one survey,
+        rather than being split into one survey per calendar day.
 
         Parameters
         ----------
@@ -429,8 +432,10 @@ class GarposHandler:
         Returns
         -------
         list of Survey
-            One :class:`Survey` per unique date that falls within the active
-            campaign year. Returns an empty list when no matching dates exist.
+            A single-element list holding one :class:`Survey` that spans from
+            the midnight of the earliest date to the end of the latest date
+            within the active campaign year. Returns an empty list when no
+            matching dates exist.
         """
         pseudo_surveys: list[Survey] = []
         dates: list[np.datetime64] = shotdatatdb.get_unique_dates().tolist()
@@ -442,7 +447,7 @@ class GarposHandler:
         if campaign_name is None:
             return pseudo_surveys
         current_year = int(campaign_name.split("_")[0])
-        filtered_dates = [d for d in dates if d.year == current_year]
+        filtered_dates = sorted(d for d in dates if d.year == current_year)
         if not filtered_dates:
             logger.warning(
                 f"No shotdata dates found for campaign year {current_year} "
@@ -450,24 +455,26 @@ class GarposHandler:
             )
             return pseudo_surveys
 
-        for idx, date in enumerate(sorted(filtered_dates)):
-            start_time = (
-                pd.Timestamp(date)
-                .tz_localize("UTC")
-                .to_pydatetime()
-                .replace(hour=0, minute=0, second=0, microsecond=0)
+        start_time = (
+            pd.Timestamp(filtered_dates[0])
+            .tz_localize("UTC")
+            .to_pydatetime()
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+        )
+        last_date = (
+            pd.Timestamp(filtered_dates[-1]).tz_localize("UTC").to_pydatetime()
+        )
+        end_time = datetime.combine(last_date.date(), time.max).replace(tzinfo=UTC)
+
+        pseudo_surveys.append(
+            Survey(
+                id=campaign_name,
+                type="unknown",
+                start=start_time,
+                end=end_time,
+                benchmarkIDs=[],
             )
-            end_time = datetime.combine(start_time.date(), time.max).replace(tzinfo=UTC)
-            year, month, day = start_time.year, start_time.month, start_time.day
-            pseudo_surveys.append(
-                Survey(
-                    id=f"{year}_{month}_{day}_{idx + 1}",
-                    type="unknown",
-                    start=start_time,
-                    end=end_time,
-                    benchmarkIDs=[],
-                )
-            )
+        )
         return pseudo_surveys
 
     def parse_surveys_qc(

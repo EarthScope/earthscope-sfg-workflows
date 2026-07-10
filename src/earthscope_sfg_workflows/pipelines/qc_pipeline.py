@@ -610,7 +610,7 @@ class QCPipeline:
             station=self.scope.station,
             campaign=self.scope.campaign,
             kind=AssetKind.KIN,
-            override=self.config.rinex_config.override,
+            override=self.config.kin_config.override,
         )
         if not kin_entries:
             msg = (

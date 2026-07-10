@@ -884,7 +884,7 @@ class SV3Pipeline:
             station=self.scope.station,
             campaign=self.scope.campaign,
             kind=AssetKind.KIN,
-            override=self.config.rinex_config.override,  # use RINEX override to control KIN processing
+            override=self.config.kin_config.override,
         )
         if not kin_entries:
             msg = (
