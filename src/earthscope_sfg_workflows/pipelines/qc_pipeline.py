@@ -89,7 +89,7 @@ def process_single_qcpin(
         rangea_strings: list[str] = extract_rangea_strings_from_qcpin(entry.local_path)
         if df is None or df.empty:
             ProcessLogger.warning(
-                f"No valid shotdata parsed from {entry.local_path}, skipping write"
+                f"No valid shotdata parsed from {entry.local_path.name}, skipping write"
             )
             return False
         entry = replace(entry, is_processed=True)

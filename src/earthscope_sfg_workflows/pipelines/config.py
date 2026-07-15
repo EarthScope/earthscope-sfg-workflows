@@ -166,7 +166,9 @@ class QCPipelineConfig(BaseModel):
 
     qcpin_config: QCPinConfig = QCPinConfig()
     pride_config: PrideConfig = PrideConfig()
-    rinex_config: RinexConfig = RinexConfig()
+    # QC data is intermittent, so default to 24h query windows to avoid walking
+    # many empty hourly slices during tdb2rnx (SV3 pipeline keeps the 1h default).
+    rinex_config: RinexConfig = RinexConfig(time_interval=24)
     kin_config: KinConfig = KinConfig()
     position_update_config: PositionUpdateConfig = PositionUpdateConfig()
 

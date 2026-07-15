@@ -308,7 +308,16 @@ class WorkflowHandler:
             When ``True``, re-extract and re-catalog files that are already
             present.  Default is ``False``.
         """
-        self._session.ingest.qcpin_tarballs(tarball_dir=tarball_dir, override=override)
+        report = self._session.ingest.qcpin_tarballs(
+            tarball_dir=tarball_dir, override=override
+        )
+        logger.info(
+            f"Ingested QCPIN tarballs from {tarball_dir}: "
+            f"{report.cataloged} cataloged, {report.skipped} skipped, "
+            f"{len(report.errors)} error(s)"
+        )
+        for err in report.errors:
+            logger.warning(f"QCPIN ingest error: {err}")
 
     def download_data(
         self,
