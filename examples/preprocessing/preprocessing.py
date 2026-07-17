@@ -13,27 +13,20 @@ def main():
         "novatel_config": {"n_processes": 5, "override": False},
         "position_update_config": {"override": True, "lengthscale": 0.1, "plot": False},
         "pride_config": {
-            "cutoff_elevation": 7,
-            "end": None,
-            "frequency": ["G12", "R12", "E15", "C26", "J12"],
-            "high_ion": None,
-            "interval": None,
-            "local_pdp3_path": None,
-            "loose_edit": True,
-            "sample_frequency": 1,
-            "start": None,
-            "system": "GREC23J",
-            "tides": "SOP",
+            "cli": {
+                "cutoff_elevation": 7,
+                "frequency": ["G12", "R12", "E15", "C26", "J12"],
+                "high_ion": None,
+                "interval": None,
+                "loose_edit": True,
+                "sample_frequency": 1,
+                "system": "GREC23J",
+                "tides": "SOP",
+            },
             "override_products_download": False,
             "override": True,
         },
         "rinex_config": {"n_processes": 5, "time_interval": 24, "override": False},
-    }
-
-    ncc1_config = {
-        "pride_config": {
-            "cutoff_elevation": 7,
-        }
     }
 
     NETWORK = "cascadia-gorda"
@@ -46,17 +39,12 @@ def main():
             station_id=station,
             campaign_id=CAMPAIGN,
         )
-        if station == "NCC1":
-            workflow.preprocess_run_pipeline_sv3(
-                job="all",
-                primary_config=global_config,
-                secondary_config=ncc1_config,
-            )
-        else:
-            workflow.preprocess_run_pipeline_sv3(
-                job="run_pride",
-                primary_config=global_config,
-            )
+        workflow.ingest_discover_archive()
+        workflow.download_data()
+        workflow.preprocess_run_pipeline_sv3(
+            job="all",
+            primary_config=global_config
+        )
 
 
 if __name__ == "__main__":
