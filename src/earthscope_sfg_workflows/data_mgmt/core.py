@@ -32,8 +32,14 @@ from .ports import AssetCatalogPort, FileStorePort
 
 
 DEFAULT_PATTERNS: tuple[tuple[re.Pattern[str], AssetKind], ...] = (
+    # Legacy RINEX v2 short names (e.g. "SLT11540.26o" / "BRDC1540.26n").
     (re.compile(r"\.\d{2}o$", re.IGNORECASE), AssetKind.RINEX2),
     (re.compile(r"\.\d{2}n$", re.IGNORECASE), AssetKind.RINEX3),
+    # RINEX v3/v4 long names (e.g. "SLT100USA_R_20261541758_01D_20C_MO.rnx"
+    # for observation data, "BRDC00IGS_R_20261540000_01D_MN.rnx" for nav).
+    # Both share the ".rnx" extension; disambiguate on the data-type suffix.
+    (re.compile(r"_[A-Z]O\.rnx$", re.IGNORECASE), AssetKind.RINEX2),
+    (re.compile(r"_[A-Z]N\.rnx$", re.IGNORECASE), AssetKind.RINEX3),
     (re.compile(r"sonardyne", re.IGNORECASE), AssetKind.SONARDYNE),
     (re.compile(r"NOV000"), AssetKind.NOVATEL000),
     (re.compile(r"NOV770"), AssetKind.NOVATEL770),

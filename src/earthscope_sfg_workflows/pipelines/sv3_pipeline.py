@@ -662,9 +662,12 @@ class SV3Pipeline:
             )
             try:
                 # tdb2rnx writes RINEX files to CWD; run from rinex_dest.
-                # Remove any pre-existing .??o files so the post-run glob is clean.
+                # Remove any pre-existing RINEX output so the post-run glob is
+                # clean. Matches both the v3/v4 long name (*.rnx, current
+                # output format) and the legacy v2 short name (*.??o, in case
+                # a directory still has files from before the naming switch).
                 rinex_dest.mkdir(parents=True, exist_ok=True)
-                for _stale in rinex_dest.glob("*.??o"):
+                for _stale in [*rinex_dest.glob("*.rnx"), *rinex_dest.glob("*.??o")]:
                     _stale.unlink()
                 old_cwd = Path.cwd()
                 try:
@@ -683,7 +686,7 @@ class SV3Pipeline:
                 if result.returncode != 0:
                     raise NoRinexBuilt(f"tdb2rnx exited with code {result.returncode}")
 
-                rinex_paths = sorted(rinex_dest.glob("*.??o"))
+                rinex_paths = sorted(rinex_dest.glob("*.rnx"))
 
                 if not rinex_paths:
                     ProcessLogger.warning(
@@ -784,7 +787,12 @@ class SV3Pipeline:
             kind=AssetKind.RINEX2,
             override=pride_cfg.override,
         )
-        rinex_entries = [e for e in rinex_entries if e.local_path is not None]
+        rinex_entries = [
+            e for e in rinex_entries
+            if e.local_path is not None
+            and e.local_path.exists()
+            and e.local_path.stat().st_size > 0
+        ]
 
         if not rinex_entries:
             msg = (
