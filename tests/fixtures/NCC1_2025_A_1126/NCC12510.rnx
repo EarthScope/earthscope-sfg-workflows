@@ -1,0 +1,23 @@
+     2.11           O                   G                   RINEX VERSION / TYPE
+gnsstools                               20260331 224153 UTC PGM / RUN BY / DATE 
+NCC1                                                        MARKER NAME         
+0001                                                        MARKER NUMBER       
+EarthScope          EarthScope                              OBSERVER / AGENCY   
+XXXXXXXXXX          NOV                 0.0.0               REC # / TYPE / VERS 
+987654321           NOV850 NONE                             ANT # / TYPE        
+        0.0000        0.0000        0.0000                  APPROX POSITION XYZ 
+        0.0000        0.0000        0.0000                  ANTENNA: DELTA H/E/N
+     8    L1    L2    C1    P2    P1    S1    S2    C2      # / TYPES OF OBSERV 
+  2025     9     8     0     0    0.0000000     GPS         TIME OF FIRST OBS   
+  2025     9     8     0     0    4.0000000     GPS         TIME OF LAST OBS    
+                                                            END OF HEADER       
+ 25  9  8  0  0  0.0000000  0  1G05
+  20000000.000 8
+ 25  9  8  0  0  1.0000000  0  1G05
+  20000001.000 8
+ 25  9  8  0  0  2.0000000  0  1G05
+  20000002.000 8
+ 25  9  8  0  0  3.0000000  0  1G05
+  20000003.000 8
+ 25  9  8  0  0  4.0000000  0  1G05
+  20000004.000 8
