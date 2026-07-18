@@ -92,6 +92,8 @@ class TestFileTypeDetector:
         "name,expected",
         [
             ("foo.24o", AssetKind.RINEX2),
+            ("SLT100USA_R_20261541758_01D_20C_MO.rnx", AssetKind.RINEX2),
+            ("BRDC00IGS_R_20261540000_01D_MN.rnx", AssetKind.RINEX3),
             ("sonardyne_log.txt", AssetKind.SONARDYNE),
             ("NOV770_001.raw", AssetKind.NOVATEL770),
             ("DFOP00.raw", AssetKind.DFOP00),

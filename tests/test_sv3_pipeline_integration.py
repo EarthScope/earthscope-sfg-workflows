@@ -526,9 +526,9 @@ def _add_novatel770_entry(catalog, fake_path: Path):
     return catalog.add(entry)
 
 
-# Real RINEX 2.11 fixture produced from NCC1 DOY-251 (2025-09-08) data.
+# Real RINEX fixture produced from NCC1 DOY-251 (2025-09-08) data.
 # Contains a valid header and the first 5 one-second observation epochs.
-_RINEX_FIXTURE = FIXTURES / "NCC12510.25o"
+_RINEX_FIXTURE = FIXTURES / "NCC12510.rnx"
 
 
 def _make_fake_tdb2rnx(rinex_dest: Path, filenames: list[str] | None = None):
@@ -542,7 +542,7 @@ def _make_fake_tdb2rnx(rinex_dest: Path, filenames: list[str] | None = None):
     import shutil
     import subprocess
 
-    _names = filenames or ["NCC12510.25o"]
+    _names = filenames or ["NCC12510.rnx"]
 
     def _side_effect(**_kwargs):
         cwd = Path.cwd()
@@ -690,7 +690,7 @@ class TestGetRinexFiles:
         rinex_dest = pipeline._campaign_layout.rinex
         rinex_dest.mkdir(parents=True, exist_ok=True)
 
-        side_fx = _make_fake_tdb2rnx(rinex_dest, ["NCC12510.25o", "NCC12520.25o"])
+        side_fx = _make_fake_tdb2rnx(rinex_dest, ["NCC12510.rnx", "NCC12520.rnx"])
 
         with patch(_TDB2RNX_MOCK, side_effect=side_fx):
             pipeline.get_rinex_files()
@@ -778,7 +778,7 @@ class TestGetRinexFiles:
                 pipeline.get_rinex_files()
 
     def test_raises_no_rinex_built_when_no_files_produced(self, tmp_path, catalog):
-        """``tdb2rnx`` exits 0 but writes no ``.??o`` files → ``NoRinexBuilt``."""
+        """``tdb2rnx`` exits 0 but writes no ``.rnx`` files → ``NoRinexBuilt``."""
         import subprocess
         from unittest.mock import patch
 
@@ -854,12 +854,12 @@ class TestRinexFixture:
         assert epoch_count >= 5, f"Expected ≥5 epochs in fixture, got {epoch_count}"
 
     def test_fixture_glob_pattern_matches(self, tmp_path):
-        """The ``.??o`` glob used by ``get_rinex_files`` matches the fixture filename."""
+        """The ``.rnx`` glob used by ``get_rinex_files`` matches the fixture filename."""
         import shutil
 
         dest = tmp_path / _RINEX_FIXTURE.name
         shutil.copy(_RINEX_FIXTURE, dest)
-        matches = list(tmp_path.glob("*.??o"))
+        matches = list(tmp_path.glob("*.rnx"))
         assert len(matches) == 1, f"Expected 1 match, got {matches}"
         assert matches[0].name == _RINEX_FIXTURE.name
 
