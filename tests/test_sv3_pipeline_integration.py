@@ -528,6 +528,9 @@ def _add_novatel770_entry(catalog, fake_path: Path):
 
 # Real RINEX 2.11 fixture produced from NCC1 DOY-251 (2025-09-08) data.
 # Contains a valid header and the first 5 one-second observation epochs.
+# tdb2rnx now always writes the long-format v3/v4 RINEX filename regardless
+# of the configured RINEX version, so the fixture is copied under a `.rnx`
+# name to match; the header content itself is unaffected.
 _RINEX_FIXTURE = FIXTURES / "NCC12510.25o"
 
 
@@ -542,7 +545,7 @@ def _make_fake_tdb2rnx(rinex_dest: Path, filenames: list[str] | None = None):
     import shutil
     import subprocess
 
-    _names = filenames or ["NCC12510.25o"]
+    _names = filenames or ["NCC1_2025_251_R_20252510000_01D_01S_MO.rnx"]
 
     def _side_effect(**_kwargs):
         cwd = Path.cwd()
@@ -690,22 +693,28 @@ class TestGetRinexFiles:
         rinex_dest = pipeline._campaign_layout.rinex
         rinex_dest.mkdir(parents=True, exist_ok=True)
 
-        side_fx = _make_fake_tdb2rnx(rinex_dest, ["NCC12510.25o", "NCC12520.25o"])
+        side_fx = _make_fake_tdb2rnx(
+            rinex_dest,
+            [
+                "NCC1_2025_251_R_20252510000_01D_01S_MO.rnx",
+                "NCC1_2025_252_R_20252520000_01D_01S_MO.rnx",
+            ],
+        )
 
         with patch(_TDB2RNX_MOCK, side_effect=side_fx):
             pipeline.get_rinex_files()
 
         rinex_entries = catalog.assets_for(
-            kind=AssetKind.RINEX2,
+            kind=AssetKind.RINEX4,
             network=NETWORK,
             station=STATION,
             campaign=CAMPAIGN,
         )
-        assert len(rinex_entries) == 2, "Expected two RINEX2 entries in the catalog"
-        assert all(e.kind == AssetKind.RINEX2 for e in rinex_entries)
+        assert len(rinex_entries) == 2, "Expected two RINEX4 entries in the catalog"
+        assert all(e.kind == AssetKind.RINEX4 for e in rinex_entries)
 
     def test_records_merge_job_after_rinex_build(self, tmp_path, catalog):
-        """A merge job is recorded from GNSSOBSTDB → RINEX2 after a successful build."""
+        """A merge job is recorded from GNSSOBSTDB → RINEX4 after a successful build."""
         from unittest.mock import patch
 
         from earthscope_sfg_workflows.data_mgmt.model import AssetKind
@@ -722,7 +731,7 @@ class TestGetRinexFiles:
         parent_ids = f"N-{NETWORK}|ST-{STATION}|SV-{CAMPAIGN}|TDB-{tdb_uri}|YEAR-{year}"
         assert catalog.is_merge_complete(
             parent_type=AssetKind.GNSSOBSTDB.value,
-            child_type=AssetKind.RINEX2.value,
+            child_type=AssetKind.RINEX4.value,
             parent_ids=[parent_ids],
         ), "Merge job should be recorded after RINEX build"
 
@@ -778,7 +787,7 @@ class TestGetRinexFiles:
                 pipeline.get_rinex_files()
 
     def test_raises_no_rinex_built_when_no_files_produced(self, tmp_path, catalog):
-        """``tdb2rnx`` exits 0 but writes no ``.??o`` files → ``NoRinexBuilt``."""
+        """``tdb2rnx`` exits 0 but writes no ``.rnx`` files → ``NoRinexBuilt``."""
         import subprocess
         from unittest.mock import patch
 
@@ -854,14 +863,14 @@ class TestRinexFixture:
         assert epoch_count >= 5, f"Expected ≥5 epochs in fixture, got {epoch_count}"
 
     def test_fixture_glob_pattern_matches(self, tmp_path):
-        """The ``.??o`` glob used by ``get_rinex_files`` matches the fixture filename."""
+        """The ``.rnx`` glob used by ``get_rinex_files`` matches tdb2rnx's output naming."""
         import shutil
 
-        dest = tmp_path / _RINEX_FIXTURE.name
+        dest = tmp_path / "NCC1_2025_251_R_20252510000_01D_01S_MO.rnx"
         shutil.copy(_RINEX_FIXTURE, dest)
-        matches = list(tmp_path.glob("*.??o"))
+        matches = list(tmp_path.glob("*.rnx"))
         assert len(matches) == 1, f"Expected 1 match, got {matches}"
-        assert matches[0].name == _RINEX_FIXTURE.name
+        assert matches[0].name == dest.name
 
 
 # ---------------------------------------------------------------------------
@@ -902,7 +911,7 @@ class TestNovatel770ToRinexPipeline:
             parent_ids=[catalog.assets_for(kind=AssetKind.NOVATEL770)[0].id],
         )
         rinex_entries = catalog.assets_for(
-            kind=AssetKind.RINEX2, network=NETWORK, station=STATION, campaign=CAMPAIGN
+            kind=AssetKind.RINEX4, network=NETWORK, station=STATION, campaign=CAMPAIGN
         )
         assert len(rinex_entries) == 1
         # Verify timestamps came from the real RINEX file (not a mock)

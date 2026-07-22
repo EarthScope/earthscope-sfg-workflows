@@ -98,7 +98,15 @@ from earthscope_sfg_workflows.logging import ProcessLogger
 from rich.progress import track
 
 # local
-from ..data_mgmt.model import AssetEntry, AssetKind, CampaignLayout, SFGScope, TileDBLayout
+from ..data_mgmt.model import (
+    RINEX_KINDS,
+    AssetEntry,
+    AssetKind,
+    CampaignLayout,
+    SFGScope,
+    TileDBLayout,
+    rinex_kind_for_version,
+)
 from ..data_mgmt.utils import get_merge_signature_shotdata
 from .config import PrideConfig, RinexConfig, SV3PipelineConfig
 from .exceptions import (
@@ -601,22 +609,36 @@ class SV3Pipeline:
                 )
                 continue
 
-    def _build_rinex_meta(self) -> None:
-        """Create RINEX metadata JSON files for the current campaign if absent."""
+    def _build_rinex_meta(self) -> str:
+        """Create RINEX metadata JSON files for the current campaign if absent.
+
+        Returns
+        -------
+        str
+            The configured ``rinex_version`` (e.g. ``"4.02"``) — read back from
+            ``rinex_metav2.json``, whether pre-existing or freshly generated,
+            so callers can derive the correct :class:`AssetKind` even if a
+            user has hand-edited the file to a different version.
+        """
         meta_dir = self._campaign_layout.metadata_dir
         meta_dir.mkdir(parents=True, exist_ok=True)
         rinex_metav2 = meta_dir / "rinex_metav2.json"
         rinex_metav1 = meta_dir / "rinex_metav1.json"
 
-        if not rinex_metav2.exists():
+        if rinex_metav2.exists():
+            with open(rinex_metav2) as f:
+                metadata = json.load(f)
+        else:
+            metadata = get_metadatav2(site=self.scope.station)
             with open(rinex_metav2, "w") as f:
-                json.dump(get_metadatav2(site=self.scope.station), f)
+                json.dump(metadata, f)
 
         if not rinex_metav1.exists():
             with open(rinex_metav1, "w") as f:
                 json.dump(get_metadata(site=self.scope.station), f)
 
         self.config.rinex_config.settings_path = rinex_metav2
+        return metadata["rinex_version"]
 
     @_pipeline_method
     def get_rinex_files(self) -> None:
@@ -631,7 +653,8 @@ class SV3Pipeline:
             If ``tdb2rnx`` produces no RINEX files or exits with a non-zero
             return code.
         """
-        self._build_rinex_meta()
+        rinex_version = self._build_rinex_meta()
+        rinex_kind = rinex_kind_for_version(rinex_version)
         rinex_cfg: RinexConfig = self.config.rinex_config
         rinex_dest = self._campaign_layout.rinex
 
@@ -651,7 +674,7 @@ class SV3Pipeline:
         )
         merge_signature = {
             "parent_type": AssetKind.GNSSOBSTDB.value,
-            "child_type": AssetKind.RINEX2.value,
+            "child_type": rinex_kind.value,
             "parent_ids": [parent_ids],
         }
 
@@ -662,9 +685,9 @@ class SV3Pipeline:
             )
             try:
                 # tdb2rnx writes RINEX files to CWD; run from rinex_dest.
-                # Remove any pre-existing .??o files so the post-run glob is clean.
+                # Remove any pre-existing .rnx files so the post-run glob is clean.
                 rinex_dest.mkdir(parents=True, exist_ok=True)
-                for _stale in rinex_dest.glob("*.??o"):
+                for _stale in rinex_dest.glob("*.rnx"):
                     _stale.unlink()
                 old_cwd = Path.cwd()
                 try:
@@ -683,7 +706,7 @@ class SV3Pipeline:
                 if result.returncode != 0:
                     raise NoRinexBuilt(f"tdb2rnx exited with code {result.returncode}")
 
-                rinex_paths = sorted(rinex_dest.glob("*.??o"))
+                rinex_paths = sorted(rinex_dest.glob("*.rnx"))
 
                 if not rinex_paths:
                     ProcessLogger.warning(
@@ -700,7 +723,7 @@ class SV3Pipeline:
                     self._on_rinex_path(rinex_path)
                     start, end = rinex_get_time_range(rinex_path)
                     entry = AssetEntry(
-                        kind=AssetKind.RINEX2,
+                        kind=rinex_kind,
                         scope=self.scope,
                         local_path=rinex_path,
                         timestamp_data_start=start,
@@ -739,7 +762,7 @@ class SV3Pipeline:
                 network=self.scope.network,
                 station=self.scope.station,
                 campaign=self.scope.campaign,
-                kind=AssetKind.RINEX2,
+                kind=rinex_kind,
             )
             ProcessLogger.info(
                 f"RINEX already generated for {self.scope.network} "
@@ -781,10 +804,11 @@ class SV3Pipeline:
             network=self.scope.network,
             station=self.scope.station,
             campaign=self.scope.campaign,
-            kind=AssetKind.RINEX2,
             override=pride_cfg.override,
         )
-        rinex_entries = [e for e in rinex_entries if e.local_path is not None]
+        rinex_entries = [
+            e for e in rinex_entries if e.local_path is not None and e.kind in RINEX_KINDS
+        ]
 
         if not rinex_entries:
             msg = (
