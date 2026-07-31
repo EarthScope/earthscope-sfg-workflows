@@ -214,8 +214,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/77/c7/2342da9830e3e9d4870305ca5d2091d2a83284f2953079b7bdd3b5e029d8/fonttools-4.63.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/6a/bd/d91c5e39f490a49df14320f4e8c80161cfcce09f1e2cde1edd16a551abb3/frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/41/52/be5c8a17759d78d7cc56b4e60c1763b5fed40368368475a5e4ed491c8bac/gnatss-0.3.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fpride-ppp&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: https://files.pythonhosted.org/packages/37/87/b4d095775a3fb1bcafbb483fc206b27ebb785724c83051447737085dc54e/greenlet-3.5.3-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/5a/de/bbc12563bbf979618d17625a4e753ff7a078523e28d870d3626daa97261a/invoke-3.0.3-py3-none-any.whl
@@ -464,8 +464,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/44/a0/c815bea63117fa63e4e1c01f8a1110d2112fa003f838e6467094ec2432ce/fonttools-4.63.0-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/64/80/4f6e318ee2a7c0750ed724fa33a4bdf1eacdc5a39a7a24e818a773cd91af/frozenlist-1.8.0-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/41/52/be5c8a17759d78d7cc56b4e60c1763b5fed40368368475a5e4ed491c8bac/gnatss-0.3.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fpride-ppp&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: https://files.pythonhosted.org/packages/5d/6e/4c37d51a2b7f82d2ff11bb6b5f7d766d9a011726624af255e843727627a3/greenlet-3.5.3-cp312-cp312-macosx_11_0_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/5a/de/bbc12563bbf979618d17625a4e753ff7a078523e28d870d3626daa97261a/invoke-3.0.3-py3-none-any.whl
@@ -713,8 +713,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/08/ef/b3c6b9b5be2f82416d73fe2ed2e96e2793cd80e7510bd6a17ca79cdd88ec/fonttools-4.63.0-cp312-cp312-macosx_10_13_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/2b/94/5c8a2b50a496b11dd519f4a24cb5496cf125681dd99e94c604ccdea9419a/frozenlist-1.8.0-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/41/52/be5c8a17759d78d7cc56b4e60c1763b5fed40368368475a5e4ed491c8bac/gnatss-0.3.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fpride-ppp&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: https://files.pythonhosted.org/packages/5a/de/bbc12563bbf979618d17625a4e753ff7a078523e28d870d3626daa97261a/invoke-3.0.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/14/2f/967ba146e6d58cf6a652da73885f52fc68001525b4197effc174321d70b4/jmespath-1.1.0-py3-none-any.whl
@@ -964,8 +964,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/87/36/cccb9bc2a6ab63d1b2980374f0dca72ce95ae267c9b4cfe77455bb70d0d4/fonttools-4.63.0-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/b8/af/38e51a553dd66eb064cdf193841f16f077585d4d28394c2fa6235cb41765/frozenlist-1.8.0-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/41/52/be5c8a17759d78d7cc56b4e60c1763b5fed40368368475a5e4ed491c8bac/gnatss-0.3.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fpride-ppp&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: https://files.pythonhosted.org/packages/14/40/c57489acf8e37d74e2913d4eff63aa0dba17acccc4bdeef874dde2dbbec9/greenlet-3.5.3-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/5a/de/bbc12563bbf979618d17625a4e753ff7a078523e28d870d3626daa97261a/invoke-3.0.3-py3-none-any.whl
@@ -1196,8 +1196,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/77/c7/2342da9830e3e9d4870305ca5d2091d2a83284f2953079b7bdd3b5e029d8/fonttools-4.63.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/6a/bd/d91c5e39f490a49df14320f4e8c80161cfcce09f1e2cde1edd16a551abb3/frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/41/52/be5c8a17759d78d7cc56b4e60c1763b5fed40368368475a5e4ed491c8bac/gnatss-0.3.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fpride-ppp&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: https://files.pythonhosted.org/packages/37/87/b4d095775a3fb1bcafbb483fc206b27ebb785724c83051447737085dc54e/greenlet-3.5.3-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/5f/53/fb7122b71361a0d121b669dcf3d31244ef75badbbb724af388948de543e2/imagesize-2.0.0-py2.py3-none-any.whl
@@ -1417,8 +1417,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/44/a0/c815bea63117fa63e4e1c01f8a1110d2112fa003f838e6467094ec2432ce/fonttools-4.63.0-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/64/80/4f6e318ee2a7c0750ed724fa33a4bdf1eacdc5a39a7a24e818a773cd91af/frozenlist-1.8.0-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/41/52/be5c8a17759d78d7cc56b4e60c1763b5fed40368368475a5e4ed491c8bac/gnatss-0.3.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fpride-ppp&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: https://files.pythonhosted.org/packages/5d/6e/4c37d51a2b7f82d2ff11bb6b5f7d766d9a011726624af255e843727627a3/greenlet-3.5.3-cp312-cp312-macosx_11_0_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/5f/53/fb7122b71361a0d121b669dcf3d31244ef75badbbb724af388948de543e2/imagesize-2.0.0-py2.py3-none-any.whl
@@ -1637,8 +1637,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/08/ef/b3c6b9b5be2f82416d73fe2ed2e96e2793cd80e7510bd6a17ca79cdd88ec/fonttools-4.63.0-cp312-cp312-macosx_10_13_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/2b/94/5c8a2b50a496b11dd519f4a24cb5496cf125681dd99e94c604ccdea9419a/frozenlist-1.8.0-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/41/52/be5c8a17759d78d7cc56b4e60c1763b5fed40368368475a5e4ed491c8bac/gnatss-0.3.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fpride-ppp&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: https://files.pythonhosted.org/packages/5f/53/fb7122b71361a0d121b669dcf3d31244ef75badbbb724af388948de543e2/imagesize-2.0.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/5a/de/bbc12563bbf979618d17625a4e753ff7a078523e28d870d3626daa97261a/invoke-3.0.3-py3-none-any.whl
@@ -1861,8 +1861,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/87/36/cccb9bc2a6ab63d1b2980374f0dca72ce95ae267c9b4cfe77455bb70d0d4/fonttools-4.63.0-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/b8/af/38e51a553dd66eb064cdf193841f16f077585d4d28394c2fa6235cb41765/frozenlist-1.8.0-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/41/52/be5c8a17759d78d7cc56b4e60c1763b5fed40368368475a5e4ed491c8bac/gnatss-0.3.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fpride-ppp&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: https://files.pythonhosted.org/packages/14/40/c57489acf8e37d74e2913d4eff63aa0dba17acccc4bdeef874dde2dbbec9/greenlet-3.5.3-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/5f/53/fb7122b71361a0d121b669dcf3d31244ef75badbbb724af388948de543e2/imagesize-2.0.0-py2.py3-none-any.whl
@@ -2239,8 +2239,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/77/c7/2342da9830e3e9d4870305ca5d2091d2a83284f2953079b7bdd3b5e029d8/fonttools-4.63.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/6a/bd/d91c5e39f490a49df14320f4e8c80161cfcce09f1e2cde1edd16a551abb3/frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/41/52/be5c8a17759d78d7cc56b4e60c1763b5fed40368368475a5e4ed491c8bac/gnatss-0.3.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fpride-ppp&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: https://files.pythonhosted.org/packages/37/87/b4d095775a3fb1bcafbb483fc206b27ebb785724c83051447737085dc54e/greenlet-3.5.3-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/5a/de/bbc12563bbf979618d17625a4e753ff7a078523e28d870d3626daa97261a/invoke-3.0.3-py3-none-any.whl
@@ -2586,8 +2586,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/44/a0/c815bea63117fa63e4e1c01f8a1110d2112fa003f838e6467094ec2432ce/fonttools-4.63.0-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/64/80/4f6e318ee2a7c0750ed724fa33a4bdf1eacdc5a39a7a24e818a773cd91af/frozenlist-1.8.0-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/41/52/be5c8a17759d78d7cc56b4e60c1763b5fed40368368475a5e4ed491c8bac/gnatss-0.3.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fpride-ppp&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: https://files.pythonhosted.org/packages/5d/6e/4c37d51a2b7f82d2ff11bb6b5f7d766d9a011726624af255e843727627a3/greenlet-3.5.3-cp312-cp312-macosx_11_0_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/5a/de/bbc12563bbf979618d17625a4e753ff7a078523e28d870d3626daa97261a/invoke-3.0.3-py3-none-any.whl
@@ -2932,8 +2932,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/08/ef/b3c6b9b5be2f82416d73fe2ed2e96e2793cd80e7510bd6a17ca79cdd88ec/fonttools-4.63.0-cp312-cp312-macosx_10_13_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/2b/94/5c8a2b50a496b11dd519f4a24cb5496cf125681dd99e94c604ccdea9419a/frozenlist-1.8.0-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/41/52/be5c8a17759d78d7cc56b4e60c1763b5fed40368368475a5e4ed491c8bac/gnatss-0.3.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fpride-ppp&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: https://files.pythonhosted.org/packages/5a/de/bbc12563bbf979618d17625a4e753ff7a078523e28d870d3626daa97261a/invoke-3.0.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/14/2f/967ba146e6d58cf6a652da73885f52fc68001525b4197effc174321d70b4/jmespath-1.1.0-py3-none-any.whl
@@ -3277,8 +3277,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/87/36/cccb9bc2a6ab63d1b2980374f0dca72ce95ae267c9b4cfe77455bb70d0d4/fonttools-4.63.0-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/b8/af/38e51a553dd66eb064cdf193841f16f077585d4d28394c2fa6235cb41765/frozenlist-1.8.0-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/41/52/be5c8a17759d78d7cc56b4e60c1763b5fed40368368475a5e4ed491c8bac/gnatss-0.3.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
-      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
+      - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fpride-ppp&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
       - pypi: https://files.pythonhosted.org/packages/14/40/c57489acf8e37d74e2913d4eff63aa0dba17acccc4bdeef874dde2dbbec9/greenlet-3.5.3-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/5a/de/bbc12563bbf979618d17625a4e753ff7a078523e28d870d3626daa97261a/invoke-3.0.3-py3-none-any.whl
@@ -6468,7 +6468,7 @@ packages:
 - pypi: ./
   name: earthscope-sfg-workflows
   version: 0.1.0
-  sha256: 0677b36240967c35af1e02e67126d951498c1a2f04947fcb3a07289e4a215ebe
+  sha256: 4fa623375a719d2b0e654bb1ba0e4e1d1fe9848e53e1bfb39768e7db01754252
   requires_dist:
   - earthscope-sfg-tools[tiledb] @ git+https://github.com/EarthScope/earthscope-sfg-tools.git@cb84fe56cd88122118d4463da7c060350b780c38
   - boto3>=1.40
@@ -7084,7 +7084,7 @@ packages:
   - pytest-mock ; extra == 'test'
   - pytest-xdist ; extra == 'test'
   requires_python: '>=3.10'
-- pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management#21ff3b592910dd5edef0e5d2a869b982841cd638
+- pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgnss-product-management&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
   name: gnss-product-management
   version: 0.1.dev298+g21ff3b592
   requires_dist:
@@ -7218,7 +7218,7 @@ packages:
   purls: []
   size: 21608
   timestamp: 1780444095772
-- pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs#21ff3b592910dd5edef0e5d2a869b982841cd638
+- pypi: git+https://github.com/EarthScope/GNSSommelier.git?subdirectory=packages%2Fgpm-specs&rev=21ff3b592910dd5edef0e5d2a869b982841cd638#21ff3b592910dd5edef0e5d2a869b982841cd638
   name: gpm-specs
   version: 0.1.dev298+g21ff3b592
   requires_python: '>=3.10,<3.15'

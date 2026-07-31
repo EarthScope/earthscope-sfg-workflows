@@ -73,6 +73,12 @@ nodejs = ">=20"
 [tool.pixi.pypi-dependencies]
 earthscope_sfg_workflows = { path = ".", editable = true }
 earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-tools.git", rev = "cb84fe56cd88122118d4463da7c060350b780c38", extras = ["tiledb"] }
+# gpm-specs and gnss-product-management are transitive deps of pride-ppp, but
+# pride-ppp's own metadata requests them unpinned (default-branch HEAD), which
+# fails `pixi install --locked` validation in CI. Pin them to the same
+# GNSSommelier rev as pride-ppp; keep all three in sync when re-locking.
+gpm-specs = { git = "https://github.com/EarthScope/GNSSommelier.git", subdirectory = "packages/gpm-specs", rev = "21ff3b592910dd5edef0e5d2a869b982841cd638" }
+gnss-product-management = { git = "https://github.com/EarthScope/GNSSommelier.git", subdirectory = "packages/gnss-product-management", rev = "21ff3b592910dd5edef0e5d2a869b982841cd638" }
 
 [tool.pixi.feature.tiledb.dependencies]
 tiledb = ">=2.27"
