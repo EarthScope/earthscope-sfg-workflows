@@ -100,7 +100,9 @@ docs = { cmd = "myst start", description = "Serve docs locally with live reload"
 docs-build = { cmd = "myst build --html", description = "Build docs as static HTML" }
 
 # Clone and compile garpos from source (importable via PYTHONPATH set in activation)
-clone-garpos = { cmd = "bash -c 'if [ -d .pixi/garpos ]; then git -C .pixi/garpos pull; else git clone https://github.com/s-watanabe-jhod/garpos.git .pixi/garpos; fi'" }
+# Pinned to v1.0.2: compile-garpos hardcodes the bin/garpos_v102/f90lib path,
+# which does not exist in newer upstream releases.
+clone-garpos = { cmd = "bash -c 'if [ -d .pixi/garpos ]; then git -C .pixi/garpos fetch --tags && git -C .pixi/garpos checkout v1.0.2; else git clone --branch v1.0.2 --depth 1 https://github.com/s-watanabe-jhod/garpos.git .pixi/garpos; fi'" }
 compile-garpos = { cmd = "gfortran -shared -fPIC -fopenmp -O3 -o lib_raytrace.so sub_raytrace.f90 lib_raytrace.f90", cwd = ".pixi/garpos/bin/garpos_v102/f90lib", depends-on = ["clone-garpos"] }
 test-garpos = { cmd = "pytest tests/test_garpos.py -v", depends-on = ["compile-garpos"] }
 

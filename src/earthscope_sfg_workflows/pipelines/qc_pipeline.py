@@ -560,6 +560,7 @@ class QCPipeline:
         processor = PrideProcessor(
             pride_dir=pride_dir,
             output_dir=intermediate_dir,
+            cli_config=pride_cfg.cli,
             mode=ProcessingMode.DEFAULT,
         )
         rinex_path_map = {e.local_path: e for e in rinex_entries}

@@ -24,8 +24,12 @@ from pride_ppp import (
 from pride_ppp.factories.processor import PrideProcessor as _PrideProcessorCls
 from pride_ppp.specifications.config import PRIDEPPPFileConfig as _PRIDEPPPFileConfig
 
-# pride_ppp <= current version omits `ISB model` from generated config_files;
-# pdp3 >= 3.2.7 requires it.  Patch write_config_file to inject the line.
+# pride_ppp <= current version omits `ISB model` and `AI Ambiguity validation`
+# from generated config_files. pdp3 >= 3.2.7 requires ISB model; pdp3 3.2.10's
+# `ai_model` lookup (pdp3.sh) crashes downstream with a `sed: ... unescaped
+# newline` error when AI Ambiguity validation is absent, silently producing
+# 0 KIN files for every run. Patch write_config_file to inject both lines.
+# See https://github.com/EarthScope/GNSSommelier/issues/28
 _pride_write_config_orig = _PRIDEPPPFileConfig.write_config_file
 
 
@@ -33,14 +37,19 @@ def _pride_write_config_patched(self, filepath):
     _pride_write_config_orig(self, filepath)
     p = Path(filepath)
     text = p.read_text()
-    if "ISB model" not in text:
+    if "ISB model" not in text or "AI Ambiguity validation" not in text:
         patched = []
         for line in text.splitlines():
             patched.append(line)
-            if line.startswith("RCK model"):
+            if line.startswith("RCK model") and "ISB model" not in text:
                 patched.append(
                     "ISB model              = Default"
                     "                 ! GNSS receiver inter-system biases to be processed"
+                )
+            if line.startswith("Ambiguity duration") and "AI Ambiguity validation" not in text:
+                patched.append(
+                    "AI Ambiguity validation = YES"
+                    "                    ! Ambiguity fixing validation is SVM or not"
                 )
         p.write_text("\n".join(patched) + "\n")
 
@@ -329,12 +338,17 @@ class SV3Pipeline:
                 **merge_signature
             ):
                 try:
-                    novb_ops.novatel_770_2tile(
+                    result = novb_ops.novatel_770_2tile(
                         files=[x.local_path for x in novatel_770_entries],
                         gnss_obs_tdb=self.gnssObsTDBURI,
                         n_procs=self.config.novatel_config.n_processes,
                         logger=ProcessLogger.logger,
                     )
+                    if result.returncode != 0:
+                        raise RuntimeError(
+                            f"novatel_770_2tile exited with code {result.returncode}: "
+                            f"{result.stderr}"
+                        )
 
                     self.catalog.add_merge_job(**merge_signature)
                     response = f"Added merge job for {len(novatel_770_entries)} Novatel 770 Entries to the catalog"
@@ -371,13 +385,17 @@ class SV3Pipeline:
                 **merge_signature
             ):
                 try:
-                    novb_ops.nov0002tile(
+                    result = novb_ops.nov0002tile(
                         files=[x.local_path for x in novatel_000_entries],
                         gnss_obs_tdb=self.gnssObsTDB_secondaryURI,
                         position_tdb=self.imuPositionTDB.uri,
                         n_procs=self.config.novatel_config.n_processes,
                         logger=ProcessLogger.logger,
                     )
+                    if result.returncode != 0:
+                        raise RuntimeError(
+                            f"nov0002tile exited with code {result.returncode}: {result.stderr}"
+                        )
 
                     self.catalog.add_merge_job(**merge_signature)
                     ProcessLogger.info(
@@ -824,6 +842,7 @@ class SV3Pipeline:
         processor = PrideProcessor(
             pride_dir=pride_dir,
             output_dir=intermediate_dir,
+            cli_config=pride_cfg.cli,
             mode=ProcessingMode.DEFAULT,
         )
         rinex_path_map = {e.local_path: e for e in rinex_entries}
