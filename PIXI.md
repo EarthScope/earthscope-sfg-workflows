@@ -40,9 +40,13 @@ pixi run test
 
 `earthscope-sfg-tools` and `pride-ppp` (from the GNSSommelier monorepo) are consumed as
 git dependencies pinned to a tag/rev in `pyproject.toml` and resolved through `pixi.lock`
-— no sibling checkout is required. Note that `earthscope-sfg-tools` is declared in two
-places (`[project.dependencies]` and `[tool.pixi.pypi-dependencies]`); bump both when
-moving the pin, then run `pixi lock`.
+— no sibling checkout is required. When moving a pin, update every declaration and re-run
+`pixi lock`:
+
+- `earthscope-sfg-tools`: `[project.dependencies]` **and** `[tool.pixi.pypi-dependencies]`
+- GNSSommelier: `pride-ppp` in `[project.dependencies]`, plus `gpm-specs` and
+  `gnss-product-management` in `[tool.pixi.pypi-dependencies]` — all three must share one
+  rev, or `pixi install --locked` (enforced in CI) rejects the lockfile.
 
 To develop against a local checkout of either dependency, install it into the pixi env
 over the locked version:
