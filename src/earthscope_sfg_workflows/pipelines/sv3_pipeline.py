@@ -12,80 +12,6 @@ from functools import partial, wraps
 from pathlib import Path
 from typing import Callable
 
-# third-party — monkey-patch targets must be imported before the patches below
-import tiledb as _tiledb
-from earthscope_sfg_tools.tiledb_integration.arrays import TBDArray as _TBDArray
-from pride_ppp import (
-    ProcessingMode,
-    PrideProcessor,
-    kin_to_kin_position_df,
-    rinex_get_time_range,
-)
-from pride_ppp.factories.processor import PrideProcessor as _PrideProcessorCls
-from pride_ppp.specifications.config import PRIDEPPPFileConfig as _PRIDEPPPFileConfig
-
-# pride_ppp <= current version omits `ISB model` and `AI Ambiguity validation`
-# from generated config_files. pdp3 >= 3.2.7 requires ISB model; pdp3 3.2.10's
-# `ai_model` lookup (pdp3.sh) crashes downstream with a `sed: ... unescaped
-# newline` error when AI Ambiguity validation is absent, silently producing
-# 0 KIN files for every run. Patch write_config_file to inject both lines.
-# See https://github.com/EarthScope/GNSSommelier/issues/28
-_pride_write_config_orig = _PRIDEPPPFileConfig.write_config_file
-
-
-def _pride_write_config_patched(self, filepath):
-    _pride_write_config_orig(self, filepath)
-    p = Path(filepath)
-    text = p.read_text()
-    if "ISB model" not in text or "AI Ambiguity validation" not in text:
-        patched = []
-        for line in text.splitlines():
-            patched.append(line)
-            if line.startswith("RCK model") and "ISB model" not in text:
-                patched.append(
-                    "ISB model              = Default"
-                    "                 ! GNSS receiver inter-system biases to be processed"
-                )
-            if line.startswith("Ambiguity duration") and "AI Ambiguity validation" not in text:
-                patched.append(
-                    "AI Ambiguity validation = YES"
-                    "                    ! Ambiguity fixing validation is SVM or not"
-                )
-        p.write_text("\n".join(patched) + "\n")
-
-
-_PRIDEPPPFileConfig.write_config_file = _pride_write_config_patched
-
-
-# pride_ppp _validate_kinfile uses `if kin_df` on a DataFrame — raises ValueError.
-# Patch to use `is not None` check instead.
-def _pride_validate_kinfile_patched(_self, kin_path, override=False):
-    if not override:
-        if not kin_path.exists():
-            return False
-        kin_df = kin_to_kin_position_df(kin_path)
-        if kin_df is not None and not kin_df.empty:
-            return True
-    return False
-
-
-_PrideProcessorCls._validate_kinfile = _pride_validate_kinfile_patched
-
-
-# TBDArray.write_df passes the DataFrame directly to tiledb.from_pandas, but
-# tiledb requires the sparse dimension ('time') to be the pandas index, not a
-# plain column.  The DataFrame returned by kin_to_kin_position_df has time as
-# a plain column.  Patch write_df to set it as the index after validation.
-def _tbd_write_df_patched(self, df, validate: bool = True):
-    if validate:
-        df = self.dataframe_schema.validate(df, lazy=True)
-    if "time" in df.columns:
-        df = df.set_index("time")
-    _tiledb.from_pandas(str(self.uri), df, mode="append")
-
-
-_TBDArray.write_df = _tbd_write_df_patched
-
 # third-party
 from earthscope_sfg_tools import tiledb_integration as novb_ops
 from earthscope_sfg_tools.novatel_tools.utils import get_metadata, get_metadatav2
@@ -104,6 +30,12 @@ from earthscope_sfg_tools.tiledb_integration import (
 )
 from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
 from earthscope_sfg_workflows.logging import ProcessLogger
+from pride_ppp import (
+    ProcessingMode,
+    PrideProcessor,
+    kin_to_kin_position_df,
+    rinex_get_time_range,
+)
 from rich.progress import track
 
 # local
