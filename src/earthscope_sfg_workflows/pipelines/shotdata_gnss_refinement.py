@@ -453,9 +453,7 @@ def update_shotdata_with_smoothed_positions(
     shotdata.loc[mask_ping, "isUpdated"] = True
 
     mask_return = ~np.isnan(predicted_return_pos[:, 0])
-    shotdata.loc[mask_return, ["east1", "north1", "up1"]] = predicted_return_pos[
-        mask_return, :
-    ]
+    shotdata.loc[mask_return, ["east1", "north1", "up1"]] = predicted_return_pos[mask_return, :]
     shotdata.loc[mask_return, "isUpdated"] = True
 
     nan_pings = np.isnan(predicted_ping_pos).any(axis=1).sum()

@@ -208,7 +208,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/cc/8f/ec6289987824b29529d0dfda0d74a07cec60e54b9c92f3c9da4c0ac732de/contourpy-1.3.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/20/2c/0622f20ff02b2ef32558733443805dc82fd4c275be01b2d19d14676f3a1b/cryptography-49.0.0-cp311-abi3-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
       - pypi: https://files.pythonhosted.org/packages/ca/7d/33ef69e569b47ba96c7d319621674ad36e8920339a90386babc584ad060f/earthscope_cli-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ac/bf/06e808652b197ce899df44f202791a053561daaef121b77dc8efea522210/earthscope_sdk-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/77/c7/2342da9830e3e9d4870305ca5d2091d2a83284f2953079b7bdd3b5e029d8/fonttools-4.63.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
@@ -458,7 +458,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/be/45/adfee365d9ea3d853550b2e735f9d66366701c65db7855cd07621732ccfc/contourpy-1.3.3-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1f/99/d1c90d6041656cc6ee229dc99cd67fd0cd5aec3c5f7d72fffc27cc750054/cryptography-49.0.0.tar.gz
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
       - pypi: https://files.pythonhosted.org/packages/ca/7d/33ef69e569b47ba96c7d319621674ad36e8920339a90386babc584ad060f/earthscope_cli-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ac/bf/06e808652b197ce899df44f202791a053561daaef121b77dc8efea522210/earthscope_sdk-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/44/a0/c815bea63117fa63e4e1c01f8a1110d2112fa003f838e6467094ec2432ce/fonttools-4.63.0-cp312-cp312-macosx_10_13_x86_64.whl
@@ -707,7 +707,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/53/3e/405b59cfa13021a56bba395a6b3aca8cec012b45bf177b0eaf7a202cde2c/contourpy-1.3.3-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/9b/22/adf66990e63584a68dfb50c24f48a125c07b1699899381c8151e63ed458c/cryptography-49.0.0-cp311-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
       - pypi: https://files.pythonhosted.org/packages/ca/7d/33ef69e569b47ba96c7d319621674ad36e8920339a90386babc584ad060f/earthscope_cli-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ac/bf/06e808652b197ce899df44f202791a053561daaef121b77dc8efea522210/earthscope_sdk-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/08/ef/b3c6b9b5be2f82416d73fe2ed2e96e2793cd80e7510bd6a17ca79cdd88ec/fonttools-4.63.0-cp312-cp312-macosx_10_13_universal2.whl
@@ -958,7 +958,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/19/e8/6026ed58a64563186a9ee3f29f41261fd1828f527dd93d33b60feca63352/contourpy-1.3.3-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/1f/09/f42b1d190c5ba75f72062a387f8030d1d75f6ab035788f1d9c4b01de6525/cryptography-49.0.0-cp311-abi3-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
       - pypi: https://files.pythonhosted.org/packages/ca/7d/33ef69e569b47ba96c7d319621674ad36e8920339a90386babc584ad060f/earthscope_cli-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ac/bf/06e808652b197ce899df44f202791a053561daaef121b77dc8efea522210/earthscope_sdk-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/87/36/cccb9bc2a6ab63d1b2980374f0dca72ce95ae267c9b4cfe77455bb70d0d4/fonttools-4.63.0-cp312-cp312-win_amd64.whl
@@ -1005,7 +1005,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/f7/af/eaec1466887348d7f6cc9d3a668b30b62a4629fb187d0268146118ba3d5e/s3fs-2024.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/48/f0/ae7ca09223a81a1d890b2557186ea015f6e0502e9b8cb8e1813f1d8cfa4e/s3transfer-0.14.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/83/a4/c8e67227c680e2259c8864ae72ff48b06e16a6f51253a22167aa02a8aa4e/scikit_learn-1.9.0-cp312-cp312-win_amd64.whl
-      - pypi: https://files.pythonhosted.org/packages/a2/84/dc08d77fbf3d87d3ee27f6a0c6dcce1de5829a64f2eae85a0ecc1f0daa73/scipy-1.17.1-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/83/11/00d3c3dfc25ad54e731d91449895a79e4bf2384dc3ac01809010ba88f6d5/seaborn-0.13.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/25/dc/46a65916af68a06ef6b972c6050ba4c8f97070fe3fb33097d34229d9bef6/sqlalchemy-2.0.51-cp312-cp312-win_amd64.whl
@@ -1191,7 +1190,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/20/2c/0622f20ff02b2ef32558733443805dc82fd4c275be01b2d19d14676f3a1b/cryptography-49.0.0-cp311-abi3-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/02/10/5da547df7a391dcde17f59520a231527b8571e6f46fc8efb02ccb370ab12/docutils-0.22.4-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
       - pypi: https://files.pythonhosted.org/packages/ca/7d/33ef69e569b47ba96c7d319621674ad36e8920339a90386babc584ad060f/earthscope_cli-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ac/bf/06e808652b197ce899df44f202791a053561daaef121b77dc8efea522210/earthscope_sdk-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/77/c7/2342da9830e3e9d4870305ca5d2091d2a83284f2953079b7bdd3b5e029d8/fonttools-4.63.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
@@ -1412,7 +1411,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/1f/99/d1c90d6041656cc6ee229dc99cd67fd0cd5aec3c5f7d72fffc27cc750054/cryptography-49.0.0.tar.gz
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/02/10/5da547df7a391dcde17f59520a231527b8571e6f46fc8efb02ccb370ab12/docutils-0.22.4-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
       - pypi: https://files.pythonhosted.org/packages/ca/7d/33ef69e569b47ba96c7d319621674ad36e8920339a90386babc584ad060f/earthscope_cli-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ac/bf/06e808652b197ce899df44f202791a053561daaef121b77dc8efea522210/earthscope_sdk-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/44/a0/c815bea63117fa63e4e1c01f8a1110d2112fa003f838e6467094ec2432ce/fonttools-4.63.0-cp312-cp312-macosx_10_13_x86_64.whl
@@ -1632,7 +1631,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/9b/22/adf66990e63584a68dfb50c24f48a125c07b1699899381c8151e63ed458c/cryptography-49.0.0-cp311-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/02/10/5da547df7a391dcde17f59520a231527b8571e6f46fc8efb02ccb370ab12/docutils-0.22.4-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
       - pypi: https://files.pythonhosted.org/packages/ca/7d/33ef69e569b47ba96c7d319621674ad36e8920339a90386babc584ad060f/earthscope_cli-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ac/bf/06e808652b197ce899df44f202791a053561daaef121b77dc8efea522210/earthscope_sdk-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/08/ef/b3c6b9b5be2f82416d73fe2ed2e96e2793cd80e7510bd6a17ca79cdd88ec/fonttools-4.63.0-cp312-cp312-macosx_10_13_universal2.whl
@@ -1856,7 +1855,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/1f/09/f42b1d190c5ba75f72062a387f8030d1d75f6ab035788f1d9c4b01de6525/cryptography-49.0.0-cp311-abi3-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/02/10/5da547df7a391dcde17f59520a231527b8571e6f46fc8efb02ccb370ab12/docutils-0.22.4-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
       - pypi: https://files.pythonhosted.org/packages/ca/7d/33ef69e569b47ba96c7d319621674ad36e8920339a90386babc584ad060f/earthscope_cli-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ac/bf/06e808652b197ce899df44f202791a053561daaef121b77dc8efea522210/earthscope_sdk-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/87/36/cccb9bc2a6ab63d1b2980374f0dca72ce95ae267c9b4cfe77455bb70d0d4/fonttools-4.63.0-cp312-cp312-win_amd64.whl
@@ -1908,7 +1907,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/f7/af/eaec1466887348d7f6cc9d3a668b30b62a4629fb187d0268146118ba3d5e/s3fs-2024.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/48/f0/ae7ca09223a81a1d890b2557186ea015f6e0502e9b8cb8e1813f1d8cfa4e/s3transfer-0.14.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/83/a4/c8e67227c680e2259c8864ae72ff48b06e16a6f51253a22167aa02a8aa4e/scikit_learn-1.9.0-cp312-cp312-win_amd64.whl
-      - pypi: https://files.pythonhosted.org/packages/a2/84/dc08d77fbf3d87d3ee27f6a0c6dcce1de5829a64f2eae85a0ecc1f0daa73/scipy-1.17.1-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/83/11/00d3c3dfc25ad54e731d91449895a79e4bf2384dc3ac01809010ba88f6d5/seaborn-0.13.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4c/07/2ebca9b11fb9be7340a818d8d6f63feaebb146be2c4afbd6061701d6df6e/snowballstemmer-3.1.1-py3-none-any.whl
@@ -2235,7 +2233,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/cc/8f/ec6289987824b29529d0dfda0d74a07cec60e54b9c92f3c9da4c0ac732de/contourpy-1.3.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/20/2c/0622f20ff02b2ef32558733443805dc82fd4c275be01b2d19d14676f3a1b/cryptography-49.0.0-cp311-abi3-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
       - pypi: https://files.pythonhosted.org/packages/ca/7d/33ef69e569b47ba96c7d319621674ad36e8920339a90386babc584ad060f/earthscope_cli-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ac/bf/06e808652b197ce899df44f202791a053561daaef121b77dc8efea522210/earthscope_sdk-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/77/c7/2342da9830e3e9d4870305ca5d2091d2a83284f2953079b7bdd3b5e029d8/fonttools-4.63.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
@@ -2582,7 +2580,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/be/45/adfee365d9ea3d853550b2e735f9d66366701c65db7855cd07621732ccfc/contourpy-1.3.3-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1f/99/d1c90d6041656cc6ee229dc99cd67fd0cd5aec3c5f7d72fffc27cc750054/cryptography-49.0.0.tar.gz
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
       - pypi: https://files.pythonhosted.org/packages/ca/7d/33ef69e569b47ba96c7d319621674ad36e8920339a90386babc584ad060f/earthscope_cli-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ac/bf/06e808652b197ce899df44f202791a053561daaef121b77dc8efea522210/earthscope_sdk-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/44/a0/c815bea63117fa63e4e1c01f8a1110d2112fa003f838e6467094ec2432ce/fonttools-4.63.0-cp312-cp312-macosx_10_13_x86_64.whl
@@ -2928,7 +2926,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/53/3e/405b59cfa13021a56bba395a6b3aca8cec012b45bf177b0eaf7a202cde2c/contourpy-1.3.3-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/9b/22/adf66990e63584a68dfb50c24f48a125c07b1699899381c8151e63ed458c/cryptography-49.0.0-cp311-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
       - pypi: https://files.pythonhosted.org/packages/ca/7d/33ef69e569b47ba96c7d319621674ad36e8920339a90386babc584ad060f/earthscope_cli-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ac/bf/06e808652b197ce899df44f202791a053561daaef121b77dc8efea522210/earthscope_sdk-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/08/ef/b3c6b9b5be2f82416d73fe2ed2e96e2793cd80e7510bd6a17ca79cdd88ec/fonttools-4.63.0-cp312-cp312-macosx_10_13_universal2.whl
@@ -3273,7 +3271,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/19/e8/6026ed58a64563186a9ee3f29f41261fd1828f527dd93d33b60feca63352/contourpy-1.3.3-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/1f/09/f42b1d190c5ba75f72062a387f8030d1d75f6ab035788f1d9c4b01de6525/cryptography-49.0.0-cp311-abi3-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
-      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+      - pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
       - pypi: https://files.pythonhosted.org/packages/ca/7d/33ef69e569b47ba96c7d319621674ad36e8920339a90386babc584ad060f/earthscope_cli-1.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ac/bf/06e808652b197ce899df44f202791a053561daaef121b77dc8efea522210/earthscope_sdk-1.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/87/36/cccb9bc2a6ab63d1b2980374f0dca72ce95ae267c9b4cfe77455bb70d0d4/fonttools-4.63.0-cp312-cp312-win_amd64.whl
@@ -3320,7 +3318,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/f7/af/eaec1466887348d7f6cc9d3a668b30b62a4629fb187d0268146118ba3d5e/s3fs-2024.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/48/f0/ae7ca09223a81a1d890b2557186ea015f6e0502e9b8cb8e1813f1d8cfa4e/s3transfer-0.14.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/83/a4/c8e67227c680e2259c8864ae72ff48b06e16a6f51253a22167aa02a8aa4e/scikit_learn-1.9.0-cp312-cp312-win_amd64.whl
-      - pypi: https://files.pythonhosted.org/packages/a2/84/dc08d77fbf3d87d3ee27f6a0c6dcce1de5829a64f2eae85a0ecc1f0daa73/scipy-1.17.1-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/83/11/00d3c3dfc25ad54e731d91449895a79e4bf2384dc3ac01809010ba88f6d5/seaborn-0.13.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/25/dc/46a65916af68a06ef6b972c6050ba4c8f97070fe3fb33097d34229d9bef6/sqlalchemy-2.0.51-cp312-cp312-win_amd64.whl
@@ -6453,7 +6450,7 @@ packages:
   - freezegun ; extra == 'dev'
   - ruff ; extra == 'dev'
   requires_python: '>=3.10'
-- pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.1.2#e68a08d1eb87f5e28c93e20ac036b8ccdafe494e
+- pypi: git+https://github.com/EarthScope/earthscope-sfg-tools.git?rev=0.2.0#1d6c1f1e46885d76c4cfcfdf51c7d162c97b241f
   name: earthscope-sfg-tools
   version: 0.1.0
   requires_dist:
@@ -6471,9 +6468,9 @@ packages:
 - pypi: ./
   name: earthscope-sfg-workflows
   version: 0.1.0
-  sha256: 0841529c09f846f35e1bbb982d5e88eb30524b8ba2bd67e280565923cf93ba2b
+  sha256: ec69039610acb18e989da330d89a54045d20c92255f00f9e780a7456acece0f0
   requires_dist:
-  - earthscope-sfg-tools[tiledb] @ git+https://github.com/EarthScope/earthscope-sfg-tools.git@0.1.2
+  - earthscope-sfg-tools[tiledb] @ git+https://github.com/EarthScope/earthscope-sfg-tools.git@0.2.0
   - boto3>=1.40
   - botocore>=1.40
   - sqlalchemy>=2.0
@@ -14631,50 +14628,6 @@ packages:
   - pkg:pypi/scikit-sparse?source=hash-mapping
   size: 272578
   timestamp: 1760363304408
-- pypi: https://files.pythonhosted.org/packages/a2/84/dc08d77fbf3d87d3ee27f6a0c6dcce1de5829a64f2eae85a0ecc1f0daa73/scipy-1.17.1-cp312-cp312-win_amd64.whl
-  name: scipy
-  version: 1.17.1
-  sha256: 41b71f4a3a4cab9d366cd9065b288efc4d4f3c0b37a91a8e0947fb5bd7f31d87
-  requires_dist:
-  - numpy>=1.26.4,<2.7
-  - pytest>=8.0.0 ; extra == 'test'
-  - pytest-cov ; extra == 'test'
-  - pytest-timeout ; extra == 'test'
-  - pytest-xdist ; extra == 'test'
-  - asv ; extra == 'test'
-  - mpmath ; extra == 'test'
-  - gmpy2 ; extra == 'test'
-  - threadpoolctl ; extra == 'test'
-  - scikit-umfpack ; extra == 'test'
-  - pooch ; extra == 'test'
-  - hypothesis>=6.30 ; extra == 'test'
-  - array-api-strict>=2.3.1 ; extra == 'test'
-  - cython ; extra == 'test'
-  - meson ; extra == 'test'
-  - ninja ; sys_platform != 'emscripten' and extra == 'test'
-  - sphinx>=5.0.0,<8.2.0 ; extra == 'doc'
-  - intersphinx-registry ; extra == 'doc'
-  - pydata-sphinx-theme>=0.15.2 ; extra == 'doc'
-  - sphinx-copybutton ; extra == 'doc'
-  - sphinx-design>=0.4.0 ; extra == 'doc'
-  - matplotlib>=3.5 ; extra == 'doc'
-  - numpydoc ; extra == 'doc'
-  - jupytext ; extra == 'doc'
-  - myst-nb>=1.2.0 ; extra == 'doc'
-  - pooch ; extra == 'doc'
-  - jupyterlite-sphinx>=0.19.1 ; extra == 'doc'
-  - jupyterlite-pyodide-kernel ; extra == 'doc'
-  - linkify-it-py ; extra == 'doc'
-  - tabulate ; extra == 'doc'
-  - click<8.3.0 ; extra == 'dev'
-  - spin ; extra == 'dev'
-  - mypy==1.10.0 ; extra == 'dev'
-  - typing-extensions ; extra == 'dev'
-  - types-psutil ; extra == 'dev'
-  - pycodestyle ; extra == 'dev'
-  - ruff>=0.12.0 ; extra == 'dev'
-  - cython-lint>=0.12.2 ; extra == 'dev'
-  requires_python: '>=3.11'
 - conda: https://conda.anaconda.org/conda-forge/linux-64/scipy-1.17.1-py312h54fa4ab_1.conda
   sha256: d5ac05ad45c0d48731eb189c2cbb2bb99f0e3cb7e1acaad373cb2f1f2597fc75
   md5: 15995ecb2ef890778ba9a3750190f09d
@@ -14759,7 +14712,8 @@ packages:
   - vc14_runtime >=14.44.35208
   license: BSD-3-Clause
   license_family: BSD
-  purls: []
+  purls:
+  - pkg:pypi/scipy?source=hash-mapping
   size: 15078490
   timestamp: 1779876221509
 - conda: https://conda.anaconda.org/conda-forge/noarch/sdkroot_env_osx-64-26.0-h62b880e_7.conda
