@@ -111,6 +111,34 @@ class AssetKind(str, Enum):
     QCSTA = "qcsta"
 
 
+_RINEX_KIND_BY_MAJOR_VERSION: dict[str, "AssetKind"] = {
+    "2": AssetKind.RINEX2,
+    "3": AssetKind.RINEX3,
+    "4": AssetKind.RINEX4,
+}
+
+# Every AssetKind a RINEX observation file could be cataloged under, regardless
+# of which version is currently configured. Used by callers that need to find
+# already-cataloged RINEX assets without knowing (or caring) which version
+# produced them.
+RINEX_KINDS: frozenset["AssetKind"] = frozenset(_RINEX_KIND_BY_MAJOR_VERSION.values())
+
+
+def rinex_kind_for_version(rinex_version: str) -> "AssetKind":
+    """Map a RINEX metadata version string (e.g. ``"4.02"``) to its :class:`AssetKind`.
+
+    Raises
+    ------
+    ValueError
+        If the major version has no corresponding :class:`AssetKind`.
+    """
+    major = rinex_version.split(".")[0]
+    try:
+        return _RINEX_KIND_BY_MAJOR_VERSION[major]
+    except KeyError:
+        raise ValueError(f"No AssetKind mapping for RINEX version {rinex_version!r}") from None
+
+
 # Default download sets used by WorkflowHandler.download_data().
 DEFAULT_PREPROCESS_KINDS: frozenset["AssetKind"] = frozenset(
     {
@@ -126,7 +154,7 @@ DEFAULT_PREPROCESS_KINDS: frozenset["AssetKind"] = frozenset(
 
 DEFAULT_INTERMEDIATE_KINDS: frozenset["AssetKind"] = frozenset(
     {
-        AssetKind.RINEX2,
+        AssetKind.RINEX4,
         AssetKind.CTD,
         AssetKind.SEABIRD,
         AssetKind.DFOP00,
