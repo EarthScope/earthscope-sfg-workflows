@@ -50,22 +50,30 @@ def get_rinex_timelast(rinex_asset: AssetEntry) -> datetime.datetime:
     ref_date = datetime.datetime(1970, 1, 1, 0, 0, 0)
     with open(rinex_asset.local_path) as f:
         for line in f:
-            # line sample: 23  6 24 23 59 59.5000000  0  9G21G27G32G08G10G23G24G02G18
-            if line.strip().startswith(year):
-                date_line = line.strip().split()
-                try:
-                    current_date = datetime.datetime(
-                        year=2000 + int(date_line[0]),
-                        month=int(date_line[1]),
-                        day=int(date_line[2]),
-                        hour=int(date_line[3]),
-                        minute=int(date_line[4]),
-                        second=int(float(date_line[5])),
-                    )
-                    if current_date > ref_date:
-                        ref_date = current_date
-                except Exception:
-                    pass
+            stripped = line.strip()
+            if stripped.startswith(">"):
+                # RINEX v3/v4 epoch record: "> 2026 06 03 17 58 25.5000000  0 36"
+                date_line = stripped[1:].split()
+                full_year = True
+            elif stripped.startswith(year):
+                # RINEX v2 epoch record: "23  6 24 23 59 59.5000000  0  9G21..."
+                date_line = stripped.split()
+                full_year = False
+            else:
+                continue
+            try:
+                current_date = datetime.datetime(
+                    year=int(date_line[0]) if full_year else 2000 + int(date_line[0]),
+                    month=int(date_line[1]),
+                    day=int(date_line[2]),
+                    hour=int(date_line[3]),
+                    minute=int(date_line[4]),
+                    second=int(float(date_line[5])),
+                )
+                if current_date > ref_date:
+                    ref_date = current_date
+            except Exception:
+                pass
     return ref_date
 
 

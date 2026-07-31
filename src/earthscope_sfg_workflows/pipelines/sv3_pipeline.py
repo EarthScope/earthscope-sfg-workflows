@@ -14,7 +14,24 @@ from typing import Callable
 
 # third-party — monkey-patch targets must be imported before the patches below
 import tiledb as _tiledb
+from earthscope_sfg_tools import tiledb_integration as novb_ops
+from earthscope_sfg_tools.novatel_tools.utils import get_metadata, get_metadatav2
+from earthscope_sfg_tools.seafloor_site_tools.soundspeed_operations import (
+    CTD_to_svp_v1,
+    CTD_to_svp_v2,
+    seabird_to_soundvelocity,
+)
+from earthscope_sfg_tools.sonardyne_tools import sv3_operations as sv3_ops
+from earthscope_sfg_tools.tiledb_integration import (
+    TDBIMUPositionArray,
+    TDBKinPositionArray,
+    TDBShotDataArray,
+    rinex_qc,
+    tdb2rnx,
+)
 from earthscope_sfg_tools.tiledb_integration.arrays import TBDArray as _TBDArray
+from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
+from earthscope_sfg_workflows.logging import ProcessLogger
 from pride_ppp import (
     ProcessingMode,
     PrideProcessor,
@@ -23,6 +40,29 @@ from pride_ppp import (
 )
 from pride_ppp.factories.processor import PrideProcessor as _PrideProcessorCls
 from pride_ppp.specifications.config import PRIDEPPPFileConfig as _PRIDEPPPFileConfig
+from rich.progress import track
+
+# local
+from ..data_mgmt.model import (
+    RINEX_KINDS,
+    AssetEntry,
+    AssetKind,
+    CampaignLayout,
+    SFGScope,
+    TileDBLayout,
+    rinex_kind_for_version,
+)
+from ..data_mgmt.utils import get_merge_signature_shotdata
+from .config import PrideConfig, RinexConfig, SV3PipelineConfig
+from .exceptions import (
+    NoDFOP00Found,
+    NoKinFound,
+    NoNovatelFound,
+    NoRinexBuilt,
+    NoRinexFound,
+    NoSVPFound,
+)
+from .shotdata_gnss_refinement import merge_shotdata_kinposition
 
 # pride_ppp <= current version omits `ISB model` from generated config_files;
 # pdp3 >= 3.2.7 requires it.  Patch write_config_file to inject the line.
@@ -76,48 +116,6 @@ def _tbd_write_df_patched(self, df, validate: bool = True):
 
 
 _TBDArray.write_df = _tbd_write_df_patched
-
-# third-party
-from earthscope_sfg_tools import tiledb_integration as novb_ops
-from earthscope_sfg_tools.novatel_tools.utils import get_metadata, get_metadatav2
-from earthscope_sfg_tools.seafloor_site_tools.soundspeed_operations import (
-    CTD_to_svp_v1,
-    CTD_to_svp_v2,
-    seabird_to_soundvelocity,
-)
-from earthscope_sfg_tools.sonardyne_tools import sv3_operations as sv3_ops
-from earthscope_sfg_tools.tiledb_integration import (
-    TDBIMUPositionArray,
-    TDBKinPositionArray,
-    TDBShotDataArray,
-    rinex_qc,
-    tdb2rnx,
-)
-from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
-from earthscope_sfg_workflows.logging import ProcessLogger
-from rich.progress import track
-
-# local
-from ..data_mgmt.model import (
-    RINEX_KINDS,
-    AssetEntry,
-    AssetKind,
-    CampaignLayout,
-    SFGScope,
-    TileDBLayout,
-    rinex_kind_for_version,
-)
-from ..data_mgmt.utils import get_merge_signature_shotdata
-from .config import PrideConfig, RinexConfig, SV3PipelineConfig
-from .exceptions import (
-    NoDFOP00Found,
-    NoKinFound,
-    NoNovatelFound,
-    NoRinexBuilt,
-    NoRinexFound,
-    NoSVPFound,
-)
-from .shotdata_gnss_refinement import merge_shotdata_kinposition
 
 
 def _pipeline_method(fn):
@@ -685,9 +683,12 @@ class SV3Pipeline:
             )
             try:
                 # tdb2rnx writes RINEX files to CWD; run from rinex_dest.
-                # Remove any pre-existing .rnx files so the post-run glob is clean.
+                # Remove any pre-existing RINEX output so the post-run glob is
+                # clean. Matches both the v3/v4 long name (*.rnx, current
+                # output format) and the legacy v2 short name (*.??o, in case
+                # a directory still has files from before the naming switch).
                 rinex_dest.mkdir(parents=True, exist_ok=True)
-                for _stale in rinex_dest.glob("*.rnx"):
+                for _stale in [*rinex_dest.glob("*.rnx"), *rinex_dest.glob("*.??o")]:
                     _stale.unlink()
                 old_cwd = Path.cwd()
                 try:
@@ -807,7 +808,12 @@ class SV3Pipeline:
             override=pride_cfg.override,
         )
         rinex_entries = [
-            e for e in rinex_entries if e.local_path is not None and e.kind in RINEX_KINDS
+            e
+            for e in rinex_entries
+            if e.local_path is not None
+            and e.kind in RINEX_KINDS
+            and e.local_path.exists()
+            and e.local_path.stat().st_size > 0
         ]
 
         if not rinex_entries:

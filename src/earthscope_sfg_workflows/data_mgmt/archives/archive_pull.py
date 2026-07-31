@@ -16,7 +16,7 @@ from earthscope_sfg_workflows.data_mgmt.core import FileTypeDetector
 from earthscope_sfg_workflows.data_mgmt.ports import ArchiveAuthError
 from earthscope_sfg_workflows.logging import ProcessLogger as logger
 from earthscope_sfg_tools.datamodels.metadata import Site, Vessel, import_site, import_vessel
-from ..model import AssetKind, SFGScope
+from ..model import AssetKind
 
 _detector = FileTypeDetector()
 

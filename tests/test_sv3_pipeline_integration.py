@@ -39,7 +39,6 @@ try:
     from earthscope_sfg_tools.tiledb_integration.arrays import (
         TDBKinPositionArray,
         TDBShotDataArray,
-        TDBIMUPositionArray,
     )
 
     _TILEDB_DEPS = True
@@ -526,7 +525,7 @@ def _add_novatel770_entry(catalog, fake_path: Path):
     return catalog.add(entry)
 
 
-# Real RINEX 2.11 fixture produced from NCC1 DOY-251 (2025-09-08) data.
+# Real RINEX fixture produced from NCC1 DOY-251 (2025-09-08) data.
 # Contains a valid header and the first 5 one-second observation epochs.
 # tdb2rnx now always writes the long-format v3/v4 RINEX filename regardless
 # of the configured RINEX version, so the fixture is copied under a `.rnx`
@@ -542,7 +541,6 @@ def _make_fake_tdb2rnx(rinex_dest: Path, filenames: list[str] | None = None):
     RINEX fixture means ``rinex_get_time_range`` runs on actual data and the
     catalog entries receive genuine timestamps — no extra mock needed.
     """
-    import shutil
     import subprocess
 
     _names = filenames or ["NCC1_2025_251_R_20252510000_01D_01S_MO.rnx"]
@@ -822,7 +820,6 @@ class TestRinexFixture:
     def test_rinex_get_time_range_parses_fixture(self):
         """``rinex_get_time_range`` returns the expected date from the fixture header."""
         from pride_ppp import rinex_get_time_range
-        import datetime
 
         if not _RINEX_FIXTURE.exists():
             pytest.skip("RINEX fixture not present")
@@ -864,7 +861,6 @@ class TestRinexFixture:
 
     def test_fixture_glob_pattern_matches(self, tmp_path):
         """The ``.rnx`` glob used by ``get_rinex_files`` matches tdb2rnx's output naming."""
-        import shutil
 
         dest = tmp_path / "NCC1_2025_251_R_20252510000_01D_01S_MO.rnx"
         shutil.copy(_RINEX_FIXTURE, dest)

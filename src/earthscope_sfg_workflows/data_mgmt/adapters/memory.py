@@ -11,6 +11,7 @@ import threading
 from collections import defaultdict
 from dataclasses import replace
 from itertools import count
+from pathlib import Path
 from upath import UPath
 
 from ..model import ArchiveFile, AssetEntry, AssetKind, SFGScope, FileInfo

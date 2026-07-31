@@ -224,7 +224,14 @@ class SyncService:
                 continue
             if any(ext in rinex_file.suffix for ext in ["S", "d", ".gz"]):
                 continue
-            new_suffix = rinex_file.suffix[:-1] + "d"
+            if rinex_file.suffix.lower() == ".rnx":
+                # RINEX v3/v4 long name: swap the whole extension for the
+                # Hatanaka-compact one (e.g. "..._MO.rnx" -> "..._MO.crx").
+                new_suffix = ".crx"
+            else:
+                # Legacy RINEX v2 short name: swap the trailing "o" for "d"
+                # (e.g. ".26o" -> ".26d").
+                new_suffix = rinex_file.suffix[:-1] + "d"
             compressed = rinex_file.with_suffix(new_suffix + ".gz")
             if not compressed.exists():
                 try:
