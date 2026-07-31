@@ -6468,7 +6468,7 @@ packages:
 - pypi: ./
   name: earthscope-sfg-workflows
   version: 0.1.0
-  sha256: ec69039610acb18e989da330d89a54045d20c92255f00f9e780a7456acece0f0
+  sha256: 6c9e2090dd0b72b89efa6f0fefcfd985d794d3b5b46143415c9e151f0fdfb5f8
   requires_dist:
   - earthscope-sfg-tools[tiledb] @ git+https://github.com/EarthScope/earthscope-sfg-tools.git@0.2.0
   - boto3>=1.40
