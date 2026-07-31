@@ -38,8 +38,17 @@ pixi run test
 
 ## Split-repo development note
 
-This repo is configured to consume `../earthscope-sfg-tools` as an editable local dependency via Pixi.
+`earthscope-sfg-tools` and `pride-ppp` (from the GNSSommelier monorepo) are consumed as
+git dependencies pinned to a tag/rev in `pyproject.toml` and resolved through `pixi.lock`
+— no sibling checkout is required. Note that `earthscope-sfg-tools` is declared in two
+places (`[project.dependencies]` and `[tool.pixi.pypi-dependencies]`); bump both when
+moving the pin, then run `pixi lock`.
 
-If you clone this repository without the sibling `earthscope-sfg-tools` directory, update
-`[tool.pixi.pypi-dependencies]` in `pyproject.toml` to use a published `earthscope-sfg-tools`
-version instead.
+To develop against a local checkout of either dependency, install it into the pixi env
+over the locked version:
+
+```bash
+pixi run -- uv pip install --python "$(command -v python)" --no-deps --force-reinstall ../earthscope-sfg-tools
+```
+
+Restore the locked env afterwards with `rm -rf .pixi/envs && pixi install`.

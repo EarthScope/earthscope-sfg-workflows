@@ -17,10 +17,8 @@ from matplotlib.colors import Normalize
 
 sns.set_theme(style="whitegrid")
 
-from earthscope_sfg_tools.datamodels.metadata import Campaign, Site, Survey  # noqa: E402
+from earthscope_sfg_tools.datamodels.metadata import Survey  # noqa: E402
 from earthscope_sfg_tools.tiledb_integration import (  # noqa: E402
-    TDBIMUPositionArray,
-    TDBKinPositionArray,
     TDBShotDataArray,
 )
 

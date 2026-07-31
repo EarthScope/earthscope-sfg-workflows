@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
-from earthscope_sfg_tools.datamodels import Campaign, Site, Survey
 from upath import UPath
 
 # ---------------------------------------------------------------------------

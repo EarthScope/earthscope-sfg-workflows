@@ -18,12 +18,12 @@ from .model import (
     CampaignLayout,
     NetworkLayout,
     DirectoryTree,
+    SFGScope,
     StationLayout,
     GARPOSLayout,
     SurveyLayout,
-    TileDBLayout,
 )
-from .ports import AssetCatalogPort, FileStorePort
+from .ports import FileStorePort
 
 
 # ---------------------------------------------------------------------------

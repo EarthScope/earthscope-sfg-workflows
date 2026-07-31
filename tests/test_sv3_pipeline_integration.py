@@ -39,7 +39,6 @@ try:
     from earthscope_sfg_tools.tiledb_integration.arrays import (
         TDBKinPositionArray,
         TDBShotDataArray,
-        TDBIMUPositionArray,
     )
 
     _TILEDB_DEPS = True
@@ -553,7 +552,6 @@ def _make_fake_tdb2rnx(rinex_dest: Path, filenames: list[str] | None = None):
     RINEX fixture means ``rinex_get_time_range`` runs on actual data and the
     catalog entries receive genuine timestamps — no extra mock needed.
     """
-    import shutil
     import subprocess
 
     _names = filenames or ["NCC1_2025_251_R_20252510000_01D_01S_MO.rnx"]
@@ -919,7 +917,6 @@ class TestRinexFixture:
     def test_rinex_get_time_range_parses_fixture(self):
         """``rinex_get_time_range`` returns the expected date from the fixture header."""
         from pride_ppp import rinex_get_time_range
-        import datetime
 
         if not _RINEX_FIXTURE.exists():
             pytest.skip("RINEX fixture not present")
@@ -961,7 +958,6 @@ class TestRinexFixture:
 
     def test_fixture_glob_pattern_matches(self, tmp_path):
         """The ``.rnx`` glob used by ``get_rinex_files`` matches tdb2rnx's output naming."""
-        import shutil
 
         dest = tmp_path / "NCC1_2025_251_R_20252510000_01D_01S_MO.rnx"
         shutil.copy(_RINEX_FIXTURE, dest)
