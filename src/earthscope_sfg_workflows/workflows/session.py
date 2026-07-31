@@ -40,22 +40,23 @@ from earthscope_sfg_workflows.data_mgmt.model import (
 )
 
 from earthscope_sfg_tools.datamodels.metadata import Campaign, Site
-
-_Site = Site  # alias kept for the .from_json() classmethod call below
-
 from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
 from earthscope_sfg_workflows.data_mgmt.ports import (
     ArchiveSourcePort,
     AssetCatalogPort,
-    FileStorePort,
 )
-from earthscope_sfg_workflows.logging import GarposLogger as logger
+
+_Site = Site  # alias kept for the .from_json() classmethod call below
 
 
 if TYPE_CHECKING:  # pragma: no cover
+    from earthscope_sfg_tools.datamodels.metadata import Survey
     from earthscope_sfg_tools.tiledb_integration import (
         TDBAcousticArray,
         TDBGNSSObsArray,
+        TDBIMUPositionArray,
+        TDBKinPositionArray,
+        TDBShotDataArray,
     )
     from earthscope_sfg_workflows.services.ingest_service import IngestService
     from earthscope_sfg_workflows.services.processing_service import ProcessingService

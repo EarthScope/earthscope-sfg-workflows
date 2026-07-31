@@ -5,7 +5,6 @@ import concurrent.futures
 import datetime
 import json
 import os
-import sys
 import threading
 from collections import deque
 from dataclasses import replace
