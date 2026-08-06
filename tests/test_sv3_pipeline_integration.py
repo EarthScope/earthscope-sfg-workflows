@@ -536,7 +536,7 @@ def _add_novatel770_entry(catalog, fake_path: Path):
     return catalog.add(entry)
 
 
-# Real RINEX 2.11 fixture produced from NCC1 DOY-251 (2025-09-08) data.
+# Real RINEX fixture produced from NCC1 DOY-251 (2025-09-08) data.
 # Contains a valid header and the first 5 one-second observation epochs.
 # tdb2rnx now always writes the long-format v3/v4 RINEX filename regardless
 # of the configured RINEX version, so the fixture is copied under a `.rnx`

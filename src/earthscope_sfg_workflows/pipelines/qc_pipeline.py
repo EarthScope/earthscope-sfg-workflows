@@ -432,9 +432,12 @@ class QCPipeline:
         if rinex_cfg.override or not self.catalog.is_merge_complete(**merge_signature):
             try:
                 # tdb2rnx writes RINEX files to CWD; run from rinex_dest.
-                # Remove any pre-existing .rnx files so the post-run glob is clean.
+                # Remove any pre-existing RINEX output so the post-run glob is
+                # clean. Matches both the v3/v4 long name (*.rnx, current
+                # output format) and the legacy v2 short name (*.??o, in case
+                # a directory still has files from before the naming switch).
                 rinex_dest.mkdir(parents=True, exist_ok=True)
-                for _stale in rinex_dest.glob("*.rnx"):
+                for _stale in [*rinex_dest.glob("*.rnx"), *rinex_dest.glob("*.??o")]:
                     _stale.unlink()
                 old_cwd = Path.cwd()
                 try:
