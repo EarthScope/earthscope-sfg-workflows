@@ -506,6 +506,17 @@ class TestTileDBRoundTrip:
 _NOV770_MOCK = "earthscope_sfg_workflows.pipelines.sv3_pipeline.novb_ops.novatel_770_2tile"
 _TDB2RNX_MOCK = "earthscope_sfg_workflows.pipelines.sv3_pipeline.tdb2rnx"
 
+
+def _successful_completed_process():
+    """A zero-returncode ``CompletedProcess``, matching the Go-binary wrapper's
+    real return type — callers check ``.returncode`` before recording merge
+    jobs, so mocks must return this rather than a bare ``MagicMock``.
+    """
+    import subprocess
+
+    return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+
 _T0 = datetime.datetime(2025, 9, 8, 0, 0, 0, tzinfo=datetime.timezone.utc)
 _T1 = datetime.datetime(2025, 9, 9, 0, 0, 0, tzinfo=datetime.timezone.utc)
 
@@ -586,7 +597,7 @@ class TestPreProcessNovatel:
 
         pipeline = _make_pipeline(tmp_path, catalog)
 
-        with patch(_NOV770_MOCK) as mock_tile:
+        with patch(_NOV770_MOCK, return_value=_successful_completed_process()) as mock_tile:
             pipeline.pre_process_novatel()
 
         mock_tile.assert_called_once()
@@ -611,7 +622,7 @@ class TestPreProcessNovatel:
 
         pipeline = _make_pipeline(tmp_path, catalog)
 
-        with patch(_NOV770_MOCK) as mock_tile:
+        with patch(_NOV770_MOCK, return_value=_successful_completed_process()) as mock_tile:
             pipeline.pre_process_novatel()
             pipeline.pre_process_novatel()
 
@@ -633,7 +644,7 @@ class TestPreProcessNovatel:
         config.novatel_config.override = True
         pipeline = _make_pipeline(tmp_path, catalog, config=config)
 
-        with patch(_NOV770_MOCK) as mock_tile:
+        with patch(_NOV770_MOCK, return_value=_successful_completed_process()) as mock_tile:
             pipeline.pre_process_novatel()
             pipeline.pre_process_novatel()
 
@@ -671,6 +682,39 @@ class TestPreProcessNovatel:
             child_type=AssetKind.GNSSOBSTDB.value,
             parent_ids=[entry.id],
         ), "Merge job must not be recorded when novatel_770_2tile fails"
+
+    def test_nonzero_returncode_does_not_record_merge_job(self, tmp_path, catalog):
+        """``novatel_770_2tile`` exits nonzero without raising → no merge job recorded.
+
+        The Go-binary wrapper runs ``subprocess.run(..., check=False)``, so a
+        failed conversion returns a nonzero-returncode ``CompletedProcess``
+        instead of raising. The pipeline must check ``.returncode`` itself —
+        otherwise a failed TileDB write gets recorded as a successful merge
+        and is skipped on every subsequent run.
+        """
+        import subprocess
+        from unittest.mock import patch
+
+        from earthscope_sfg_workflows.data_mgmt.model import AssetKind
+
+        fake_nov = tmp_path / "NOV770_bad.raw"
+        fake_nov.touch()
+        entry = _add_novatel770_entry(catalog, fake_nov)
+
+        pipeline = _make_pipeline(tmp_path, catalog)
+
+        failed_result = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="tdb write failed"
+        )
+        with patch(_NOV770_MOCK, return_value=failed_result):
+            # Should NOT raise out of pre_process_novatel — the pipeline catches and logs.
+            pipeline.pre_process_novatel()
+
+        assert not catalog.is_merge_complete(
+            parent_type=AssetKind.NOVATEL770.value,
+            child_type=AssetKind.GNSSOBSTDB.value,
+            parent_ids=[entry.id],
+        ), "Merge job must not be recorded when novatel_770_2tile exits nonzero"
 
 
 # ---------------------------------------------------------------------------
@@ -803,6 +847,59 @@ class TestGetRinexFiles:
 
 
 # ---------------------------------------------------------------------------
+# TestProcessRinex
+# ---------------------------------------------------------------------------
+
+
+def _add_rinex4_entry(catalog, rinex_file: Path):
+    """Catalog a RINEX4 asset entry for the NCC1 scope."""
+    from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
+    from upath import UPath
+
+    scope = _make_scope()
+    entry = AssetEntry(
+        kind=AssetKind.RINEX4,
+        scope=scope,
+        local_path=UPath(rinex_file),
+        timestamp_created=datetime.datetime.now(tz=datetime.timezone.utc),
+    )
+    return catalog.add(entry)
+
+
+class TestProcessRinex:
+    """Tests for ``SV3Pipeline.process_rinex`` (RINEX → PRIDE-PPP → KIN)."""
+
+    def test_passes_configured_cli_config_to_pride_processor(self, tmp_path, catalog):
+        """``PrideProcessor`` must be constructed with the user's configured
+        ``PrideCLIConfig`` (``pride_config.cli``), not the class default —
+        otherwise every user-set CLI flag is silently ignored.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from earthscope_sfg_workflows.pipelines.config import SV3PipelineConfig
+
+        fake_rinex = tmp_path / "NCC1_2025_251_R_20252510000_01D_01S_MO.rnx"
+        fake_rinex.touch()
+        _add_rinex4_entry(catalog, fake_rinex)
+
+        config = SV3PipelineConfig()
+        config.pride_config.cli.sample_frequency = 5
+        pipeline = _make_pipeline(tmp_path, catalog, config=config)
+
+        mock_processor = MagicMock()
+        mock_processor.process_batch.return_value = []
+
+        with patch(
+            "earthscope_sfg_workflows.pipelines.sv3_pipeline.PrideProcessor",
+            return_value=mock_processor,
+        ) as mock_cls:
+            pipeline.process_rinex()
+
+        assert mock_cls.call_args.kwargs["cli_config"] is config.pride_config.cli
+        assert mock_cls.call_args.kwargs["cli_config"].sample_frequency == 5
+
+
+# ---------------------------------------------------------------------------
 # TestRinexFixture — validates the RINEX text fixture used by the above tests
 # ---------------------------------------------------------------------------
 
@@ -895,7 +992,7 @@ class TestNovatel770ToRinexPipeline:
         rinex_dest.mkdir(parents=True, exist_ok=True)
 
         with (
-            patch(_NOV770_MOCK),
+            patch(_NOV770_MOCK, return_value=_successful_completed_process()),
             patch(_TDB2RNX_MOCK, side_effect=_make_fake_tdb2rnx(rinex_dest)),
         ):
             pipeline.pre_process_novatel()
@@ -928,7 +1025,7 @@ class TestNovatel770ToRinexPipeline:
         rinex_dest.mkdir(parents=True, exist_ok=True)
 
         with (
-            patch(_NOV770_MOCK) as mock_nov,
+            patch(_NOV770_MOCK, return_value=_successful_completed_process()) as mock_nov,
             patch(_TDB2RNX_MOCK, side_effect=_make_fake_tdb2rnx(rinex_dest)) as mock_tdb,
         ):
             pipeline.pre_process_novatel()
