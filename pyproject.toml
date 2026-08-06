@@ -10,7 +10,7 @@ authors = [
   { name = "Rachel Akie", email = "rachel.akie@earthscope.org" }
 ]
 dependencies = [
-  "earthscope-sfg-tools[tiledb] @ git+https://github.com/EarthScope/earthscope-sfg-tools.git@0.1.2",
+  "earthscope-sfg-tools[tiledb] @ git+https://github.com/EarthScope/earthscope-sfg-tools.git@0.2.1",
   "boto3>=1.40",
   "botocore>=1.40",
   "sqlalchemy>=2.0",
@@ -25,7 +25,7 @@ dependencies = [
   "typer>=0.9",
   "rich>=13.0",
   "pyyaml>=6.0",
-  "pride-ppp @ git+https://github.com/EarthScope/GNSSommelier.git#subdirectory=packages/pride-ppp"
+  "pride-ppp @ git+https://github.com/EarthScope/GNSSommelier.git@b8db24e65d3a19577febb006373cf865f5e82bb8#subdirectory=packages/pride-ppp"
 ]
 
 [project.optional-dependencies]
@@ -72,7 +72,13 @@ nodejs = ">=20"
 
 [tool.pixi.pypi-dependencies]
 earthscope_sfg_workflows = { path = ".", editable = true }
-earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-tools.git", rev = "0.1.2", extras = ["tiledb"] }
+earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-tools.git", rev = "0.2.1", extras = ["tiledb"] }
+# gpm-specs and gnss-product-management are transitive deps of pride-ppp, but
+# pride-ppp's own metadata requests them unpinned (default-branch HEAD), which
+# fails `pixi install --locked` validation in CI. Pin them to the same
+# GNSSommelier rev as pride-ppp; keep all three in sync when re-locking.
+gpm-specs = { git = "https://github.com/EarthScope/GNSSommelier.git", subdirectory = "packages/gpm-specs", rev = "b8db24e65d3a19577febb006373cf865f5e82bb8" }
+gnss-product-management = { git = "https://github.com/EarthScope/GNSSommelier.git", subdirectory = "packages/gnss-product-management", rev = "b8db24e65d3a19577febb006373cf865f5e82bb8" }
 
 [tool.pixi.feature.tiledb.dependencies]
 tiledb = ">=2.27"
@@ -100,7 +106,9 @@ docs = { cmd = "myst start", description = "Serve docs locally with live reload"
 docs-build = { cmd = "myst build --html", description = "Build docs as static HTML" }
 
 # Clone and compile garpos from source (importable via PYTHONPATH set in activation)
-clone-garpos = { cmd = "bash -c 'if [ -d .pixi/garpos ]; then git -C .pixi/garpos pull; else git clone https://github.com/s-watanabe-jhod/garpos.git .pixi/garpos; fi'" }
+# Pinned to v1.0.2: compile-garpos hardcodes the bin/garpos_v102/f90lib path,
+# which does not exist in newer upstream releases.
+clone-garpos = { cmd = "bash -c 'if [ -d .pixi/garpos ]; then git -C .pixi/garpos fetch --tags && git -C .pixi/garpos checkout v1.0.2; else git clone --branch v1.0.2 --depth 1 https://github.com/s-watanabe-jhod/garpos.git .pixi/garpos; fi'" }
 compile-garpos = { cmd = "gfortran -shared -fPIC -fopenmp -O3 -o lib_raytrace.so sub_raytrace.f90 lib_raytrace.f90", cwd = ".pixi/garpos/bin/garpos_v102/f90lib", depends-on = ["clone-garpos"] }
 test-garpos = { cmd = "pytest tests/test_garpos.py -v", depends-on = ["compile-garpos"] }
 

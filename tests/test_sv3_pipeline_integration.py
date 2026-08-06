@@ -39,7 +39,6 @@ try:
     from earthscope_sfg_tools.tiledb_integration.arrays import (
         TDBKinPositionArray,
         TDBShotDataArray,
-        TDBIMUPositionArray,
     )
 
     _TILEDB_DEPS = True
@@ -507,6 +506,17 @@ class TestTileDBRoundTrip:
 _NOV770_MOCK = "earthscope_sfg_workflows.pipelines.sv3_pipeline.novb_ops.novatel_770_2tile"
 _TDB2RNX_MOCK = "earthscope_sfg_workflows.pipelines.sv3_pipeline.tdb2rnx"
 
+
+def _successful_completed_process():
+    """A zero-returncode ``CompletedProcess``, matching the Go-binary wrapper's
+    real return type — callers check ``.returncode`` before recording merge
+    jobs, so mocks must return this rather than a bare ``MagicMock``.
+    """
+    import subprocess
+
+    return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+
 _T0 = datetime.datetime(2025, 9, 8, 0, 0, 0, tzinfo=datetime.timezone.utc)
 _T1 = datetime.datetime(2025, 9, 9, 0, 0, 0, tzinfo=datetime.timezone.utc)
 
@@ -526,8 +536,11 @@ def _add_novatel770_entry(catalog, fake_path: Path):
     return catalog.add(entry)
 
 
-# Real RINEX 2.11 fixture produced from NCC1 DOY-251 (2025-09-08) data.
+# Real RINEX fixture produced from NCC1 DOY-251 (2025-09-08) data.
 # Contains a valid header and the first 5 one-second observation epochs.
+# tdb2rnx now always writes the long-format v3/v4 RINEX filename regardless
+# of the configured RINEX version, so the fixture is copied under a `.rnx`
+# name to match; the header content itself is unaffected.
 _RINEX_FIXTURE = FIXTURES / "NCC12510.25o"
 
 
@@ -539,10 +552,9 @@ def _make_fake_tdb2rnx(rinex_dest: Path, filenames: list[str] | None = None):
     RINEX fixture means ``rinex_get_time_range`` runs on actual data and the
     catalog entries receive genuine timestamps — no extra mock needed.
     """
-    import shutil
     import subprocess
 
-    _names = filenames or ["NCC12510.25o"]
+    _names = filenames or ["NCC1_2025_251_R_20252510000_01D_01S_MO.rnx"]
 
     def _side_effect(**_kwargs):
         cwd = Path.cwd()
@@ -585,7 +597,7 @@ class TestPreProcessNovatel:
 
         pipeline = _make_pipeline(tmp_path, catalog)
 
-        with patch(_NOV770_MOCK) as mock_tile:
+        with patch(_NOV770_MOCK, return_value=_successful_completed_process()) as mock_tile:
             pipeline.pre_process_novatel()
 
         mock_tile.assert_called_once()
@@ -610,7 +622,7 @@ class TestPreProcessNovatel:
 
         pipeline = _make_pipeline(tmp_path, catalog)
 
-        with patch(_NOV770_MOCK) as mock_tile:
+        with patch(_NOV770_MOCK, return_value=_successful_completed_process()) as mock_tile:
             pipeline.pre_process_novatel()
             pipeline.pre_process_novatel()
 
@@ -632,7 +644,7 @@ class TestPreProcessNovatel:
         config.novatel_config.override = True
         pipeline = _make_pipeline(tmp_path, catalog, config=config)
 
-        with patch(_NOV770_MOCK) as mock_tile:
+        with patch(_NOV770_MOCK, return_value=_successful_completed_process()) as mock_tile:
             pipeline.pre_process_novatel()
             pipeline.pre_process_novatel()
 
@@ -671,6 +683,39 @@ class TestPreProcessNovatel:
             parent_ids=[entry.id],
         ), "Merge job must not be recorded when novatel_770_2tile fails"
 
+    def test_nonzero_returncode_does_not_record_merge_job(self, tmp_path, catalog):
+        """``novatel_770_2tile`` exits nonzero without raising → no merge job recorded.
+
+        The Go-binary wrapper runs ``subprocess.run(..., check=False)``, so a
+        failed conversion returns a nonzero-returncode ``CompletedProcess``
+        instead of raising. The pipeline must check ``.returncode`` itself —
+        otherwise a failed TileDB write gets recorded as a successful merge
+        and is skipped on every subsequent run.
+        """
+        import subprocess
+        from unittest.mock import patch
+
+        from earthscope_sfg_workflows.data_mgmt.model import AssetKind
+
+        fake_nov = tmp_path / "NOV770_bad.raw"
+        fake_nov.touch()
+        entry = _add_novatel770_entry(catalog, fake_nov)
+
+        pipeline = _make_pipeline(tmp_path, catalog)
+
+        failed_result = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="tdb write failed"
+        )
+        with patch(_NOV770_MOCK, return_value=failed_result):
+            # Should NOT raise out of pre_process_novatel — the pipeline catches and logs.
+            pipeline.pre_process_novatel()
+
+        assert not catalog.is_merge_complete(
+            parent_type=AssetKind.NOVATEL770.value,
+            child_type=AssetKind.GNSSOBSTDB.value,
+            parent_ids=[entry.id],
+        ), "Merge job must not be recorded when novatel_770_2tile exits nonzero"
+
 
 # ---------------------------------------------------------------------------
 # TestGetRinexFiles
@@ -690,22 +735,28 @@ class TestGetRinexFiles:
         rinex_dest = pipeline._campaign_layout.rinex
         rinex_dest.mkdir(parents=True, exist_ok=True)
 
-        side_fx = _make_fake_tdb2rnx(rinex_dest, ["NCC12510.25o", "NCC12520.25o"])
+        side_fx = _make_fake_tdb2rnx(
+            rinex_dest,
+            [
+                "NCC1_2025_251_R_20252510000_01D_01S_MO.rnx",
+                "NCC1_2025_252_R_20252520000_01D_01S_MO.rnx",
+            ],
+        )
 
         with patch(_TDB2RNX_MOCK, side_effect=side_fx):
             pipeline.get_rinex_files()
 
         rinex_entries = catalog.assets_for(
-            kind=AssetKind.RINEX2,
+            kind=AssetKind.RINEX4,
             network=NETWORK,
             station=STATION,
             campaign=CAMPAIGN,
         )
-        assert len(rinex_entries) == 2, "Expected two RINEX2 entries in the catalog"
-        assert all(e.kind == AssetKind.RINEX2 for e in rinex_entries)
+        assert len(rinex_entries) == 2, "Expected two RINEX4 entries in the catalog"
+        assert all(e.kind == AssetKind.RINEX4 for e in rinex_entries)
 
     def test_records_merge_job_after_rinex_build(self, tmp_path, catalog):
-        """A merge job is recorded from GNSSOBSTDB → RINEX2 after a successful build."""
+        """A merge job is recorded from GNSSOBSTDB → RINEX4 after a successful build."""
         from unittest.mock import patch
 
         from earthscope_sfg_workflows.data_mgmt.model import AssetKind
@@ -722,7 +773,7 @@ class TestGetRinexFiles:
         parent_ids = f"N-{NETWORK}|ST-{STATION}|SV-{CAMPAIGN}|TDB-{tdb_uri}|YEAR-{year}"
         assert catalog.is_merge_complete(
             parent_type=AssetKind.GNSSOBSTDB.value,
-            child_type=AssetKind.RINEX2.value,
+            child_type=AssetKind.RINEX4.value,
             parent_ids=[parent_ids],
         ), "Merge job should be recorded after RINEX build"
 
@@ -778,7 +829,7 @@ class TestGetRinexFiles:
                 pipeline.get_rinex_files()
 
     def test_raises_no_rinex_built_when_no_files_produced(self, tmp_path, catalog):
-        """``tdb2rnx`` exits 0 but writes no ``.??o`` files → ``NoRinexBuilt``."""
+        """``tdb2rnx`` exits 0 but writes no ``.rnx`` files → ``NoRinexBuilt``."""
         import subprocess
         from unittest.mock import patch
 
@@ -793,6 +844,59 @@ class TestGetRinexFiles:
         with patch(_TDB2RNX_MOCK, return_value=empty_result):
             with pytest.raises(NoRinexBuilt):
                 pipeline.get_rinex_files()
+
+
+# ---------------------------------------------------------------------------
+# TestProcessRinex
+# ---------------------------------------------------------------------------
+
+
+def _add_rinex4_entry(catalog, rinex_file: Path):
+    """Catalog a RINEX4 asset entry for the NCC1 scope."""
+    from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
+    from upath import UPath
+
+    scope = _make_scope()
+    entry = AssetEntry(
+        kind=AssetKind.RINEX4,
+        scope=scope,
+        local_path=UPath(rinex_file),
+        timestamp_created=datetime.datetime.now(tz=datetime.timezone.utc),
+    )
+    return catalog.add(entry)
+
+
+class TestProcessRinex:
+    """Tests for ``SV3Pipeline.process_rinex`` (RINEX → PRIDE-PPP → KIN)."""
+
+    def test_passes_configured_cli_config_to_pride_processor(self, tmp_path, catalog):
+        """``PrideProcessor`` must be constructed with the user's configured
+        ``PrideCLIConfig`` (``pride_config.cli``), not the class default —
+        otherwise every user-set CLI flag is silently ignored.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from earthscope_sfg_workflows.pipelines.config import SV3PipelineConfig
+
+        fake_rinex = tmp_path / "NCC1_2025_251_R_20252510000_01D_01S_MO.rnx"
+        fake_rinex.touch()
+        _add_rinex4_entry(catalog, fake_rinex)
+
+        config = SV3PipelineConfig()
+        config.pride_config.cli.sample_frequency = 5
+        pipeline = _make_pipeline(tmp_path, catalog, config=config)
+
+        mock_processor = MagicMock()
+        mock_processor.process_batch.return_value = []
+
+        with patch(
+            "earthscope_sfg_workflows.pipelines.sv3_pipeline.PrideProcessor",
+            return_value=mock_processor,
+        ) as mock_cls:
+            pipeline.process_rinex()
+
+        assert mock_cls.call_args.kwargs["cli_config"] is config.pride_config.cli
+        assert mock_cls.call_args.kwargs["cli_config"].sample_frequency == 5
 
 
 # ---------------------------------------------------------------------------
@@ -813,7 +917,6 @@ class TestRinexFixture:
     def test_rinex_get_time_range_parses_fixture(self):
         """``rinex_get_time_range`` returns the expected date from the fixture header."""
         from pride_ppp import rinex_get_time_range
-        import datetime
 
         if not _RINEX_FIXTURE.exists():
             pytest.skip("RINEX fixture not present")
@@ -854,14 +957,13 @@ class TestRinexFixture:
         assert epoch_count >= 5, f"Expected ≥5 epochs in fixture, got {epoch_count}"
 
     def test_fixture_glob_pattern_matches(self, tmp_path):
-        """The ``.??o`` glob used by ``get_rinex_files`` matches the fixture filename."""
-        import shutil
+        """The ``.rnx`` glob used by ``get_rinex_files`` matches tdb2rnx's output naming."""
 
-        dest = tmp_path / _RINEX_FIXTURE.name
+        dest = tmp_path / "NCC1_2025_251_R_20252510000_01D_01S_MO.rnx"
         shutil.copy(_RINEX_FIXTURE, dest)
-        matches = list(tmp_path.glob("*.??o"))
+        matches = list(tmp_path.glob("*.rnx"))
         assert len(matches) == 1, f"Expected 1 match, got {matches}"
-        assert matches[0].name == _RINEX_FIXTURE.name
+        assert matches[0].name == dest.name
 
 
 # ---------------------------------------------------------------------------
@@ -890,7 +992,7 @@ class TestNovatel770ToRinexPipeline:
         rinex_dest.mkdir(parents=True, exist_ok=True)
 
         with (
-            patch(_NOV770_MOCK),
+            patch(_NOV770_MOCK, return_value=_successful_completed_process()),
             patch(_TDB2RNX_MOCK, side_effect=_make_fake_tdb2rnx(rinex_dest)),
         ):
             pipeline.pre_process_novatel()
@@ -902,7 +1004,7 @@ class TestNovatel770ToRinexPipeline:
             parent_ids=[catalog.assets_for(kind=AssetKind.NOVATEL770)[0].id],
         )
         rinex_entries = catalog.assets_for(
-            kind=AssetKind.RINEX2, network=NETWORK, station=STATION, campaign=CAMPAIGN
+            kind=AssetKind.RINEX4, network=NETWORK, station=STATION, campaign=CAMPAIGN
         )
         assert len(rinex_entries) == 1
         # Verify timestamps came from the real RINEX file (not a mock)
@@ -923,7 +1025,7 @@ class TestNovatel770ToRinexPipeline:
         rinex_dest.mkdir(parents=True, exist_ok=True)
 
         with (
-            patch(_NOV770_MOCK) as mock_nov,
+            patch(_NOV770_MOCK, return_value=_successful_completed_process()) as mock_nov,
             patch(_TDB2RNX_MOCK, side_effect=_make_fake_tdb2rnx(rinex_dest)) as mock_tdb,
         ):
             pipeline.pre_process_novatel()

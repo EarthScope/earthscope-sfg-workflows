@@ -11,7 +11,6 @@ scope state directly.
 
 import os
 import re
-import warnings
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -22,7 +21,7 @@ from earthscope_sfg_workflows.data_mgmt.model import AssetKind
 from earthscope_sfg_workflows.logging import ProcessLogger as logger
 from earthscope_sfg_workflows.logging import change_all_logger_dirs
 
-from ..data_mgmt.model import DEFAULT_PREPROCESS_KINDS, DEFAULT_INTERMEDIATE_KINDS
+from ..data_mgmt.model import DEFAULT_PREPROCESS_KINDS
 from earthscope_sfg_tools.datamodels.metadata import Site
 from ..modeling.garpos_tools.schemas import InversionParams
 from ..modeling.garpos_tools.garpos_handler import GarposHandler

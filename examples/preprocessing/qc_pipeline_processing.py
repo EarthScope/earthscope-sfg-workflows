@@ -35,7 +35,7 @@ if __name__ == "__main__":
     # Step 4 (Optional): Ingest QC PIN files if not already in the catalog
     qcpin_directory = Path("/path/to/your/QCPIN_files")
     # Uncomment the following line to ingest local QC PIN files:
-    workflow.ingest_add_local_data(directory_path=qcpin_directory)
+    workflow.ingest_qcpin_tarballs(directory_path=qcpin_directory)
 
     # Step 5: Run the QC processing pipeline (Option A: full pipeline)
     workflow.preprocess_run_pipeline_qc(job="all")

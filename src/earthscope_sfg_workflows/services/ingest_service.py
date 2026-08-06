@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import re
 import tarfile
 import threading
 from datetime import datetime, timezone
@@ -15,7 +14,7 @@ import fsspec
 from rich.progress import track
 from upath import UPath
 
-from earthscope_sfg_workflows.data_mgmt.core import DEFAULT_PATTERNS, FileTypeDetector
+from earthscope_sfg_workflows.data_mgmt.core import FileTypeDetector
 from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind, IngestReport
 from earthscope_sfg_workflows.data_mgmt.ports import ArchiveError
 
@@ -420,10 +419,27 @@ class IngestService:
         kinds: "list[AssetKind] | None",
     ) -> "list[AssetEntry]":
         if kinds is None:
-            return [a for a in self._catalog.assets_for(scope) if a.remote_path]
+            return [
+                a
+                for a in self._catalog.assets_for(
+                    network=scope.network,
+                    station=scope.station,
+                    campaign=scope.campaign,
+                )
+                if a.remote_path
+            ]
         out: list[AssetEntry] = []
         for kind in kinds:
-            out.extend(a for a in self._catalog.assets_for(scope, kind) if a.remote_path)
+            out.extend(
+                a
+                for a in self._catalog.assets_for(
+                    kind,
+                    network=scope.network,
+                    station=scope.station,
+                    campaign=scope.campaign,
+                )
+                if a.remote_path
+            )
         return out
 
     def _download_s3_files(

@@ -5,7 +5,6 @@ import concurrent.futures
 import datetime
 import json
 import os
-import sys
 import threading
 from collections import deque
 from dataclasses import replace
@@ -30,7 +29,15 @@ from earthscope_sfg_tools.tiledb_integration import (
 )
 from earthscope_sfg_workflows.logging import ProcessLogger
 
-from ..data_mgmt.model import AssetEntry, AssetKind, CampaignLayout, SFGScope, TileDBLayout
+from ..data_mgmt.model import (
+    RINEX_KINDS,
+    AssetEntry,
+    AssetKind,
+    CampaignLayout,
+    SFGScope,
+    TileDBLayout,
+    rinex_kind_for_version,
+)
 from ..data_mgmt.ports import AssetCatalogPort
 from ..data_mgmt.utils import get_merge_signature_shotdata
 from .config import PrideConfig, QCPipelineConfig, RinexConfig
@@ -262,22 +269,36 @@ class QCPipeline:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _build_rinex_meta(self) -> None:
-        """Write RINEX metadata JSON files for the current campaign if absent."""
+    def _build_rinex_meta(self) -> str:
+        """Write RINEX metadata JSON files for the current campaign if absent.
+
+        Returns
+        -------
+        str
+            The configured ``rinex_version`` (e.g. ``"4.02"``) — read back from
+            ``rinex_metav2.json``, whether pre-existing or freshly generated,
+            so callers can derive the correct :class:`AssetKind` even if a
+            user has hand-edited the file to a different version.
+        """
         meta_dir = self._campaign_layout.metadata_dir
         meta_dir.mkdir(parents=True, exist_ok=True)
         rinex_metav2 = meta_dir / "rinex_metav2.json"
         rinex_metav1 = meta_dir / "rinex_metav1.json"
 
-        if not rinex_metav2.exists():
+        if rinex_metav2.exists():
+            with open(rinex_metav2) as f:
+                metadata = json.load(f)
+        else:
+            metadata = get_metadatav2(site=self.scope.station)
             with open(rinex_metav2, "w") as f:
-                json.dump(get_metadatav2(site=self.scope.station), f)
+                json.dump(metadata, f)
 
         if not rinex_metav1.exists():
             with open(rinex_metav1, "w") as f:
                 json.dump(get_metadata(site=self.scope.station), f)
 
         self.config.rinex_config.settings_path = rinex_metav2
+        return metadata["rinex_version"]
 
     # ------------------------------------------------------------------
     # Pipeline steps
@@ -391,6 +412,9 @@ class QCPipeline:
             f"{self.scope.station} {year}. This may take a few minutes..."
         )
 
+        rinex_version = self._build_rinex_meta()
+        rinex_kind = rinex_kind_for_version(rinex_version)
+
         parent_ids = (
             f"N-{self.scope.network}"
             f"|ST-{self.scope.station}"
@@ -401,18 +425,19 @@ class QCPipeline:
         )
         merge_signature = {
             "parent_type": AssetKind.GNSSOBSTDB.value,
-            "child_type": AssetKind.RINEX2.value,
+            "child_type": rinex_kind.value,
             "parent_ids": [parent_ids],
         }
 
         if rinex_cfg.override or not self.catalog.is_merge_complete(**merge_signature):
             try:
-                self._build_rinex_meta()
-
                 # tdb2rnx writes RINEX files to CWD; run from rinex_dest.
-                # Remove any pre-existing .??o files so the post-run glob is clean.
+                # Remove any pre-existing RINEX output so the post-run glob is
+                # clean. Matches both the v3/v4 long name (*.rnx, current
+                # output format) and the legacy v2 short name (*.??o, in case
+                # a directory still has files from before the naming switch).
                 rinex_dest.mkdir(parents=True, exist_ok=True)
-                for _stale in rinex_dest.glob("*.??o"):
+                for _stale in [*rinex_dest.glob("*.rnx"), *rinex_dest.glob("*.??o")]:
                     _stale.unlink()
                 old_cwd = Path.cwd()
                 try:
@@ -431,7 +456,7 @@ class QCPipeline:
                 if result.returncode != 0:
                     raise NoRinexBuilt(f"tdb2rnx exited with code {result.returncode}")
 
-                rinex_paths = sorted(rinex_dest.glob("*.??o"))
+                rinex_paths = sorted(rinex_dest.glob("*.rnx"))
 
                 if not rinex_paths:
                     ProcessLogger.warning(
@@ -446,7 +471,7 @@ class QCPipeline:
                 for rinex_path in rinex_paths:
                     start, end = rinex_get_time_range(rinex_path)
                     entry = AssetEntry(
-                        kind=AssetKind.RINEX2,
+                        kind=rinex_kind,
                         scope=self.scope,
                         local_path=rinex_path,
                         timestamp_data_start=start,
@@ -484,7 +509,7 @@ class QCPipeline:
                 network=self.scope.network,
                 station=self.scope.station,
                 campaign=self.scope.campaign,
-                kind=AssetKind.RINEX2,
+                kind=rinex_kind,
             )
             ProcessLogger.debug(
                 f"QC RINEX already generated for {self.scope.network}, "
@@ -517,10 +542,11 @@ class QCPipeline:
             network=self.scope.network,
             station=self.scope.station,
             campaign=self.scope.campaign,
-            kind=AssetKind.RINEX2,
             override=pride_cfg.override,
         )
-        rinex_entries = [e for e in rinex_entries if e.local_path is not None]
+        rinex_entries = [
+            e for e in rinex_entries if e.local_path is not None and e.kind in RINEX_KINDS
+        ]
 
         if not rinex_entries:
             msg = (
@@ -536,6 +562,7 @@ class QCPipeline:
         processor = PrideProcessor(
             pride_dir=pride_dir,
             output_dir=intermediate_dir,
+            cli_config=pride_cfg.cli,
             mode=ProcessingMode.DEFAULT,
         )
         rinex_path_map = {e.local_path: e for e in rinex_entries}

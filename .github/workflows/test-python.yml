@@ -5,12 +5,14 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'pyproject.toml'
+      - 'pixi.lock'
       - '.github/workflows/test-python.yml'
   pull_request:
     paths:
       - 'src/**'
       - 'tests/**'
       - 'pyproject.toml'
+      - 'pixi.lock'
       - '.github/workflows/test-python.yml'
   workflow_dispatch:
 
@@ -21,13 +23,16 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up pixi
-        uses: prefix-dev/setup-pixi@v0.9.6
+        uses: prefix-dev/setup-pixi@v0.10.0
         with:
           pixi-version: v0.67.2
-          locked: false
+          locked: true
 
       - name: Check formatting with ruff
         run: pixi run format-check
+
+      - name: Lint with ruff
+        run: pixi run lint
 
       - name: Run tests
         run: pixi run test
