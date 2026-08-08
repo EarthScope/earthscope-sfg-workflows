@@ -160,6 +160,10 @@ class _BaseLogger:
             self.console_handler.setFormatter(self.console_format)
             self.console_handler.setLevel(logging.INFO)
             self.logger.addHandler(self.console_handler)
+            # This handler already prints to the console, so don't also propagate
+            # to the root logger - a caller with its own logging.basicConfig(...)
+            # (as most notebooks add) would otherwise print every message twice.
+            self.logger.propagate = False
             self.debug(f"Routing {self.name} logger to console")
 
     def non_negotiable_console_log(self, message: str) -> str | None:
@@ -290,24 +294,23 @@ def change_all_logger_dirs(dir: Path):
 # Create the base logger
 BaseLogger = _BaseLogger()
 
-# Create loggers for specific modules & set them to propagate to the base logger
+# Create loggers for specific modules. Propagation to the root logger is
+# disabled by route_to_console() below, once each logger has its own console
+# handler - see route_to_console()'s docstring/comment for why.
 PRIDELogger = _BaseLogger(
     name="base_logger.pride_logger",
     file_name="pride.log",
 )
-PRIDELogger.propagate = True
 
 ProcessLogger = _BaseLogger(
     name="base_logger.processing_logger",
     file_name="processing.log",
 )
-ProcessLogger.propagate = True
 
 GarposLogger = _BaseLogger(
     name="base_logger.garpos_logger",
     file_name="garpos.log",
 )
-GarposLogger.propagate = True
 
 
 # Route all loggers to the console

@@ -161,6 +161,21 @@ class AssetCatalogPort(Protocol):
         """
         ...
 
+    def by_remote_path(self, remote_path: str) -> list[AssetEntry]:
+        """Return all assets with ``remote_path == remote_path``.
+
+        Parameters
+        ----------
+        remote_path : str
+            Remote URL to match.
+
+        Returns
+        -------
+        list[AssetEntry]
+            All assets whose ``remote_path`` equals *remote_path*.
+        """
+        ...
+
     def assets_for(
         self,
         kind: AssetKind | None = None,

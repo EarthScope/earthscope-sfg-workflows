@@ -243,6 +243,31 @@ class TestInMemoryFileStore:
 # ---------------------------------------------------------------------------
 
 
+class TestEarthScopeArchiveQcZipUrl:
+    def test_instance_method(self) -> None:
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
+            EarthScopeArchive,
+        )
+
+        scope = SFGScope(network="cascadia-gorda", station="GCC1", campaign="2025_A_1126")
+        arc = EarthScopeArchive()
+        assert arc.campaign_qc_zip_url(scope) == (
+            "https://data.earthscope.org/archive/seafloor/"
+            "cascadia-gorda/2025/GCC1/2025_A_1126/qc.zip"
+        )
+
+    def test_module_level_function(self) -> None:
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
+            campaign_qc_zip_url,
+        )
+
+        scope = SFGScope(network="cascadia-gorda", station="GCC1", campaign="2025_A_1126")
+        assert campaign_qc_zip_url(scope) == (
+            "https://data.earthscope.org/archive/seafloor/"
+            "cascadia-gorda/2025/GCC1/2025_A_1126/qc.zip"
+        )
+
+
 class TestFakeArchive:
     def test_list_and_download(self, tmp_path: Path) -> None:
         arc = FakeArchive(
@@ -322,6 +347,83 @@ class TestIngestService:
         session._file_manager = FileManager(DirectoryTree(root=Path("/ws")), fs)
         return session, catalog, fs, archive
 
+    def test_discover_remote_includes_ctd_subdirectory(self, scope: SFGScope) -> None:
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
+            canonical_campaign_urls,
+        )
+
+        session, catalog, _, archive = self._session(scope)
+        _, metadata_url, _, _ = canonical_campaign_urls(scope)
+        archive.seed(f"{metadata_url}/ctd/CTD_001.csv", b"C")
+
+        report = session.ingest.discover_remote()
+        assert report.cataloged == 1
+
+        [asset] = catalog.assets_for(
+            network=scope.network, station=scope.station, campaign=scope.campaign
+        )
+        assert asset.kind == AssetKind.CTD
+        assert asset.remote_path is not None
+        assert asset.local_path is None
+
+    def test_discover_ctd_only(self, scope: SFGScope) -> None:
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
+            canonical_campaign_urls,
+        )
+
+        session, catalog, _, archive = self._session(scope)
+        raw_url, metadata_url, _, _ = canonical_campaign_urls(scope)
+        archive.seed(f"{metadata_url}/ctd/CTD_001.csv", b"C")
+        archive.seed(f"{raw_url}/sonardyne.bin", b"S")  # should be ignored by discover_ctd
+
+        report = session.ingest.discover_ctd()
+        assert report.cataloged == 1
+
+        kinds = {
+            a.kind
+            for a in catalog.assets_for(
+                network=scope.network, station=scope.station, campaign=scope.campaign
+            )
+        }
+        assert kinds == {AssetKind.CTD}
+
+    def test_ingest_ctd_only_downloads_ctd(self, scope: SFGScope, tmp_path: Path) -> None:
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
+            canonical_campaign_urls,
+        )
+        from earthscope_sfg_workflows.data_mgmt.core import FileManager
+        from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
+        from tests.utils import make_session
+
+        catalog = InMemoryAssetStore()
+        archive = FakeArchive()
+        _, metadata_url, _, _ = canonical_campaign_urls(scope)
+        archive.seed(f"{metadata_url}/ctd/CTD_001.csv", b"C")
+
+        files = FsspecFileStore(root=str(tmp_path))
+        session = make_session(
+            network=scope.network,
+            station=scope.station,
+            catalog=catalog,
+            archive=archive,
+        )
+        session._file_manager = FileManager(DirectoryTree(root=tmp_path), files)
+        session.set_campaign(scope.campaign)
+
+        report = session.ingest.ingest_ctd_only()
+
+        assert report.ok
+        assert report.cataloged == 1
+        assert report.downloaded == 1
+
+        [asset] = catalog.assets_for(
+            network=scope.network, station=scope.station, campaign=scope.campaign
+        )
+        assert asset.kind == AssetKind.CTD
+        assert asset.local_path is not None
+        assert asset.local_path.exists()
+        assert asset.local_path.read_bytes() == b"C"
+
     def test_ingest_local(self, scope: SFGScope) -> None:
         session, catalog, files, _ = self._session(scope)
         files.write_bytes(Path("/in/foo.24o"), b"R")
@@ -387,3 +489,72 @@ class TestIngestService:
         assert asset.local_path is not None
         assert asset.local_path.exists()
         assert asset.local_path.read_bytes() == b"R"
+
+    def test_ingest_qc_zip_extracts_and_catalogs(self, scope: SFGScope, tmp_path: Path) -> None:
+        import io
+        import tarfile
+        import zipfile
+
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
+            campaign_qc_zip_url,
+        )
+        from earthscope_sfg_workflows.data_mgmt.core import FileManager
+        from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
+        from tests.utils import make_session
+
+        tar_buf = io.BytesIO()
+        with tarfile.open(fileobj=tar_buf, mode="w:gz") as tf:
+            pin_data = b"PIN-DATA"
+            info = tarfile.TarInfo(name="results.pin")
+            info.size = len(pin_data)
+            tf.addfile(info, io.BytesIO(pin_data))
+        tar_bytes = tar_buf.getvalue()
+
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("nested/survey1.tar.gz", tar_bytes)
+            zf.writestr("README.txt", b"ignore me")
+        zip_bytes = zip_buf.getvalue()
+
+        catalog = InMemoryAssetStore()
+        archive = FakeArchive()
+        archive.seed(campaign_qc_zip_url(scope), zip_bytes)
+        files = FsspecFileStore(root=str(tmp_path))
+
+        session = make_session(
+            network=scope.network,
+            station=scope.station,
+            catalog=catalog,
+            archive=archive,
+        )
+        session._file_manager = FileManager(DirectoryTree(root=tmp_path), files)
+        session.set_campaign(scope.campaign)
+
+        report = session.ingest.ingest_qc_zip()
+
+        assert report.ok
+        assert report.cataloged == 1
+        assert report.skipped >= 1  # README.txt ignored
+
+        [asset] = catalog.assets_for(
+            network=scope.network, station=scope.station, campaign=scope.campaign
+        )
+        assert asset.kind == AssetKind.QCPIN
+        assert asset.local_path is not None
+        assert asset.local_path.exists()
+        assert asset.local_path.read_bytes() == b"PIN-DATA"
+
+    def test_ingest_qc_zip_missing_returns_empty_report(self, scope: SFGScope) -> None:
+        from earthscope_sfg_workflows.data_mgmt.model import IngestReport
+
+        session, catalog, _, _ = self._session(scope)
+
+        report = session.ingest.ingest_qc_zip()
+
+        assert report == IngestReport()
+        assert (
+            catalog.assets_for(
+                network=scope.network, station=scope.station, campaign=scope.campaign
+            )
+            == []
+        )

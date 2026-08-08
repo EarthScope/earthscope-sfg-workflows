@@ -50,6 +50,13 @@ def canonical_campaign_urls(scope: SFGScope) -> tuple[str, str, str, str]:
     )
 
 
+def campaign_qc_zip_url(scope: SFGScope) -> str:
+    """Return the archive URL for a campaign's ``qc.zip`` bundle."""
+    year = _campaign_year(scope.campaign)
+    base = f"{ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}"
+    return f"{base}/qc.zip"
+
+
 def list_campaign_archive_urls(archive: object, scope: SFGScope) -> list[str]:
     """List every file URL for a campaign without writing to any catalog.
 
@@ -105,6 +112,8 @@ class EarthScopeArchive:
         Return the metadata directory URL for a campaign.
     campaign_rinex_url(scope, hz)
         Compose a RINEX directory URL for a given sample rate.
+    campaign_qc_zip_url(scope)
+        Return the archive URL for a campaign's qc.zip bundle.
     site_metadata_url(scope)
         Return the archive URL for a station's site metadata JSON.
     vessel_json_url(vessel_code)
@@ -405,6 +414,24 @@ class EarthScopeArchive:
         year = _campaign_year(scope.campaign)
         return f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/rinex_{hz}"
 
+    def campaign_qc_zip_url(self, scope: SFGScope) -> str:
+        """Return the archive URL for a campaign's ``qc.zip`` bundle.
+
+        Parameters
+        ----------
+        scope : SFGScope
+            Network, station, and campaign identifiers.
+
+        Returns
+        -------
+        str
+            URL of the campaign's ``qc.zip`` file on the archive.
+        """
+        year = _campaign_year(scope.campaign)
+        return (
+            f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/qc.zip"
+        )
+
     def site_metadata_url(self, scope: SFGScope) -> str:
         """Return the archive URL for a station's site metadata JSON.
 
@@ -525,6 +552,7 @@ class EarthScopeArchive:
 __all__ = [
     "ARCHIVE_PREFIX",
     "canonical_campaign_urls",
+    "campaign_qc_zip_url",
     "list_campaign_archive_urls",
     "EarthScopeArchive",
 ]

@@ -46,8 +46,19 @@ from .exceptions import (
     NoQCPinFound,
     NoRinexBuilt,
     NoRinexFound,
+    NoSVPFound,
 )
 from .shotdata_gnss_refinement import merge_shotdata_qc
+from .svp_processing import process_svp_for_scope
+
+# tdb2rnx names observation files differently depending on RinexConfig's RINEX
+# version: short form "STAT####.YYo" for v2, long form "..._MO.rnx" for v3/v4.
+_RINEX_OBS_GLOBS = ("*.??o", "*.rnx")
+
+
+def _find_rinex_files(rinex_dest: Path) -> list[Path]:
+    """Find RINEX observation files written by tdb2rnx, in either v2 or v3/v4 naming."""
+    return sorted(p for pattern in _RINEX_OBS_GLOBS for p in rinex_dest.glob(pattern))
 
 
 def _pipeline_method(fn):
@@ -198,6 +209,8 @@ class QCPipeline:
         Process KIN files to generate QC kinematic-position DataFrames.
     update_shotdata()
         Refine QC shotdata with interpolated high-precision kinematic positions.
+    process_svp(override=False)
+        Process CTD and Seabird files to generate a sound velocity profile.
     run_pipeline()
         Execute the complete QC data processing pipeline in sequence.
     """
@@ -432,12 +445,9 @@ class QCPipeline:
         if rinex_cfg.override or not self.catalog.is_merge_complete(**merge_signature):
             try:
                 # tdb2rnx writes RINEX files to CWD; run from rinex_dest.
-                # Remove any pre-existing RINEX output so the post-run glob is
-                # clean. Matches both the v3/v4 long name (*.rnx, current
-                # output format) and the legacy v2 short name (*.??o, in case
-                # a directory still has files from before the naming switch).
+                # Remove any pre-existing RINEX obs files so the post-run glob is clean.
                 rinex_dest.mkdir(parents=True, exist_ok=True)
-                for _stale in [*rinex_dest.glob("*.rnx"), *rinex_dest.glob("*.??o")]:
+                for _stale in _find_rinex_files(rinex_dest):
                     _stale.unlink()
                 old_cwd = Path.cwd()
                 try:
@@ -456,7 +466,7 @@ class QCPipeline:
                 if result.returncode != 0:
                     raise NoRinexBuilt(f"tdb2rnx exited with code {result.returncode}")
 
-                rinex_paths = sorted(rinex_dest.glob("*.rnx"))
+                rinex_paths = _find_rinex_files(rinex_dest)
 
                 if not rinex_paths:
                     ProcessLogger.warning(
@@ -709,6 +719,40 @@ class QCPipeline:
             self.catalog.add_merge_job(**merge_job)
 
     @_pipeline_method
+    def process_svp(self, override: bool = False) -> None:
+        """Process CTD and Seabird files to generate a sound velocity profile (SVP).
+
+        Processing order:
+
+        1. Tries each CTD file with ``CTD_to_svp_v2``, then ``CTD_to_svp_v1``.
+        2. If no CTD file yields a valid SVP, tries each Seabird file with
+           ``seabird_to_soundvelocity``.
+
+        The first successful SVP is written to
+        :attr:`CampaignLayout.svp_file` (``<campaign_root>/processed/svp.csv``)
+        and processing stops. Shared with
+        :meth:`~earthscope_sfg_workflows.pipelines.sv3_pipeline.SV3Pipeline.process_svp`,
+        since both pipelines' GARPOS runs read from the same ``svp_file``.
+
+        Parameters
+        ----------
+        override : bool, optional
+            If ``True``, forces reprocessing even if the SVP CSV already
+            exists.  Default is ``False``.
+
+        Raises
+        ------
+        NoSVPFound
+            If no CTD or Seabird files are cataloged for the active campaign.
+        """
+        process_svp_for_scope(
+            catalog=self.catalog,
+            scope=self.scope,
+            destination=self._campaign_layout.svp_file,
+            override=override,
+        )
+
+    @_pipeline_method
     def run_pipeline(self) -> None:
         """Execute the complete QC data processing pipeline in sequence.
 
@@ -719,6 +763,7 @@ class QCPipeline:
         3. :meth:`process_rinex` — RINEX → KIN + residual files via PRIDE-PPP.
         4. :meth:`process_kin` — KIN files → kinematic-position DataFrames.
         5. :meth:`update_shotdata` — merge kinematic positions into final shotdata.
+        6. :meth:`process_svp` — CTD/Seabird files → SVP CSV.
 
         Each step's expected exception is caught and logged so that the
         remaining steps still execute.
@@ -750,6 +795,11 @@ class QCPipeline:
 
         self.update_shotdata()
 
+        try:
+            self.process_svp()
+        except NoSVPFound:
+            pass
+
         ProcessLogger.info(
             f"Completed QC Processing Pipeline for {self.scope.network} "
             f"{self.scope.station} {self.scope.campaign}"
@@ -763,4 +813,5 @@ QC_JOBS: dict[str, Callable[["QCPipeline"], None]] = {
     "run_pride": lambda p: p.process_rinex(),
     "process_kinematic": lambda p: p.process_kin(),
     "refine_shotdata": lambda p: p.update_shotdata(),
+    "process_svp": lambda p: p.process_svp(override=p.config.svp_config.override),
 }

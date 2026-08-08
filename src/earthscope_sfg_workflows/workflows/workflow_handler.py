@@ -106,6 +106,7 @@ class WorkflowHandler:
         handler = WorkflowHandler("/data/sfg")
         handler.set_network_station_campaign("ONC", "CASAMA", "2023_JUN")
         handler.ingest_discover_archive()
+        handler.ingest_qc_zip()
         handler.download_data()
         handler.preprocess_run_pipeline_sv3()
 
@@ -132,6 +133,10 @@ class WorkflowHandler:
         Scan a local directory and catalog discovered files.
     ingest_qcpin_tarballs(tarball_dir, override)
         Extract ``.pin`` files from ``.tar.gz`` tarballs and catalog them.
+    ingest_qc_zip(download, override)
+        Download, extract, and catalog the active campaign's qc.zip bundle.
+    ingest_ctd_only(override)
+        Discover and download only CTD files for the active campaign.
     download_data(kinds, override, rinex_1hz)
         Download cataloged remote files for the active campaign.
     preprocess_get_pipeline_sv3(primary_config, secondary_config)
@@ -307,9 +312,7 @@ class WorkflowHandler:
             When ``True``, re-extract and re-catalog files that are already
             present.  Default is ``False``.
         """
-        report = self._session.ingest.qcpin_tarballs(
-            tarball_dir=tarball_dir, override=override
-        )
+        report = self._session.ingest.qcpin_tarballs(tarball_dir=tarball_dir, override=override)
         logger.info(
             f"Ingested QCPIN tarballs from {tarball_dir}: "
             f"{report.cataloged} cataloged, {report.skipped} skipped, "
@@ -317,6 +320,51 @@ class WorkflowHandler:
         )
         for err in report.errors:
             logger.warning(f"QCPIN ingest error: {err}")
+
+    def ingest_qc_zip(
+        self,
+        *,
+        download: bool = True,
+        override: bool = False,
+    ) -> None:
+        """Download, extract, and catalog the active campaign's ``qc.zip`` bundle.
+
+        Parameters
+        ----------
+        download : bool, optional
+            When ``True`` (default), fetch ``qc.zip`` from the EarthScope
+            archive before extracting.  When ``False``, extract a ``qc.zip``
+            already present in the campaign's ``qc/`` directory.
+        override : bool, optional
+            When ``True``, re-download/re-extract/re-catalog files that are
+            already present.  Default is ``False``.
+        """
+        report = self._session.ingest.ingest_qc_zip(download=download, override=override)
+        logger.info(
+            f"Ingested qc.zip for {self._session.scope.campaign}: "
+            f"{report.cataloged} cataloged, {report.skipped} skipped, "
+            f"{len(report.errors)} error(s)"
+        )
+        for err in report.errors:
+            logger.warning(f"qc.zip ingest error: {err}")
+
+    def ingest_ctd_only(self, *, override: bool = False) -> None:
+        """Discover and download only CTD files for the active campaign.
+
+        Parameters
+        ----------
+        override : bool, optional
+            When ``True``, re-download files that already exist locally.
+            Default is ``False``.
+        """
+        report = self._session.ingest.ingest_ctd_only(override=override)
+        logger.info(
+            f"Ingested CTD files for {self._session.scope.campaign}: "
+            f"{report.cataloged} cataloged, {report.downloaded} downloaded, "
+            f"{report.skipped} skipped, {len(report.errors)} error(s)"
+        )
+        for err in report.errors:
+            logger.warning(f"CTD ingest error: {err}")
 
     def download_data(
         self,

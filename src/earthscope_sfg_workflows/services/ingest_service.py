@@ -5,6 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 import tarfile
 import threading
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -16,7 +17,7 @@ from upath import UPath
 
 from earthscope_sfg_workflows.data_mgmt.core import FileTypeDetector
 from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind, IngestReport
-from earthscope_sfg_workflows.data_mgmt.ports import ArchiveError
+from earthscope_sfg_workflows.data_mgmt.ports import ArchiveError, ArchiveNotFoundError
 
 if TYPE_CHECKING:
     from earthscope_sfg_workflows.data_mgmt.model import SFGScope
@@ -55,8 +56,18 @@ class IngestService:
         Catalog every recognized file under *source_dir*.
     qcpin_tarballs(tarball_dir, override)
         Extract ``.pin``/``.sta`` files from ``.tar.gz`` tarballs and catalog them.
+    download_qc_zip(dest_dir, override)
+        Download the campaign's qc.zip bundle from the EarthScope archive.
+    extract_qc_zip(zip_path, override)
+        Extract nested .tar.gz members from qc.zip and catalog QC pin/sta files.
+    ingest_qc_zip(download, override)
+        Download, extract, and catalog a campaign's qc.zip bundle end-to-end.
     discover_remote()
         Discover canonical EarthScope archive URLs and catalog them.
+    discover_ctd()
+        Discover and catalog only CTD files from the campaign's metadata/ctd directory.
+    ingest_ctd_only(override)
+        Discover and download only CTD files for the active campaign.
     list_archive_urls(scope)
         Enumerate every archive file URL for the scope without writing to the catalog.
     download_remote(kinds, override, rinex_1hz)
@@ -242,11 +253,185 @@ class IngestService:
         return IngestReport(cataloged=cataloged, skipped=skipped, errors=tuple(errors))
 
     # ------------------------------------------------------------------
+    # QC zip ingest (download + extract + catalog)
+    # ------------------------------------------------------------------
+
+    def download_qc_zip(
+        self,
+        dest_dir: Path | None = None,
+        *,
+        override: bool | None = None,
+    ) -> Path | None:
+        """Download the campaign's ``qc.zip`` bundle from the EarthScope archive.
+
+        Parameters
+        ----------
+        dest_dir : Path or None, optional
+            Directory to download ``qc.zip`` into. When ``None`` the campaign
+            layout's ``qc`` directory is used. Default is ``None``.
+        override : bool or None, optional
+            When ``True``, re-download even if ``qc.zip`` already exists at
+            the destination. Defaults to the ``override`` value set at
+            construction.
+
+        Returns
+        -------
+        Path or None
+            Local path of the downloaded (or already-present) ``qc.zip``, or
+            ``None`` if the campaign has no ``qc.zip`` on the archive (HTTP
+            404).
+
+        Raises
+        ------
+        ValueError
+            If *dest_dir* is ``None`` and no campaign with a layout is active.
+        """
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
+            campaign_qc_zip_url,
+        )
+
+        effective_override = self.override if override is None else override
+        scope = self._s.scope
+        if dest_dir is None:
+            layout = self._s.active_campaign_layout
+            if layout is None:
+                raise ValueError("download_qc_zip requires a campaign with a layout")
+            dest_dir = Path(layout.qc)
+
+        dest_dir = Path(dest_dir)
+        dest_path = dest_dir / "qc.zip"
+
+        if not effective_override and dest_path.exists():
+            return dest_path
+
+        url = campaign_qc_zip_url(scope)
+        try:
+            self._archive.download_file(url, dest_path)
+        except ArchiveNotFoundError:
+            return None
+        return dest_path
+
+    def extract_qc_zip(
+        self,
+        zip_path: Path | None = None,
+        *,
+        override: bool | None = None,
+    ) -> IngestReport:
+        """Extract nested ``.tar.gz`` members from ``qc.zip`` and catalog QC files.
+
+        Opens *zip_path*, extracts every member whose name ends in
+        ``.tar.gz`` (case-insensitive) into the campaign's ``qc`` directory —
+        flattening any internal directory structure — then delegates to
+        :meth:`qcpin_tarballs` to extract and catalog the ``.pin``/``.sta``
+        members of each tarball. All other zip members are ignored (counted
+        as skipped).
+
+        Parameters
+        ----------
+        zip_path : Path or None, optional
+            Path to a local ``qc.zip`` file. When ``None`` defaults to the
+            campaign layout's ``qc`` directory joined with ``"qc.zip"``.
+            Default is ``None``.
+        override : bool or None, optional
+            When ``True``, re-extract tarballs and re-catalog assets that
+            already exist. Defaults to the ``override`` value set at
+            construction.
+
+        Returns
+        -------
+        IngestReport
+            Summary of cataloged, skipped, and errored items (from tarball
+            extraction plus zip-member skips).
+
+        Raises
+        ------
+        ValueError
+            If *zip_path* is ``None`` and no campaign with a layout is active.
+        """
+        effective_override = self.override if override is None else override
+        if zip_path is None:
+            layout = self._s.active_campaign_layout
+            if layout is None:
+                raise ValueError("extract_qc_zip requires a campaign with a layout")
+            zip_path = Path(layout.qc) / "qc.zip"
+
+        zip_path = Path(zip_path)
+        if not zip_path.is_file():
+            return IngestReport(errors=(f"Not a file: {zip_path}",))
+
+        tarball_dir = zip_path.parent
+        skipped = 0
+        errors: list[str] = []
+
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                members = [m for m in zf.infolist() if not m.is_dir()]
+                tar_members = [m for m in members if m.filename.lower().endswith(".tar.gz")]
+                skipped += len(members) - len(tar_members)
+                for member in tar_members:
+                    dest = tarball_dir / Path(member.filename).name
+                    if not effective_override and dest.exists():
+                        skipped += 1
+                        continue
+                    with zf.open(member) as src:
+                        dest.write_bytes(src.read())
+        except Exception as exc:
+            errors.append(f"failed to open qc.zip {zip_path}: {exc}")
+            return IngestReport(skipped=skipped, errors=tuple(errors))
+
+        report = self.qcpin_tarballs(tarball_dir=tarball_dir, override=override)
+        return IngestReport(skipped=skipped, errors=tuple(errors)) + report
+
+    def ingest_qc_zip(
+        self,
+        *,
+        download: bool = True,
+        override: bool | None = None,
+    ) -> IngestReport:
+        """Download (optionally), extract, and catalog a campaign's ``qc.zip`` bundle.
+
+        Parameters
+        ----------
+        download : bool, optional
+            When ``True`` (default), fetch ``qc.zip`` from the archive first
+            via :meth:`download_qc_zip`. When ``False``, extract whatever
+            ``qc.zip`` already exists locally (useful for re-running
+            extraction/cataloging without a network round-trip).
+        override : bool or None, optional
+            When ``True``, re-download, re-extract, and re-catalog even if
+            already present. Defaults to the ``override`` value set at
+            construction.
+
+        Returns
+        -------
+        IngestReport
+            Summary of cataloged, skipped, and errored items. Returns an
+            empty (all-zero) report if the campaign has no ``qc.zip`` on the
+            archive.
+        """
+        if download:
+            zip_path = self.download_qc_zip(override=override)
+            if zip_path is None:
+                return IngestReport()
+        else:
+            layout = self._s.active_campaign_layout
+            if layout is None:
+                raise ValueError("ingest_qc_zip requires a campaign with a layout")
+            zip_path = Path(layout.qc) / "qc.zip"
+
+        return self.extract_qc_zip(zip_path=zip_path, override=override)
+
+    # ------------------------------------------------------------------
     # Remote discovery
     # ------------------------------------------------------------------
 
     def discover_remote(self) -> IngestReport:
         """Discover canonical EarthScope archive URLs and catalog them.
+
+        Walks ``raw``, ``metadata``, the legacy ``metadata/ctd`` subdirectory,
+        ``rinex_1Hz``, and ``rinex_10Hz``. Missing directories (e.g. a
+        campaign with no CTD data) contribute an error entry to the returned
+        report rather than raising.
 
         Returns
         -------
@@ -258,17 +443,58 @@ class IngestService:
         )
 
         scope = self._s.scope
+        raw_url, metadata_url, rinex_1hz_url, rinex_10hz_url = canonical_campaign_urls(scope)
         cataloged = 0
         skipped = 0
         errors: list[str] = []
 
-        for dir_url in canonical_campaign_urls(scope):
+        for dir_url in (
+            raw_url,
+            metadata_url,
+            f"{metadata_url}/ctd",
+            rinex_1hz_url,
+            rinex_10hz_url,
+        ):
             sub = self._discover_archive(scope, dir_url)
             cataloged += sub.cataloged
             skipped += sub.skipped
             errors.extend(sub.errors)
 
         return IngestReport(cataloged=cataloged, skipped=skipped, errors=tuple(errors))
+
+    def discover_ctd(self) -> IngestReport:
+        """Discover and catalog only CTD files from the campaign's ``metadata/ctd`` directory.
+
+        Returns
+        -------
+        IngestReport
+            Summary of cataloged, skipped, and errored items.
+        """
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
+            canonical_campaign_urls,
+        )
+
+        scope = self._s.scope
+        _, metadata_url, _, _ = canonical_campaign_urls(scope)
+        return self._discover_archive(scope, f"{metadata_url}/ctd")
+
+    def ingest_ctd_only(self, *, override: bool | None = None) -> IngestReport:
+        """Discover and download only CTD files for the active campaign.
+
+        Parameters
+        ----------
+        override : bool or None, optional
+            When ``True``, re-download files that already exist locally.
+            Defaults to the ``override`` value set at construction.
+
+        Returns
+        -------
+        IngestReport
+            Combined summary of the discovery and download steps.
+        """
+        discover_report = self.discover_ctd()
+        download_report = self.download_remote(kinds=[AssetKind.CTD], override=override)
+        return discover_report + download_report
 
     def _discover_archive(self, scope: "SFGScope", directory_url: str) -> IngestReport:
         """List *directory_url* and catalog every recognized file.

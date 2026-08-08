@@ -344,7 +344,7 @@ def analyze_offsets(merged_positions: pd.DataFrame) -> None:
         }
     )
 
-    logger.info(summary_df.round(6).to_string())
+    logger.debug(summary_df.round(6).to_string())
 
 
 def _log_interpolated_offsets(label: str, predicted: np.ndarray, original: np.ndarray) -> None:
@@ -368,7 +368,7 @@ def _log_interpolated_offsets(label: str, predicted: np.ndarray, original: np.nd
     """
     n = predicted.shape[0]
     valid = ~np.isnan(predicted).any(axis=1)
-    logger.info(f"--- {label} positions: {int(valid.sum())}/{n} interpolated ---")
+    logger.debug(f"--- {label} positions: {int(valid.sum())}/{n} interpolated ---")
     if not valid.any():
         return
     offsets = np.abs(predicted[valid] - original[valid])
@@ -379,7 +379,7 @@ def _log_interpolated_offsets(label: str, predicted: np.ndarray, original: np.nd
             "Offset Z (m)": pd.Series(offsets[:, 2]).describe(),
         }
     )
-    logger.info(summary_df.round(6).to_string())
+    logger.debug(summary_df.round(6).to_string())
 
 
 def update_shotdata_with_smoothed_positions(
@@ -580,8 +580,8 @@ def main(
         direction="nearest",
         suffixes=("", "_smoothed"),
     )
-    logger.info("\n--- Offset Analysis ---")
-    logger.info("----Results vs Original Positions----")
+    logger.debug("\n--- Offset Analysis ---")
+    logger.debug("----Results vs Original Positions----")
     analyze_offsets(merged_positions)
 
     shotdata_updated = update_shotdata_with_smoothed_positions(shotdata, smoothed_results)
@@ -637,7 +637,7 @@ def merge_shotdata_kinposition(
         if shotdata_df.empty:
             continue
 
-        logger.info(f"Interpolating shotdata for date {str(date)}")
+        logger.info(f"\nInterpolating shotdata for date {str(date)}")
 
         # interpolate the enu values
         shotdata_df_updated = main(
@@ -688,7 +688,7 @@ def merge_shotdata_qc(
         if shotdata_df.empty:
             continue
 
-        logger.info(f"Interpolating shotdata for date {str(date)}")
+        logger.info(f"\nInterpolating shotdata for date {str(date)}")
         positions_data: pd.DataFrame = shotdata_to_imu_position_df(shotdata_df)
         # interpolate the enu values
         shotdata_df_updated = main(
@@ -988,7 +988,7 @@ def merge_shotdata_kinposition_radius_regression(
 
     logger.info("Merging shotdata and kin_position data")
     for start, end in zip(dates, dates[1:], strict=False):
-        logger.info(f"Interpolating shotdata for date {str(start)}")
+        logger.info(f"\nInterpolating shotdata for date {str(start)}")
 
         shotdata_df = shotdata_pre.read_df(start=start, end=end)
         kin_position_df = kin_position.read_df(start=start, end=end)
@@ -1075,5 +1075,15 @@ def shotdata_to_imu_position_df(shotdata_df: pd.DataFrame) -> pd.DataFrame:
     imu_df["east"] = ant_x_diff / time_diff
     imu_df["north"] = ant_y_diff / time_diff
     imu_df["up"] = ant_z_diff / time_diff
+
+    # Velocity uncertainties are not computed here (unlike prepare_kinematic_data's
+    # hardcoded 0.1 for the same columns) - left as NaN to match existing behavior,
+    # since that's what these columns already end up as after combine_data's concat
+    # with ppp_position_data in the normal (non-empty kin_positions) case. Present
+    # here only so combine_data's column_order selection doesn't KeyError when
+    # kin_positions is empty for a date and both halves would otherwise lack them.
+    imu_df["east_sig"] = np.nan
+    imu_df["north_sig"] = np.nan
+    imu_df["up_sig"] = np.nan
 
     return imu_df

@@ -35,7 +35,11 @@ from .data_prep import (  # noqa: E402
     prepare_garpos_input_from_survey,
     prepare_shotdata_for_garpos,
 )
-from .functions import CoordTransformer, process_garpos_results  # noqa: E402
+from .functions import (  # noqa: E402
+    CoordTransformer,
+    drop_implausible_antenna_heights,
+    process_garpos_results,
+)
 from .load_utils import get_drive_garpos, get_lib_paths  # noqa: E402
 from .schemas import (  # noqa: E402
     GarposFixed,
@@ -626,6 +630,21 @@ class GarposHandler:
         )
         input_path = results_dir / f"_{run_id}_observation.ini"
         fixed_path = results_dir / f"_{run_id}_settings.ini"
+
+        # A period of degraded GNSS tracking (too few satellites for a
+        # well-determined fix) can leave a subset of shots with antenna
+        # heights off by hundreds to thousands of meters. GARPOS's own
+        # ray tracer rejects these with an unrecoverable sys.exit() deep in
+        # a multiprocessing worker, which SystemExit-escapes Pool's
+        # exception handling and hangs the pool forever instead of
+        # surfacing an error. Drop them before they ever reach the solver.
+        filtered_shot_data_path, n_dropped = drop_implausible_antenna_heights(
+            garpos_input.shot_data, results_dir / f"_{run_id}_shotdata.csv"
+        )
+        if n_dropped:
+            garpos_input.shot_data = filtered_shot_data_path
+            garpos_input.n_shot -= n_dropped
+
         garpos_fixed_params._to_datafile(fixed_path)
         garpos_input.to_datafile(input_path)
 
@@ -938,6 +957,8 @@ class GarposHandler:
         self,
         survey_id: str,
         run_id: int | str = 0,
+        subplots: bool = True,
+        point_size: float = 1,
         savefig: bool = False,
         showfig: bool = True,
     ):
@@ -950,6 +971,12 @@ class GarposHandler:
         run_id : int or str, optional
             Run identifier selecting which result directory to read. Default is
             ``0``.
+        subplots : bool, optional
+            If ``True``, draw one subplot per transponder. If ``False``, overlay
+            all transponders on a single axes (color = transponder, opacity =
+            raw vs. unflagged). Default is ``True``.
+        point_size : float, optional
+            Marker size passed to ``scatter``. Default is ``1``.
         savefig : bool, optional
             If ``True``, save the figure as a PNG file. Default is ``False``.
         showfig : bool, optional
@@ -966,6 +993,8 @@ class GarposHandler:
                 self._plot_residuals_per_transponder_before_and_after(
                     survey_id=sid,
                     run_id=run_id,
+                    subplots=subplots,
+                    point_size=point_size,
                     savefig=savefig,
                     showfig=showfig,
                 )
@@ -977,10 +1006,12 @@ class GarposHandler:
         self,
         survey_id: str,
         run_id: int | str = 0,
+        subplots: bool = True,
+        point_size: float = 1,
         savefig: bool = False,
         showfig: bool = True,
     ):
-        """Plot flagged vs unflagged residuals on three subplots for a given survey."""
+        """Plot flagged vs unflagged residuals, optionally as one subplot per transponder."""
         results_dir: Path = self.current_garpos_survey_dir.results
         run_dir = results_dir / f"run_{run_id}"
         if not run_dir.exists():
@@ -1006,42 +1037,81 @@ class GarposHandler:
         df_filter_2 = ~results_df_raw["flag"]
         results_df = results_df_raw[df_filter_2]
         unique_ids = results_df_raw["MT"].unique()
-        # make a plot with 3 subplots showing ResiRange vs time for each unique_id
-        fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
-        fig.suptitle(
+        transponder_colors = ["green", "orange", "blue"]
+
+        fig_suptitle = (
             f"Residuals for {self.station_session.scope.station} {survey_id} (Run {run_id})"
         )
-        for i, unique_id in enumerate(unique_ids):
-            transponder_df_raw = results_df_raw[results_df_raw["MT"] == unique_id].sort_values(
-                "time"
-            )
-            transponder_df = results_df[results_df["MT"] == unique_id].sort_values("time")
-            axs[i].scatter(
-                transponder_df_raw["time"],
-                transponder_df_raw["ResiRange"],
-                s=1,
-                label=f"{unique_id}_raw {transponder_df_raw['time'].count()}",
-                color="blue",
-            )
-            percent_remaining = round(
-                transponder_df["time"].count() / transponder_df_raw["time"].count() * 100,
-                1,
-            )
-            axs[i].scatter(
-                transponder_df["time"],
-                transponder_df["ResiRange"],
-                s=1,
-                label=f"{unique_id}_unflagged {transponder_df['time'].count()} ({percent_remaining} %)",
-                color="orange",
-            )
-            axs[i].set_ylabel("Residual (m)")
-            axs[i].legend(loc="upper right")
-            axs[i].grid()
-        axs[-1].set_xlabel("Time")
-        plt.xticks(rotation=45)
-        # add gridlines
-        for ax in axs:
+        if subplots:
+            # make a plot with 3 subplots showing ResiRange vs time for each unique_id
+            fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
+            fig.suptitle(fig_suptitle)
+            for i, unique_id in enumerate(unique_ids):
+                transponder_df_raw = results_df_raw[
+                    results_df_raw["MT"] == unique_id
+                ].sort_values("time")
+                transponder_df = results_df[results_df["MT"] == unique_id].sort_values("time")
+                axs[i].scatter(
+                    transponder_df_raw["time"],
+                    transponder_df_raw["ResiRange"],
+                    s=point_size,
+                    label=f"{unique_id}_raw {transponder_df_raw['time'].count()}",
+                    color="blue",
+                )
+                percent_remaining = round(
+                    transponder_df["time"].count() / transponder_df_raw["time"].count() * 100,
+                    1,
+                )
+                axs[i].scatter(
+                    transponder_df["time"],
+                    transponder_df["ResiRange"],
+                    s=point_size,
+                    label=f"{unique_id}_unflagged {transponder_df['time'].count()} ({percent_remaining} %)",
+                    color="orange",
+                )
+                axs[i].set_ylabel("Residual (m)")
+                axs[i].legend(loc="upper right")
+                axs[i].grid()
+            axs[-1].set_xlabel("Time")
+            for ax in axs:
+                ax.grid()
+        else:
+            # Overlay all transponders on one axes: color identifies the
+            # transponder, opacity distinguishes raw (faded) from unflagged
+            # (solid), since both dimensions can't be encoded via color alone.
+            fig, ax = plt.subplots(figsize=(20, 8))
+            fig.suptitle(fig_suptitle)
+            for i, unique_id in enumerate(unique_ids):
+                color = transponder_colors[i % len(transponder_colors)]
+                transponder_df_raw = results_df_raw[
+                    results_df_raw["MT"] == unique_id
+                ].sort_values("time")
+                transponder_df = results_df[results_df["MT"] == unique_id].sort_values("time")
+                ax.scatter(
+                    transponder_df_raw["time"],
+                    transponder_df_raw["ResiRange"],
+                    s=point_size,
+                    alpha=0.3,
+                    label=f"{unique_id}_raw {transponder_df_raw['time'].count()}",
+                    color=color,
+                )
+                percent_remaining = round(
+                    transponder_df["time"].count() / transponder_df_raw["time"].count() * 100,
+                    1,
+                )
+                ax.scatter(
+                    transponder_df["time"],
+                    transponder_df["ResiRange"],
+                    s=point_size,
+                    alpha=1.0,
+                    label=f"{unique_id}_unflagged {transponder_df['time'].count()} ({percent_remaining} %)",
+                    color=color,
+                )
+            ax.set_ylabel("Residual (m)")
+            ax.set_xlabel("Time")
+            ax.legend(loc="upper right")
             ax.grid()
+        plt.xticks(rotation=45)
         plt.tight_layout()
         fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.scope.station}_{survey_id}_flagged_residuals.png"
         if savefig:
@@ -1060,6 +1130,7 @@ class GarposHandler:
         survey_id: str,
         run_id: int | str = 0,
         subplots: bool = True,
+        point_size: float = 1,
         savefig: bool = False,
         showfig: bool = True,
     ) -> None:
@@ -1075,6 +1146,8 @@ class GarposHandler:
         subplots : bool, optional
             If ``True``, draw one subplot per transponder. If ``False``, overlay
             all transponders on a single axes. Default is ``True``.
+        point_size : float, optional
+            Marker size passed to ``scatter``. Default is ``1``.
         savefig : bool, optional
             If ``True``, save the figure as a PNG file. Default is ``False``.
         showfig : bool, optional
@@ -1092,6 +1165,7 @@ class GarposHandler:
                     survey_id=sid,
                     run_id=run_id,
                     subplots=subplots,
+                    point_size=point_size,
                     savefig=savefig,
                     showfig=showfig,
                 )
@@ -1104,6 +1178,7 @@ class GarposHandler:
         survey_id: str,
         run_id: int | str = 0,
         subplots: bool = True,
+        point_size: float = 1,
         savefig: bool = False,
         showfig: bool = True,
     ):
@@ -1145,7 +1220,7 @@ class GarposHandler:
                 axs[i].scatter(
                     transponder_df["time"],
                     transponder_df["ResiRange"],
-                    s=1,
+                    s=point_size,
                     label=f"{unique_id}_unflagged {transponder_df['time'].count()}",
                     color=transponder_colors[i],
                 )
@@ -1164,7 +1239,7 @@ class GarposHandler:
                 ax.scatter(
                     transponder_df["time"],
                     transponder_df["ResiRange"],
-                    s=1,
+                    s=point_size,
                     label=f"{unique_id}_unflagged {transponder_df['time'].count()}",
                     color=transponder_colors[i],
                 )

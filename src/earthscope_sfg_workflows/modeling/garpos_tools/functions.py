@@ -2,6 +2,7 @@
 
 import math
 import sys
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -447,6 +448,61 @@ def process_garpos_results(results: GarposInput) -> tuple[GarposInput, pd.DataFr
 
     logger.info("GARPOS results processed, returning results tuple")
     return results, results_df
+
+
+def drop_implausible_antenna_heights(
+    shot_data_path: Path, filtered_path: Path
+) -> tuple[Path, int]:
+    """Drop shots whose antenna height is a gross outlier for this survey.
+
+    A stretch of degraded GNSS tracking (too few satellites for a
+    well-determined fix) can leave a subset of shots with ``ant_u0``/``ant_u1``
+    off by hundreds to thousands of metres, while genuine antenna-height
+    variation (tide, heave) within a survey is a few metres at most. GARPOS's
+    own ray tracer rejects such shots with an unrecoverable ``sys.exit()``
+    deep inside a multiprocessing worker — ``SystemExit`` escapes ``Pool``'s
+    ``except Exception`` handling, so the worker dies without ever reporting
+    back and the pool hangs forever instead of raising. Filter these out
+    before they reach GARPOS, using a robust (median / MAD) threshold per
+    antenna-height column so the check self-calibrates to each survey's own
+    baseline rather than assuming a fixed "normal" height.
+
+    Parameters
+    ----------
+    shot_data_path : Path
+        Path to the GARPOS-format shot data CSV (as referenced by
+        ``GarposInput.shot_data``).
+    filtered_path : Path
+        Where to write the filtered CSV. Only used if any rows are dropped.
+
+    Returns
+    -------
+    tuple[Path, int]
+        The path to use going forward (``shot_data_path`` unchanged if
+        nothing was dropped, else ``filtered_path``), and the number of
+        rows dropped.
+    """
+    df = pd.read_csv(shot_data_path, index_col=0)
+    bad = pd.Series(False, index=df.index)
+    for col in ("ant_u0", "ant_u1"):
+        if col not in df.columns:
+            continue
+        median = df[col].median()
+        mad = (df[col] - median).abs().median()
+        if mad == 0:
+            continue
+        bad |= (df[col] - median).abs() > 8 * mad
+
+    n_bad = int(bad.sum())
+    if n_bad == 0:
+        return shot_data_path, 0
+
+    logger.warning(
+        f"Dropping {n_bad} of {len(df)} shots with implausible antenna height "
+        f"(likely a period of degraded GNSS tracking) before running GARPOS: {shot_data_path}"
+    )
+    df[~bad].to_csv(filtered_path)
+    return filtered_path, n_bad
 
 
 def rectify_shotdata(coord_transformer: CoordTransformer, shot_data: pd.DataFrame) -> pd.DataFrame:

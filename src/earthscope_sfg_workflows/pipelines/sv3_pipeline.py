@@ -15,11 +15,6 @@ from typing import Callable
 # third-party
 from earthscope_sfg_tools import tiledb_integration as novb_ops
 from earthscope_sfg_tools.novatel_tools.utils import get_metadata, get_metadatav2
-from earthscope_sfg_tools.seafloor_site_tools.soundspeed_operations import (
-    CTD_to_svp_v1,
-    CTD_to_svp_v2,
-    seabird_to_soundvelocity,
-)
 from earthscope_sfg_tools.sonardyne_tools import sv3_operations as sv3_ops
 from earthscope_sfg_tools.tiledb_integration import (
     TDBIMUPositionArray,
@@ -59,6 +54,7 @@ from .exceptions import (
     NoSVPFound,
 )
 from .shotdata_gnss_refinement import merge_shotdata_kinposition
+from .svp_processing import process_svp_for_scope
 
 
 def _pipeline_method(fn):
@@ -482,7 +478,8 @@ class SV3Pipeline:
            ``seabird_to_soundvelocity``.
 
         The first successful SVP is written to
-        ``<campaign_root>/<station>_svp.csv`` and processing stops.
+        :attr:`CampaignLayout.svp_file` (``<campaign_root>/processed/svp.csv``)
+        and processing stops.
 
         Parameters
         ----------
@@ -495,69 +492,12 @@ class SV3Pipeline:
         NoSVPFound
             If no CTD or Seabird files are cataloged for the active campaign.
         """
-        svp_df_destination = self._campaign_layout.root / f"{self.scope.station}_svp.csv"
-        if svp_df_destination.exists() and not override:
-            return
-
-        # Get the CTD and Seabird files to process
-        ctd_entries: list[AssetEntry] = self.catalog.assets_for(
-            network=self.scope.network,
-            station=self.scope.station,
-            campaign=self.scope.campaign,
-            kind=AssetKind.CTD,
+        process_svp_for_scope(
+            catalog=self.catalog,
+            scope=self.scope,
+            destination=self._campaign_layout.svp_file,
+            override=override,
         )
-        seabird_entries: list[AssetEntry] = self.catalog.assets_for(
-            network=self.scope.network,
-            station=self.scope.station,
-            campaign=self.scope.campaign,
-            kind=AssetKind.SEABIRD,
-        )
-
-        if not ctd_entries and not seabird_entries:
-            response = f"No CTD or SEABIRD Files Found to Process for {self.scope.network} {self.scope.station} {self.scope.campaign}"
-            ProcessLogger.error(response)
-            raise NoSVPFound(response)
-
-        ctd_processing_functions = [CTD_to_svp_v2, CTD_to_svp_v1]
-
-        # Try processing CTD files first
-        for ctd_entry in ctd_entries:
-            for function in ctd_processing_functions:
-                try:
-                    svp_df = function(ctd_entry.local_path)
-                    if not svp_df.empty:
-                        svp_df.to_csv(svp_df_destination, index=False)
-                        ctd_entry = dataclasses.replace(ctd_entry, is_processed=True)
-                        self.catalog.update(ctd_entry)  # mark as processed
-                        ProcessLogger.info(
-                            f"Processed SVP data from CTD file {ctd_entry.local_path} to dataframe with {function.__name__}"
-                        )
-                        ProcessLogger.info(f"Saved SVP dataframe to {str(svp_df_destination)}")
-                        return
-                except Exception as e:
-                    ProcessLogger.error(
-                        f"Error processing CTD file {ctd_entry.local_path} with {function.__name__}: {e}"
-                    )
-                    continue
-
-        # If no CTD files produced SVP, try Seabird files
-        for seabird_entry in seabird_entries:
-            try:
-                svp_df = seabird_to_soundvelocity(seabird_entry.local_path, ProcessLogger.logger)
-                if not svp_df.empty:
-                    svp_df.to_csv(svp_df_destination, index=False)
-                    seabird_entry = dataclasses.replace(seabird_entry, is_processed=True)
-                    self.catalog.update(seabird_entry)  # mark as processed
-
-                    ProcessLogger.info(
-                        f"Processed SVP data from Seabird file {seabird_entry.local_path} and saved to {str(svp_df_destination)}"
-                    )
-                    return
-            except Exception as e:
-                ProcessLogger.error(
-                    f"Error processing Seabird file {seabird_entry.local_path}: {e}"
-                )
-                continue
 
     def _build_rinex_meta(self) -> str:
         """Create RINEX metadata JSON files for the current campaign if absent.
@@ -579,7 +519,12 @@ class SV3Pipeline:
             with open(rinex_metav2) as f:
                 metadata = json.load(f)
         else:
+            # Pinned to RINEX 2.11/GPS-only regardless of get_metadatav2's default:
+            # this pipeline writes short-format filenames (STAT####.YYo), which only
+            # match RINEX 2. The QC pipeline uses 4.02/multi-GNSS instead.
             metadata = get_metadatav2(site=self.scope.station)
+            metadata["rinex_version"] = "2.11"
+            metadata["rinex_system"] = "G"
             with open(rinex_metav2, "w") as f:
                 json.dump(metadata, f)
 
@@ -1016,5 +961,5 @@ SV3_JOBS: dict[str, Callable[["SV3Pipeline"], None]] = {
     "process_kinematic": lambda p: p.process_kin(),
     "process_dfop00": lambda p: p.process_dfop00(),
     "refine_shotdata": lambda p: p.update_shotdata(),
-    "process_svp": lambda p: p.process_svp(),
+    "process_svp": lambda p: p.process_svp(override=p.config.svp_config.override),
 }

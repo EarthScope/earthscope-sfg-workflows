@@ -20,12 +20,12 @@ See the MetadataModel documentation for details on required and optional fields.
 
 """
 NETWORK = "cascadia-gorda"
-STATION = "GCC1"
+STATION = "NCC1"
 CAMPAIGN = "2023_A_1063"
-PROJECT_DIRECTORY = Path("/path/to/project/directory")
+PROJECT_DIRECTORY = Path("/Users/mikegottlieb/data/sfg")
 metadata = MetadataModel(
     marker_name=STATION,
-    run_by="Franklyn Dunbar",
+    run_by="Mike Gottlieb",
 )
 
 """
@@ -33,7 +33,7 @@ Step 2: Define input files.
 
 """
 novatel_path_dir = PROJECT_DIRECTORY / NETWORK / STATION / CAMPAIGN / "raw"
-
+print(novatel_path_dir)
 nov_bin = list(novatel_path_dir.glob("*NOV*.bin"))
 nov_raw = list(novatel_path_dir.glob("*NOV*.raw"))
 all_files = nov_bin + nov_raw

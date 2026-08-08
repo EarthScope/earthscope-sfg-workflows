@@ -240,6 +240,8 @@ class AssetCatalog:
         except IntegrityError:
             # Duplicate local_path or remote_path — return existing entry.
             existing = self.by_local_path(Path(asset.local_path)) if asset.local_path else []
+            if not existing and asset.remote_path:
+                existing = self.by_remote_path(asset.remote_path)
             if existing:
                 return existing[0]
             raise
@@ -318,6 +320,27 @@ class AssetCatalog:
         with self._Session() as session:
             rows = (
                 session.execute(select(Assets).where(Assets.local_path == str(path)))
+                .scalars()
+                .all()
+            )
+            return [_row_to_entry(r) for r in rows]
+
+    def by_remote_path(self, remote_path: str) -> list[AssetEntry]:
+        """Return all assets whose remote_path matches a given URL.
+
+        Parameters
+        ----------
+        remote_path : str
+            Remote URL to match against.
+
+        Returns
+        -------
+        list[AssetEntry]
+            All entries with ``remote_path == remote_path``.
+        """
+        with self._Session() as session:
+            rows = (
+                session.execute(select(Assets).where(Assets.remote_path == remote_path))
                 .scalars()
                 .all()
             )

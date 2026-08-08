@@ -87,6 +87,12 @@ class KinConfig(BaseModel):
     override: bool = Field(False, title="Flag to Override Existing Data")
 
 
+class SVPConfig(BaseModel):
+    """Configuration for CTD/Seabird -> sound-velocity-profile processing."""
+
+    override: bool = Field(False, title="Flag to Override Existing Data")
+
+
 class SV3PipelineConfig(BaseModel):
     """Top-level config bundling all SV3 pipeline stage configs."""
 
@@ -96,6 +102,7 @@ class SV3PipelineConfig(BaseModel):
     kin_config: KinConfig = KinConfig()
     dfop00_config: DFOP00Config = DFOP00Config()
     position_update_config: PositionUpdateConfig = PositionUpdateConfig()
+    svp_config: SVPConfig = SVPConfig()
 
     model_config = ConfigDict(title="SV3 Pipeline Configuration", arbitrary_types_allowed=True)
 
@@ -171,6 +178,7 @@ class QCPipelineConfig(BaseModel):
     rinex_config: RinexConfig = RinexConfig(time_interval=24)
     kin_config: KinConfig = KinConfig()
     position_update_config: PositionUpdateConfig = PositionUpdateConfig()
+    svp_config: SVPConfig = SVPConfig()
 
     model_config = ConfigDict(title="QC Pipeline Configuration", arbitrary_types_allowed=True)
 
