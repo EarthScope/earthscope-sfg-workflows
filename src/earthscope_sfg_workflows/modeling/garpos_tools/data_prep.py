@@ -2,6 +2,7 @@
 This module contains the GarposDataPreparer class, which is responsible for preparing GARPOS input data.
 """
 
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -96,6 +97,7 @@ def GP_Transponders_from_benchmarks(
             coord_transformer=coord_transformer,
             benchmark=benchmark,
             transponder=current_transponder,
+            survey_time=survey.start,
         )
         GPtransponders.append(gp_transponder)
 
@@ -105,7 +107,10 @@ def GP_Transponders_from_benchmarks(
 
 
 def create_GPTransponder(
-    coord_transformer: CoordTransformer, benchmark: Benchmark, transponder: Transponder
+    coord_transformer: CoordTransformer,
+    benchmark: Benchmark,
+    transponder: Transponder,
+    survey_time: datetime,
 ) -> GPTransponder:
     """Create a GPTransponder object from a benchmark and transponder.
     Parameters
@@ -116,19 +121,33 @@ def create_GPTransponder(
         The benchmark object.
     transponder :
         The transponder object.
+    survey_time :
+        Datetime used to resolve the transponder's time-valid TAT (turn-around
+        time), since a transponder's TAT can change mid-deployment.
 
     Returns
     -------
     GPTransponder
         The created GPTransponder object.
+
+    Raises
+    ------
+    ValueError
+        If no TAT value is valid for ``survey_time``.
     """
+    tat_offset = transponder.get_tat_by_datetime(survey_time)
+    if tat_offset is None:
+        raise ValueError(
+            f"No TAT found for transponder {transponder.address} at {survey_time}"
+        )
+
     gp_transponder = GPTransponder(
         position_llh=GPPositionLLH(
             latitude=benchmark.aPrioriLocation.latitude,
             longitude=benchmark.aPrioriLocation.longitude,
             height=float(benchmark.aPrioriLocation.elevation),
         ),
-        tat_offset=transponder.tat[0].value,
+        tat_offset=tat_offset,
         id=transponder.address,
         name=benchmark.benchmarkID,
     )

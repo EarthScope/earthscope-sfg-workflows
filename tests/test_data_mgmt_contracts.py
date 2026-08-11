@@ -387,6 +387,69 @@ class TestIngestService:
         }
         assert kinds == {AssetKind.CTD}
 
+    def test_discover_ctd_falls_back_to_previous_campaign(self, scope: SFGScope) -> None:
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+
+        from earthscope_sfg_tools.datamodels.metadata import Campaign
+
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
+            canonical_campaign_urls,
+        )
+
+        session, catalog, _, archive = self._session(scope)
+
+        older_campaign_name = "2020_A"
+        older_scope = SFGScope(
+            network=scope.network, station=scope.station, campaign=older_campaign_name
+        )
+        _, older_metadata_url, _, _ = canonical_campaign_urls(older_scope)
+        older_ctd_url = f"{older_metadata_url}/ctd/CTD_001.csv"
+        archive.seed(older_ctd_url, b"OLD")
+        # No CTD seeded for the active campaign itself.
+
+        session._site = SimpleNamespace(
+            campaigns=[
+                Campaign(
+                    name=older_campaign_name,
+                    type="A",
+                    vesselCode="V1",
+                    start=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    end=datetime(2020, 1, 2, tzinfo=timezone.utc),
+                ),
+                Campaign(
+                    name=scope.campaign,
+                    type="A",
+                    vesselCode="V1",
+                    start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                    end=datetime(2024, 1, 2, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+
+        report = session.ingest.discover_ctd()
+        assert report.ok
+        assert report.cataloged == 1
+
+        [asset] = catalog.assets_for(
+            network=scope.network, station=scope.station, campaign=scope.campaign
+        )
+        assert asset.kind == AssetKind.CTD
+        assert asset.remote_path == older_ctd_url
+
+    def test_discover_ctd_no_fallback_without_site_metadata(self, scope: SFGScope) -> None:
+        session, catalog, _, _archive = self._session(scope)
+        assert session.site is None  # make_session leaves _site unset
+
+        report = session.ingest.discover_ctd()
+        assert report.cataloged == 0
+        assert (
+            catalog.assets_for(
+                network=scope.network, station=scope.station, campaign=scope.campaign
+            )
+            == []
+        )
+
     def test_ingest_ctd_only_downloads_ctd(self, scope: SFGScope, tmp_path: Path) -> None:
         from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
             canonical_campaign_urls,
@@ -558,3 +621,128 @@ class TestIngestService:
             )
             == []
         )
+
+    @staticmethod
+    def _make_tarball(pin_name: str, pin_data: bytes) -> bytes:
+        import io
+        import tarfile
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+            info = tarfile.TarInfo(name=pin_name)
+            info.size = len(pin_data)
+            tf.addfile(info, io.BytesIO(pin_data))
+        return buf.getvalue()
+
+    def _qc_session(self, scope: SFGScope, tmp_path: Path, archive: "FakeArchive"):
+        from earthscope_sfg_workflows.data_mgmt.core import FileManager
+        from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
+        from tests.utils import make_session
+
+        catalog = InMemoryAssetStore()
+        files = FsspecFileStore(root=str(tmp_path))
+        session = make_session(
+            network=scope.network,
+            station=scope.station,
+            catalog=catalog,
+            archive=archive,
+        )
+        session._file_manager = FileManager(DirectoryTree(root=tmp_path), files)
+        session.set_campaign(scope.campaign)
+        return session, catalog
+
+    def test_ingest_qc_falls_back_to_tarballs_when_no_zip(
+        self, scope: SFGScope, tmp_path: Path
+    ) -> None:
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
+            campaign_qc_dir_url,
+        )
+
+        archive = FakeArchive()
+        archive.seed(
+            f"{campaign_qc_dir_url(scope)}/survey1.tar.gz",
+            self._make_tarball("results.pin", b"PIN-DATA"),
+        )
+        session, catalog = self._qc_session(scope, tmp_path, archive)
+
+        report = session.ingest.ingest_qc()
+
+        assert report.ok
+        assert report.downloaded == 1
+        assert report.cataloged == 1
+
+        [asset] = catalog.assets_for(
+            network=scope.network, station=scope.station, campaign=scope.campaign
+        )
+        assert asset.kind == AssetKind.QCPIN
+        assert asset.local_path is not None
+        assert asset.local_path.read_bytes() == b"PIN-DATA"
+
+    def test_ingest_qc_prefers_zip_over_tarball_dir(self, scope: SFGScope, tmp_path: Path) -> None:
+        import io
+        import zipfile
+
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
+            campaign_qc_dir_url,
+            campaign_qc_zip_url,
+        )
+
+        tar_bytes = self._make_tarball("zip_survey.pin", b"FROM-ZIP")
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w") as zf:
+            zf.writestr("nested/zip_survey.tar.gz", tar_bytes)
+        archive = FakeArchive()
+        archive.seed(campaign_qc_zip_url(scope), zip_buf.getvalue())
+        archive.seed(
+            f"{campaign_qc_dir_url(scope)}/other.tar.gz",
+            self._make_tarball("other.pin", b"FROM-TARBALL-DIR"),
+        )
+        session, catalog = self._qc_session(scope, tmp_path, archive)
+
+        report = session.ingest.ingest_qc()
+
+        assert report.ok
+        assert report.cataloged == 1
+        [asset] = catalog.assets_for(
+            network=scope.network, station=scope.station, campaign=scope.campaign
+        )
+        assert asset.local_path.read_bytes() == b"FROM-ZIP"
+
+    def test_ingest_qc_rerun_picks_up_new_tarball_without_redownloading(
+        self, scope: SFGScope, tmp_path: Path
+    ) -> None:
+        from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
+            campaign_qc_dir_url,
+        )
+
+        archive = FakeArchive()
+        archive.seed(
+            f"{campaign_qc_dir_url(scope)}/survey1.tar.gz",
+            self._make_tarball("survey1.pin", b"FIRST"),
+        )
+        session, catalog = self._qc_session(scope, tmp_path, archive)
+
+        first = session.ingest.ingest_qc()
+        assert first.downloaded == 1
+        assert first.cataloged == 1
+
+        # Rerunning with the same archive state re-downloads nothing new and
+        # re-catalogs nothing already cataloged.
+        second = session.ingest.ingest_qc()
+        assert second.downloaded == 0
+        assert second.cataloged == 0
+
+        # A newly published tarball is picked up on the next rerun, and the
+        # first tarball is neither redownloaded nor recataloged.
+        archive.seed(
+            f"{campaign_qc_dir_url(scope)}/survey2.tar.gz",
+            self._make_tarball("survey2.pin", b"SECOND"),
+        )
+        third = session.ingest.ingest_qc()
+        assert third.downloaded == 1
+        assert third.cataloged == 1
+
+        assets = catalog.assets_for(
+            network=scope.network, station=scope.station, campaign=scope.campaign
+        )
+        assert {a.local_path.read_bytes() for a in assets} == {b"FIRST", b"SECOND"}

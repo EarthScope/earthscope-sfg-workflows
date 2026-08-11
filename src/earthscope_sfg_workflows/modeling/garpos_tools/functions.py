@@ -314,6 +314,132 @@ def avg_transponder_position(
     return out_pos_enu, out_pos_llh
 
 
+def enu_to_ecef_llh(
+    coord_transformer: CoordTransformer, east: float, north: float, up: float
+) -> tuple[float, float, float, float, float, float]:
+    """Convert a local ENU position (relative to `coord_transformer`'s origin) into
+    absolute ECEF XYZ and geodetic lat/lon/height, GNATSS-style.
+
+    `coord_transformer.hgt0` is the ellipsoidal height GARPOS assigned to the local
+    origin (`-site.localGeoidHeight`, i.e. the geoid undulation at the array center
+    under the assumption the array center sits at ~0 m MSL). We reuse it as the geoid
+    undulation to convert the derived ellipsoidal height into an MSL height comparable
+    to GNATSS's `Hgt.msl`.
+
+    Returns
+    -------
+    tuple
+        `(X, Y, Z, latitude, longitude, height_msl)`.
+    """
+    X, Y, Z = pm.enu2ecef(east, north, up, coord_transformer.lat0, coord_transformer.lon0, coord_transformer.hgt0)
+    lat, lon, height_ellipsoidal = pm.ecef2geodetic(X, Y, Z)
+    height_msl = height_ellipsoidal - coord_transformer.hgt0
+    return X, Y, Z, lat, lon, height_msl
+
+
+def garpos_results_to_gnatss_format(
+    results: GarposInput, coord_transformer: CoordTransformer
+) -> pd.DataFrame:
+    """Recast a solved `GarposInput` into a GNATSS-style comparison table.
+
+    GARPOS reports positions as local ENU offsets from the site's local tangent-plane
+    origin (array center); GNATSS reports absolute ECEF XYZ plus geodetic
+    lat/lon/Hgt.msl and `del_e/del_n/del_u` displacement from the a priori position.
+    This builds one row per transponder (id = transponder id) plus one row for the
+    array center (id = "ARRAY"), converted into that same absolute format so results
+    can be compared directly.
+
+    Per GARPOS's own internal position formula (`mp_estimation.py`:
+    `sta0 = mp[transponder_block] + mp[center_block]`), each transponder's
+    `position_enu` is only its own solved parameter — the shared array-wide
+    correction `delta_center_position` (`dCentPos`) must be added to get that
+    transponder's true final position. `array_center_enu` (`Center_ENU`), as written
+    to a *results* file, is already the array's final converged centroid (verified
+    empirically: `mean(transponder position_enu) + delta_center_position ==
+    array_center_enu` to within floating-point precision on real data) — it does not
+    need `delta_center_position` added again.
+
+    `del_e/del_n/del_u` for each transponder are computed as final position (i.e.
+    `position_enu + delta_center_position`) minus the a priori `position_llh`
+    (converted into the same local ENU frame) — this assumes `position_llh` on the
+    results object still holds the a priori seed position rather than being
+    overwritten by the solver, matching current GARPOS output-file behavior. Treat
+    these two columns as provisional.
+
+    Parameters
+    ----------
+    results : GarposInput
+        A solved `GarposInput`, e.g. from `GarposInput.from_datafile(...)`.
+    coord_transformer : CoordTransformer
+        The same origin (site `arrayCenter` lat/lon, `-localGeoidHeight`) used to
+        build `results`.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: `id, x, y, z, latitude, longitude, height_msl, del_e, del_n, del_u`.
+    """
+    array_enu = results.array_center_enu
+    array_dpos = results.delta_center_position
+    if array_enu is None or array_dpos is None:
+        raise ValueError("Array center or delta position not found in GARPOS results.")
+
+    rows = []
+
+    X, Y, Z, lat, lon, height_msl = enu_to_ecef_llh(
+        coord_transformer, array_enu.east, array_enu.north, array_enu.up
+    )
+    rows.append(
+        {
+            "id": "ARRAY",
+            "x": X,
+            "y": Y,
+            "z": Z,
+            "latitude": lat,
+            "longitude": lon,
+            "height_msl": height_msl,
+            "del_e": array_dpos.east,
+            "del_n": array_dpos.north,
+            "del_u": array_dpos.up,
+        }
+    )
+
+    for transponder in results.transponders:
+        if transponder.position_enu is None:
+            continue
+        east, north, up = transponder.position_enu.get_position()
+        east += array_dpos.east
+        north += array_dpos.north
+        up += array_dpos.up
+        X, Y, Z, lat, lon, height_msl = enu_to_ecef_llh(coord_transformer, east, north, up)
+
+        del_e = del_n = del_u = None
+        if transponder.position_llh is not None:
+            e0, n0, u0 = coord_transformer.LLH2ENU(
+                transponder.position_llh.latitude,
+                transponder.position_llh.longitude,
+                transponder.position_llh.height,
+            )
+            del_e, del_n, del_u = east - e0, north - n0, up - u0
+
+        rows.append(
+            {
+                "id": transponder.id,
+                "x": X,
+                "y": Y,
+                "z": Z,
+                "latitude": lat,
+                "longitude": lon,
+                "height_msl": height_msl,
+                "del_e": del_e,
+                "del_n": del_n,
+                "del_u": del_u,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def plot_enu_llh_side_by_side(garpos_input: GarposInput):
     """
     Plot the transponder and antenna positions in ENU and LLH coordinates side by side.
@@ -482,7 +608,11 @@ def drop_implausible_antenna_heights(
         nothing was dropped, else ``filtered_path``), and the number of
         rows dropped.
     """
-    df = pd.read_csv(shot_data_path, index_col=0)
+    # GARPOS's own regenerated "*-obs.csv" (used as the shot-data source from the
+    # second iteration onward of a multi-iteration run) prepends a "# cfgfile = ..."
+    # comment line before the real header; comment="#" skips it so the header is
+    # parsed correctly regardless of which shot-data variant is passed in.
+    df = pd.read_csv(shot_data_path, index_col=0, comment="#")
     bad = pd.Series(False, index=df.index)
     for col in ("ant_u0", "ant_u1"):
         if col not in df.columns:

@@ -135,6 +135,8 @@ class WorkflowHandler:
         Extract ``.pin`` files from ``.tar.gz`` tarballs and catalog them.
     ingest_qc_zip(download, override)
         Download, extract, and catalog the active campaign's qc.zip bundle.
+    ingest_qc(download, override)
+        Ingest the active campaign's QC bundle, preferring qc.zip with a tarball fallback.
     ingest_ctd_only(override)
         Discover and download only CTD files for the active campaign.
     download_data(kinds, override, rinex_1hz)
@@ -165,9 +167,9 @@ class WorkflowHandler:
         Run GARPOS for the active campaign.
     modeling_plot_shotdata_replies_per_transponder(save_fig, show_fig)
         Plot shot-data reply counts per transponder.
-    modeling_plot_flagged_residuals(survey_id, run_id, save_fig, show_fig)
+    modeling_plot_flagged_residuals(survey_id, run_id, save_fig, show_fig, ymin, ymax)
         Plot before/after flagged residuals per transponder.
-    modeling_plot_garpos_residuals(survey_id, run_id, subplots, save_fig, show_fig)
+    modeling_plot_garpos_residuals(survey_id, run_id, subplots, save_fig, show_fig, ymin, ymax)
         Plot remaining residuals per transponder after GARPOS inversion.
     modeling_plot_garpos_results(survey_id, run_id, residuals_filter, save_fig, show_fig)
         Plot time-series GARPOS inversion results.
@@ -347,6 +349,38 @@ class WorkflowHandler:
         )
         for err in report.errors:
             logger.warning(f"qc.zip ingest error: {err}")
+
+    def ingest_qc(
+        self,
+        *,
+        download: bool = True,
+        override: bool = False,
+    ) -> None:
+        """Ingest the active campaign's QC bundle, preferring ``qc.zip`` with a tarball fallback.
+
+        Tries ``qc.zip`` first. If the campaign has no ``qc.zip`` on the
+        archive, falls back to downloading individual ``.tar.gz`` QC bundles
+        from the campaign's ``qc`` directory and cataloging them. Rerunning
+        only fetches and processes tarballs not already found locally.
+
+        Parameters
+        ----------
+        download : bool, optional
+            When ``True`` (default), fetch from the EarthScope archive first.
+            When ``False``, only process ``qc.zip``/tarballs already present
+            in the campaign's ``qc/`` directory.
+        override : bool, optional
+            When ``True``, re-download/re-extract/re-catalog files that are
+            already present.  Default is ``False``.
+        """
+        report = self._session.ingest.ingest_qc(download=download, override=override)
+        logger.info(
+            f"Ingested QC for {self._session.scope.campaign}: "
+            f"{report.cataloged} cataloged, {report.downloaded} downloaded, "
+            f"{report.skipped} skipped, {len(report.errors)} error(s)"
+        )
+        for err in report.errors:
+            logger.warning(f"QC ingest error: {err}")
 
     def ingest_ctd_only(self, *, override: bool = False) -> None:
         """Discover and download only CTD files for the active campaign.
@@ -757,12 +791,55 @@ class WorkflowHandler:
             savefig=save_fig, showfig=show_fig
         )
 
+    def modeling_plot_shotdata_replies_per_transponder_qc(
+        self,
+        shotdata_uri: str | Path,
+        save_fig: bool = True,
+        show_fig: bool = False,
+        start: "datetime | None" = None,
+        end: "datetime | None" = None,
+        survey_id: str | None = None,
+    ) -> None:
+        """Plot shot-data reply counts per transponder for the QC pipeline.
+
+        QC survey directories live outside the SV3 campaign/survey directory
+        structure, so this reads shotdata directly from the QC survey
+        directories rather than from `campaign_meta.surveys` (which
+        `modeling_plot_shotdata_replies_per_transponder` uses).
+
+        Parameters
+        ----------
+        shotdata_uri : str or Path
+            URI or file-system path to the TileDB shot-data array, as passed
+            to `parse_surveys_qc`.
+        save_fig : bool, optional
+            When ``True``, save the figure to the campaign output directory.
+            Default is ``True``.
+        show_fig : bool, optional
+            When ``True``, display the figure interactively.  Default is
+            ``False``.
+        start, end, survey_id : optional
+            Forwarded to `GarposHandler.get_qc_surveys` to plot an explicit,
+            ad hoc time window instead of the campaign's defined surveys (or
+            the full-campaign fallback).
+        """
+        self.modeling_get_garpos_handler().plot_shotdata_replies_per_transponder_qc(
+            shotdata_uri=shotdata_uri,
+            savefig=save_fig,
+            showfig=show_fig,
+            start=start,
+            end=end,
+            survey_id=survey_id,
+        )
+
     def modeling_plot_flagged_residuals(
         self,
         survey_id: str | None = None,
         run_id: str = "Test",
         save_fig: bool = True,
         show_fig: bool = False,
+        ymin: float | None = None,
+        ymax: float | None = None,
     ) -> None:
         """Plot before/after flagged residuals per transponder.
 
@@ -779,9 +856,20 @@ class WorkflowHandler:
         show_fig : bool, optional
             When ``True``, display the figure interactively.  Default is
             ``False``.
+        ymin : float or None, optional
+            Lower y-axis limit for the residual plots.  ``None`` leaves that
+            bound auto-scaled.  Default is ``None``.
+        ymax : float or None, optional
+            Upper y-axis limit for the residual plots.  ``None`` leaves that
+            bound auto-scaled.  Default is ``None``.
         """
         self.modeling_get_garpos_handler().plot_residuals_per_transponder_before_and_after(
-            survey_id=survey_id, run_id=run_id, savefig=save_fig, showfig=show_fig
+            survey_id=survey_id,
+            run_id=run_id,
+            savefig=save_fig,
+            showfig=show_fig,
+            ymin=ymin,
+            ymax=ymax,
         )
 
     def modeling_plot_garpos_residuals(
@@ -791,6 +879,8 @@ class WorkflowHandler:
         subplots: bool = True,
         save_fig: bool = True,
         show_fig: bool = False,
+        ymin: float | None = None,
+        ymax: float | None = None,
     ) -> None:
         """Plot remaining residuals per transponder after GARPOS inversion.
 
@@ -810,6 +900,12 @@ class WorkflowHandler:
         show_fig : bool, optional
             When ``True``, display the figure interactively.  Default is
             ``False``.
+        ymin : float or None, optional
+            Lower y-axis limit for the residual plots.  ``None`` leaves that
+            bound auto-scaled.  Default is ``None``.
+        ymax : float or None, optional
+            Upper y-axis limit for the residual plots.  ``None`` leaves that
+            bound auto-scaled.  Default is ``None``.
         """
         self.modeling_get_garpos_handler().plot_remaining_residuals_per_transponder(
             survey_id=survey_id,
@@ -817,6 +913,8 @@ class WorkflowHandler:
             subplots=subplots,
             savefig=save_fig,
             showfig=show_fig,
+            ymin=ymin,
+            ymax=ymax,
         )
 
     def modeling_plot_garpos_results(
@@ -862,6 +960,9 @@ class WorkflowHandler:
         garpos_settings: "dict | InversionParams | None" = None,
         garpos_override: bool = False,
         pre_process_config: Optional[QCPipelineConfig] = None,
+        survey_start: "datetime | None" = None,
+        survey_end: "datetime | None" = None,
+        survey_id: str | None = None,
     ) -> None:
         """Run the full QC pipeline then GARPOS modeling end-to-end.
 
@@ -883,13 +984,21 @@ class WorkflowHandler:
         pre_process_config : QCPipelineConfig or None, optional
             Configuration applied to the QC pipeline run.  ``None`` uses the
             session default.
+        survey_start, survey_end, survey_id : optional
+            Forwarded to `GarposHandler.get_qc_surveys` to process an explicit,
+            ad hoc time window instead of the campaign's defined surveys (or
+            the full-campaign fallback). All three must be given together.
         """
         self._session.pipeline.run_qc(config=pre_process_config)
 
         handler = self.modeling_get_garpos_handler()
         qc_pipeline = self._session.pipeline.get_qc()
         gp_dir_list = handler.parse_surveys_qc(
-            override=False, shotdata_uri=qc_pipeline.qcShotDataFinalTDB.uri
+            override=False,
+            shotdata_uri=qc_pipeline.qcShotDataFinalTDB.uri,
+            start=survey_start,
+            end=survey_end,
+            survey_id=survey_id,
         )
 
         handler = self.modeling_get_garpos_handler()

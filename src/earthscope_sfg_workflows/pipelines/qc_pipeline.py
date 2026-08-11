@@ -411,7 +411,7 @@ class QCPipeline:
             return code.
         """
         rinex_cfg: RinexConfig = self.config.rinex_config
-        rinex_dest = self._campaign_layout.rinex
+        rinex_dest = self._campaign_layout.qc / "rinex"
 
         year = (
             rinex_cfg.processing_year
@@ -531,10 +531,9 @@ class QCPipeline:
     def process_rinex(self) -> None:
         """Run PRIDE-PPP on QC RINEX files to generate KIN and residual files.
 
-        Raises
-        ------
-        NoRinexFound
-            If no processable QC RINEX files are found in the catalog.
+        If there are no unprocessed QC RINEX files in the catalog, logs the
+        processed/unprocessed counts and returns without running PRIDE-PPP,
+        rather than raising.
         """
         pride_cfg: PrideConfig = self.config.pride_config
 
@@ -559,13 +558,24 @@ class QCPipeline:
         ]
 
         if not rinex_entries:
-            msg = (
-                f"No QC RINEX files found to process for "
-                f"{self.scope.network} {self.scope.station} "
-                f"{self.scope.campaign}"
+            all_rinex = [
+                e
+                for e in self.catalog.assets_for(
+                    network=self.scope.network,
+                    station=self.scope.station,
+                    campaign=self.scope.campaign,
+                )
+                if e.kind in RINEX_KINDS
+            ]
+            n_processed = sum(1 for e in all_rinex if e.is_processed)
+            n_unprocessed = len(all_rinex) - n_processed
+            ProcessLogger.info(
+                f"No unprocessed QC RINEX files for {self.scope.network} "
+                f"{self.scope.station} {self.scope.campaign}: "
+                f"{n_processed} processed, {n_unprocessed} unprocessed "
+                f"({len(all_rinex)} total)."
             )
-            ProcessLogger.error(msg)
-            raise NoRinexFound(msg)
+            return
 
         ProcessLogger.info(f"Found {len(rinex_entries)} QC RINEX files to process")
 
