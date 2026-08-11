@@ -224,11 +224,11 @@ class TestProcessKin:
             pipeline.process_kin()
 
     def test_override_reruns_processed_entries(self, tmp_path, catalog):
-        """override=True in RinexConfig forces reprocessing of already-processed KIN entries."""
+        """override=True in KinConfig forces reprocessing of already-processed KIN entries."""
         from earthscope_sfg_workflows.pipelines.config import SV3PipelineConfig
 
         config = SV3PipelineConfig()
-        config.rinex_config.override = True
+        config.kin_config.override = True
         p = _make_pipeline(tmp_path, catalog, config=config)
 
         kin_file = FIXTURES / "kin_2025251_ncc1.kin"
@@ -747,16 +747,16 @@ class TestGetRinexFiles:
             pipeline.get_rinex_files()
 
         rinex_entries = catalog.assets_for(
-            kind=AssetKind.RINEX4,
+            kind=AssetKind.RINEX2,
             network=NETWORK,
             station=STATION,
             campaign=CAMPAIGN,
         )
-        assert len(rinex_entries) == 2, "Expected two RINEX4 entries in the catalog"
-        assert all(e.kind == AssetKind.RINEX4 for e in rinex_entries)
+        assert len(rinex_entries) == 2, "Expected two RINEX2 entries in the catalog"
+        assert all(e.kind == AssetKind.RINEX2 for e in rinex_entries)
 
     def test_records_merge_job_after_rinex_build(self, tmp_path, catalog):
-        """A merge job is recorded from GNSSOBSTDB → RINEX4 after a successful build."""
+        """A merge job is recorded from GNSSOBSTDB → RINEX2 after a successful build."""
         from unittest.mock import patch
 
         from earthscope_sfg_workflows.data_mgmt.model import AssetKind
@@ -773,7 +773,7 @@ class TestGetRinexFiles:
         parent_ids = f"N-{NETWORK}|ST-{STATION}|SV-{CAMPAIGN}|TDB-{tdb_uri}|YEAR-{year}"
         assert catalog.is_merge_complete(
             parent_type=AssetKind.GNSSOBSTDB.value,
-            child_type=AssetKind.RINEX4.value,
+            child_type=AssetKind.RINEX2.value,
             parent_ids=[parent_ids],
         ), "Merge job should be recorded after RINEX build"
 
@@ -879,7 +879,7 @@ class TestProcessRinex:
         from earthscope_sfg_workflows.pipelines.config import SV3PipelineConfig
 
         fake_rinex = tmp_path / "NCC1_2025_251_R_20252510000_01D_01S_MO.rnx"
-        fake_rinex.touch()
+        fake_rinex.write_text("dummy rinex content")
         _add_rinex4_entry(catalog, fake_rinex)
 
         config = SV3PipelineConfig()
@@ -1004,7 +1004,7 @@ class TestNovatel770ToRinexPipeline:
             parent_ids=[catalog.assets_for(kind=AssetKind.NOVATEL770)[0].id],
         )
         rinex_entries = catalog.assets_for(
-            kind=AssetKind.RINEX4, network=NETWORK, station=STATION, campaign=CAMPAIGN
+            kind=AssetKind.RINEX2, network=NETWORK, station=STATION, campaign=CAMPAIGN
         )
         assert len(rinex_entries) == 1
         # Verify timestamps came from the real RINEX file (not a mock)
