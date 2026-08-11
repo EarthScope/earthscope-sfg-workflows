@@ -137,9 +137,7 @@ def create_GPTransponder(
     """
     tat_offset = transponder.get_tat_by_datetime(survey_time)
     if tat_offset is None:
-        raise ValueError(
-            f"No TAT found for transponder {transponder.address} at {survey_time}"
-        )
+        raise ValueError(f"No TAT found for transponder {transponder.address} at {survey_time}")
 
     gp_transponder = GPTransponder(
         position_llh=GPPositionLLH(

@@ -506,9 +506,7 @@ class GarposHandler:
             .to_pydatetime()
             .replace(hour=0, minute=0, second=0, microsecond=0)
         )
-        last_date = (
-            pd.Timestamp(filtered_dates[-1]).tz_localize("UTC").to_pydatetime()
-        )
+        last_date = pd.Timestamp(filtered_dates[-1]).tz_localize("UTC").to_pydatetime()
         end_time = datetime.combine(last_date.date(), time.max).replace(tzinfo=UTC)
 
         surveys.append(
@@ -1195,9 +1193,9 @@ class GarposHandler:
             fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
             fig.suptitle(fig_suptitle)
             for i, unique_id in enumerate(unique_ids):
-                transponder_df_raw = results_df_raw[
-                    results_df_raw["MT"] == unique_id
-                ].sort_values("time")
+                transponder_df_raw = results_df_raw[results_df_raw["MT"] == unique_id].sort_values(
+                    "time"
+                )
                 transponder_df = results_df[results_df["MT"] == unique_id].sort_values("time")
                 axs[i].scatter(
                     transponder_df_raw["time"],
@@ -1232,9 +1230,9 @@ class GarposHandler:
             fig.suptitle(fig_suptitle)
             for i, unique_id in enumerate(unique_ids):
                 color = transponder_colors[i % len(transponder_colors)]
-                transponder_df_raw = results_df_raw[
-                    results_df_raw["MT"] == unique_id
-                ].sort_values("time")
+                transponder_df_raw = results_df_raw[results_df_raw["MT"] == unique_id].sort_values(
+                    "time"
+                )
                 transponder_df = results_df[results_df["MT"] == unique_id].sort_values("time")
                 ax.scatter(
                     transponder_df_raw["time"],

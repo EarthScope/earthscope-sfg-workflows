@@ -331,7 +331,9 @@ def enu_to_ecef_llh(
     tuple
         `(X, Y, Z, latitude, longitude, height_msl)`.
     """
-    X, Y, Z = pm.enu2ecef(east, north, up, coord_transformer.lat0, coord_transformer.lon0, coord_transformer.hgt0)
+    X, Y, Z = pm.enu2ecef(
+        east, north, up, coord_transformer.lat0, coord_transformer.lon0, coord_transformer.hgt0
+    )
     lat, lon, height_ellipsoidal = pm.ecef2geodetic(X, Y, Z)
     height_msl = height_ellipsoidal - coord_transformer.hgt0
     return X, Y, Z, lat, lon, height_msl
@@ -576,9 +578,7 @@ def process_garpos_results(results: GarposInput) -> tuple[GarposInput, pd.DataFr
     return results, results_df
 
 
-def drop_implausible_antenna_heights(
-    shot_data_path: Path, filtered_path: Path
-) -> tuple[Path, int]:
+def drop_implausible_antenna_heights(shot_data_path: Path, filtered_path: Path) -> tuple[Path, int]:
     """Drop shots whose antenna height is a gross outlier for this survey.
 
     A stretch of degraded GNSS tracking (too few satellites for a
