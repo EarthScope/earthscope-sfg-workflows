@@ -339,6 +339,40 @@ def enu_to_ecef_llh(
     return X, Y, Z, lat, lon, height_msl
 
 
+def _enu_rotation_matrix(lat0: float, lon0: float) -> np.ndarray:
+    """Return R such that `[e, n, u] = R @ [dX, dY, dZ]` (ECEF delta -> ENU)."""
+    lat = math.radians(lat0)
+    lon = math.radians(lon0)
+    sphi, cphi = math.sin(lat), math.cos(lat)
+    slmb, clmb = math.sin(lon), math.cos(lon)
+    return np.array(
+        [
+            [-slmb, clmb, 0.0],
+            [-sphi * clmb, -sphi * slmb, cphi],
+            [cphi * clmb, cphi * slmb, sphi],
+        ]
+    )
+
+
+def enu_sigma_to_ecef_sigma(
+    coord_transformer: CoordTransformer, sigma_e: float, sigma_n: float, sigma_u: float
+) -> tuple[float, float, float]:
+    """Propagate diagonal ENU sigmas into approximate ECEF X/Y/Z sigmas.
+
+    Ignores ENU cross-covariance terms (diagonal-only approximation) — good
+    enough for a display-only uncertainty, not for rigorous error propagation.
+
+    Returns
+    -------
+    tuple
+        `(sigma_x, sigma_y, sigma_z)`.
+    """
+    R = _enu_rotation_matrix(coord_transformer.lat0, coord_transformer.lon0)
+    cov_enu = np.diag([sigma_e**2, sigma_n**2, sigma_u**2])
+    cov_ecef = R.T @ cov_enu @ R
+    return tuple(np.sqrt(np.diag(cov_ecef)))
+
+
 def garpos_results_to_gnatss_format(
     results: GarposInput, coord_transformer: CoordTransformer
 ) -> pd.DataFrame:
@@ -379,7 +413,10 @@ def garpos_results_to_gnatss_format(
     Returns
     -------
     pd.DataFrame
-        Columns: `id, x, y, z, latitude, longitude, height_msl, del_e, del_n, del_u`.
+        Columns: `id, x, y, z, sigma_x, sigma_y, sigma_z, latitude, longitude,
+        height_msl, del_e, del_n, del_u, sigma_e, sigma_n, sigma_u`. Sigmas are a
+        diagonal-only (no cross-covariance) approximation — display-quality, not
+        rigorous error propagation.
     """
     array_enu = results.array_center_enu
     array_dpos = results.delta_center_position
@@ -391,18 +428,26 @@ def garpos_results_to_gnatss_format(
     X, Y, Z, lat, lon, height_msl = enu_to_ecef_llh(
         coord_transformer, array_enu.east, array_enu.north, array_enu.up
     )
+    sigma_e, sigma_n, sigma_u = array_dpos.get_std_dev()
+    sigma_x, sigma_y, sigma_z = enu_sigma_to_ecef_sigma(coord_transformer, sigma_e, sigma_n, sigma_u)
     rows.append(
         {
             "id": "ARRAY",
             "x": X,
             "y": Y,
             "z": Z,
+            "sigma_x": sigma_x,
+            "sigma_y": sigma_y,
+            "sigma_z": sigma_z,
             "latitude": lat,
             "longitude": lon,
             "height_msl": height_msl,
             "del_e": array_dpos.east,
             "del_n": array_dpos.north,
             "del_u": array_dpos.up,
+            "sigma_e": sigma_e,
+            "sigma_n": sigma_n,
+            "sigma_u": sigma_u,
         }
     )
 
@@ -414,6 +459,10 @@ def garpos_results_to_gnatss_format(
         north += array_dpos.north
         up += array_dpos.up
         X, Y, Z, lat, lon, height_msl = enu_to_ecef_llh(coord_transformer, east, north, up)
+        sigma_e, sigma_n, sigma_u = transponder.position_enu.get_std_dev()
+        sigma_x, sigma_y, sigma_z = enu_sigma_to_ecef_sigma(
+            coord_transformer, sigma_e, sigma_n, sigma_u
+        )
 
         del_e = del_n = del_u = None
         if transponder.position_llh is not None:
@@ -430,16 +479,72 @@ def garpos_results_to_gnatss_format(
                 "x": X,
                 "y": Y,
                 "z": Z,
+                "sigma_x": sigma_x,
+                "sigma_y": sigma_y,
+                "sigma_z": sigma_z,
                 "latitude": lat,
                 "longitude": lon,
                 "height_msl": height_msl,
                 "del_e": del_e,
                 "del_n": del_n,
                 "del_u": del_u,
+                "sigma_e": sigma_e,
+                "sigma_n": sigma_n,
+                "sigma_u": sigma_u,
             }
         )
 
     return pd.DataFrame(rows)
+
+
+def print_gnatss_format(df: pd.DataFrame, station: str) -> None:
+    """Print a GNATSS-format DataFrame (from `garpos_results_to_gnatss_format`) in
+    GNATSS's own text layout, e.g.::
+
+        ---- FINAL SOLUTION ----
+        NBR1-1
+        x = -2723405.2081 +/- 1.802565e-03 m del_e = 0.2915 +/- 1.804684e-03 m
+        y = -3873380.0443 +/- 1.801476e-03 m del_n = -0.1379 +/- 1.807375e-03 m
+        z = 4256184.6431 +/- 1.801896e-03 m del_u = 0.2027 +/- 1.79385e-03 m
+        Lat. = 42.14325336350843 deg, Long. = -125.11136643413191, Hgt.msl = -1804.1619223034095 m
+
+    The `"ARRAY"` row (this repo's addition, with no GNATSS equivalent in the sample
+    format) is printed under the label `"{station}"` instead of `"{station}-N"`.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Output of `garpos_results_to_gnatss_format` for a single survey/run (do not
+        pass a multi-survey `to_gnatss_format`/`to_gnatss_format_qc` result directly —
+        filter to one `survey_id` first).
+    station : str
+        Station name used to build each block's label (`"{station}-{n}"`).
+    """
+    print("---- FINAL SOLUTION ----")
+    transponder_num = 0
+    for _, row in df.iterrows():
+        if row["id"] == "ARRAY":
+            label = station
+        else:
+            transponder_num += 1
+            label = f"{station}-{transponder_num}"
+        print(label)
+        print(
+            f"x = {row['x']:.4f} +/- {row['sigma_x']:.6e} m "
+            f"del_e = {row['del_e']:.4f} +/- {row['sigma_e']:.6e} m"
+        )
+        print(
+            f"y = {row['y']:.4f} +/- {row['sigma_y']:.6e} m "
+            f"del_n = {row['del_n']:.4f} +/- {row['sigma_n']:.6e} m"
+        )
+        print(
+            f"z = {row['z']:.4f} +/- {row['sigma_z']:.6e} m "
+            f"del_u = {row['del_u']:.4f} +/- {row['sigma_u']:.6e} m"
+        )
+        print(
+            f"Lat. = {row['latitude']} deg, Long. = {row['longitude']}, "
+            f"Hgt.msl = {row['height_msl']} m"
+        )
 
 
 def plot_enu_llh_side_by_side(garpos_input: GarposInput):

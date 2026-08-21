@@ -39,6 +39,7 @@ from .functions import (  # noqa: E402
     CoordTransformer,
     drop_implausible_antenna_heights,
     garpos_results_to_gnatss_format,
+    print_gnatss_format,
     process_garpos_results,
 )
 from .load_utils import get_drive_garpos, get_lib_paths  # noqa: E402
@@ -592,15 +593,18 @@ class GarposHandler:
 
             rectified_path = garpos_layout.root / f"{shotdata_dest.stem}_rectified.csv"
 
-            if not rectified_path.exists() or override:
-                gp_transponders = GP_Transponders_from_benchmarks(
-                    coord_transformer=self._coord_transformer,
-                    survey=survey,
-                    site=site,
-                    is_qc=True,
-                )
-                array_dpos_center = get_array_dpos_center(self._coord_transformer, gp_transponders)
+            # Computed unconditionally: both are needed below regardless of whether
+            # rectification actually re-runs this pass, and are cheap (geometry only,
+            # no I/O) — unlike shotdata_rectified they don't need a cached-read path.
+            gp_transponders = GP_Transponders_from_benchmarks(
+                coord_transformer=self._coord_transformer,
+                survey=survey,
+                site=site,
+                is_qc=True,
+            )
+            array_dpos_center = get_array_dpos_center(self._coord_transformer, gp_transponders)
 
+            if not rectified_path.exists() or override:
                 if rectified_path.exists():
                     shotdata_rectified = pd.read_csv(rectified_path)
                 else:
@@ -620,6 +624,8 @@ class GarposHandler:
                         )
                         return None
                     shotdata_rectified.to_csv(rectified_path)
+            else:
+                shotdata_rectified = pd.read_csv(rectified_path)
 
             if not garpos_layout.obs_file.exists() or override:
                 garpos_input = prepare_garpos_input_from_survey(
@@ -1753,12 +1759,18 @@ class GarposHandler:
         "x",
         "y",
         "z",
+        "sigma_x",
+        "sigma_y",
+        "sigma_z",
         "latitude",
         "longitude",
         "height_msl",
         "del_e",
         "del_n",
         "del_u",
+        "sigma_e",
+        "sigma_n",
+        "sigma_u",
     )
 
     def _gnatss_format_for_layout(
@@ -1808,7 +1820,8 @@ class GarposHandler:
         -------
         pd.DataFrame
             One row per transponder plus one ``"ARRAY"`` row, per survey, with columns
-            ``survey_id, id, x, y, z, latitude, longitude, height_msl, del_e, del_n, del_u``.
+            ``survey_id, id, x, y, z, sigma_x, sigma_y, sigma_z, latitude, longitude,
+            height_msl, del_e, del_n, del_u, sigma_e, sigma_n, sigma_u``.
         """
         if self._coord_transformer is None:
             raise ValueError("No coordinate transformer available; site center is not set.")
@@ -1855,7 +1868,8 @@ class GarposHandler:
         -------
         pd.DataFrame
             One row per transponder plus one ``"ARRAY"`` row, per survey, with columns
-            ``survey_id, id, x, y, z, latitude, longitude, height_msl, del_e, del_n, del_u``.
+            ``survey_id, id, x, y, z, sigma_x, sigma_y, sigma_z, latitude, longitude,
+            height_msl, del_e, del_n, del_u, sigma_e, sigma_n, sigma_u``.
         """
         if self._coord_transformer is None:
             raise ValueError("No coordinate transformer available; site center is not set.")
@@ -1872,3 +1886,34 @@ class GarposHandler:
                 continue
 
         return self._concat_gnatss_frames(survey_frames)
+
+    def print_gnatss_format(
+        self,
+        df: pd.DataFrame,
+        survey_id: str | None = None,
+        station: str | None = None,
+    ) -> None:
+        """Print a `to_gnatss_format`/`to_gnatss_format_qc` result in GNATSS's own
+        text layout. See `functions.print_gnatss_format` for the exact format and
+        the sigma-approximation caveats.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Result of `to_gnatss_format` or `to_gnatss_format_qc`. If it contains
+            more than one distinct `survey_id`, `survey_id` must be given to select
+            which one to print.
+        survey_id : str or None, optional
+            Which survey's rows to print. Required if `df` covers multiple surveys.
+        station : str or None, optional
+            Station name for each block's label (`"{station}-{n}"`). Defaults to
+            the active session's station.
+        """
+        if survey_id is not None:
+            df = df[df["survey_id"] == survey_id]
+        elif df["survey_id"].nunique() > 1:
+            raise ValueError(
+                "df contains multiple surveys; pass survey_id to select which one to print."
+            )
+        station = station or self.station_session.scope.station
+        print_gnatss_format(df, station)

@@ -278,8 +278,10 @@ class IngestService:
         -------
         Path or None
             Local path of the downloaded (or already-present) ``qc.zip``, or
-            ``None`` if the campaign has no ``qc.zip`` on the archive (HTTP
-            404).
+            ``None`` if ``qc.zip`` could not be fetched from the archive —
+            either because it doesn't exist (HTTP 404) or because the
+            request otherwise failed (e.g. HTTP 403). In the latter case a
+            warning is logged so the failure isn't silently swallowed.
 
         Raises
         ------
@@ -308,6 +310,12 @@ class IngestService:
         try:
             self._archive.download_file(url, dest_path)
         except ArchiveNotFoundError:
+            return None
+        except ArchiveError as exc:
+            ProcessLogger.warning(
+                f"Failed to download {url}: {exc}; falling back to individual "
+                "qc tarballs."
+            )
             return None
         return dest_path
 

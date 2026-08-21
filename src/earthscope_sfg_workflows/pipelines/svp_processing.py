@@ -15,10 +15,50 @@ from earthscope_sfg_tools.seafloor_site_tools.soundspeed_operations import (
     seabird_to_soundvelocity,
 )
 
-from ..data_mgmt.model import AssetKind, SFGScope
+from ..data_mgmt.model import AssetEntry, AssetKind, SFGScope
 from ..data_mgmt.ports import AssetCatalogPort
 from ..logging import ProcessLogger
 from .exceptions import NoSVPFound
+
+
+def _borrow_from_earlier_campaign(
+    catalog: AssetCatalogPort, scope: SFGScope, kind: AssetKind
+) -> tuple[list[AssetEntry], str | None]:
+    """Find *kind* entries for the same station from the most recent earlier campaign.
+
+    Used when the active campaign has no CTD/Seabird data of its own (e.g. a
+    site visited once per year, or a still-in-progress campaign). Reads
+    catalog entries already scoped to other campaigns rather than
+    re-cataloging the remote file under the active scope, since
+    ``remote_path`` is globally unique in the catalog and a borrowed file
+    can't be given a second row for the new scope.
+
+    Parameters
+    ----------
+    catalog : AssetCatalogPort
+        Asset catalog to query.
+    scope : SFGScope
+        Active campaign scope; only entries for other campaigns at the same
+        network/station are considered.
+    kind : AssetKind
+        Asset kind to look up (``AssetKind.CTD`` or ``AssetKind.SEABIRD``).
+
+    Returns
+    -------
+    tuple[list[AssetEntry], str or None]
+        Entries from the most recent earlier campaign (by campaign name,
+        lexicographic), and that campaign's name. ``([], None)`` if no
+        earlier campaign has entries of this kind.
+    """
+    campaigns = catalog.distinct_values("campaign", network=scope.network, station=scope.station)
+    earlier_campaigns = sorted((c for c in campaigns if c < scope.campaign), reverse=True)
+    for candidate in earlier_campaigns:
+        entries = catalog.assets_for(
+            network=scope.network, station=scope.station, campaign=candidate, kind=kind
+        )
+        if entries:
+            return entries, candidate
+    return [], None
 
 
 def process_svp_for_scope(
@@ -67,6 +107,16 @@ def process_svp_for_scope(
         kind=AssetKind.SEABIRD,
     )
 
+    borrowed_campaign = None
+    if not ctd_entries and not seabird_entries:
+        ctd_entries, borrowed_campaign = _borrow_from_earlier_campaign(
+            catalog, scope, AssetKind.CTD
+        )
+        if not ctd_entries:
+            seabird_entries, borrowed_campaign = _borrow_from_earlier_campaign(
+                catalog, scope, AssetKind.SEABIRD
+            )
+
     if not ctd_entries and not seabird_entries:
         response = (
             f"No CTD or SEABIRD Files Found to Process for {scope.network} "
@@ -74,6 +124,12 @@ def process_svp_for_scope(
         )
         ProcessLogger.error(response)
         raise NoSVPFound(response)
+
+    if borrowed_campaign:
+        ProcessLogger.info(
+            f"No CTD/Seabird data for {scope.network} {scope.station} {scope.campaign}; "
+            f"using existing data from earlier campaign {borrowed_campaign} instead."
+        )
 
     ctd_processing_functions = [CTD_to_svp_v2, CTD_to_svp_v1]
 

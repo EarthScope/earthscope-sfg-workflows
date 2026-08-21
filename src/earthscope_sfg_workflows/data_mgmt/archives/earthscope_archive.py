@@ -11,6 +11,7 @@ from __future__ import annotations
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from earthscope_sfg_tools.datamodels import Site, Vessel
 import requests
@@ -244,7 +245,16 @@ class EarthScopeArchive:
             raise ArchiveError(f"Failed to list {directory_url}: {exc}") from exc
 
         urls = [line.strip() for line in body.splitlines() if line.strip()]
-        return [ArchiveFile(url=u) for u in urls]
+        # The listing endpoint's `uris=1` output points at the raw backend
+        # (an execute-api host), which only serves directory listings, not
+        # individual file downloads. Rewrite each URL's scheme/host to match
+        # the public host we listed from so the returned URIs are actually
+        # downloadable.
+        public = urlsplit(directory_url)
+        rewritten = [
+            urlunsplit((public.scheme, public.netloc) + urlsplit(u)[2:]) for u in urls
+        ]
+        return [ArchiveFile(url=u) for u in rewritten]
 
     # -- download ----------------------------------------------------------
 

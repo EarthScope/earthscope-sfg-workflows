@@ -519,12 +519,7 @@ class SV3Pipeline:
             with open(rinex_metav2) as f:
                 metadata = json.load(f)
         else:
-            # Pinned to RINEX 2.11/GPS-only regardless of get_metadatav2's default:
-            # this pipeline writes short-format filenames (STAT####.YYo), which only
-            # match RINEX 2. The QC pipeline uses 4.02/multi-GNSS instead.
             metadata = get_metadatav2(site=self.scope.station)
-            metadata["rinex_version"] = "2.11"
-            metadata["rinex_system"] = "G"
             with open(rinex_metav2, "w") as f:
                 json.dump(metadata, f)
 

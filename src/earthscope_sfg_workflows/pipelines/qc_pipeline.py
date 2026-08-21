@@ -12,6 +12,7 @@ from functools import partial, wraps
 from pathlib import Path
 from typing import Callable
 
+import numpy as np
 from pride_ppp import PrideProcessor, ProcessingMode, kin_to_kin_position_df, rinex_get_time_range
 from rich.progress import track
 
@@ -446,9 +447,19 @@ class QCPipeline:
             try:
                 # tdb2rnx writes RINEX files to CWD; run from rinex_dest.
                 # Remove any pre-existing RINEX obs files so the post-run glob is clean.
+                # Regenerated files can land on different filenames (start time/sampling
+                # shift as more data arrives), so also purge their catalog rows here —
+                # otherwise stale entries point at files this loop just deleted, and a
+                # later assets_to_process() call hits FileNotFoundError on them.
                 rinex_dest.mkdir(parents=True, exist_ok=True)
                 for _stale in _find_rinex_files(rinex_dest):
                     _stale.unlink()
+                self.catalog.delete(
+                    kind=rinex_kind,
+                    network=self.scope.network,
+                    station=self.scope.station,
+                    campaign=self.scope.campaign,
+                )
                 old_cwd = Path.cwd()
                 try:
                     os.chdir(rinex_dest)
@@ -690,14 +701,51 @@ class QCPipeline:
             f"Generated {processed_count} QC KinPosition dataframes from {len(kin_entries)} KIN files"
         )
 
+    def _campaign_rinex_date_range(self) -> tuple[np.datetime64, np.datetime64] | None:
+        """Return the (min, max) day-granularity date range of this campaign's RINEX files.
+
+        The shotdata/kin-position TileDB arrays are shared across every campaign ever
+        run at this station (``TileDBLayout.for_station``), so a raw date intersection
+        between them spans the station's whole history, not just the active campaign.
+        RINEX assets, unlike the TileDB arrays, are cataloged per campaign, so their
+        date bounds are used to scope the merge back down to the active campaign.
+
+        Returns
+        -------
+        tuple[np.datetime64, np.datetime64] or None
+            ``(min, max)`` dates, or ``None`` if no dated RINEX assets are cataloged
+            for the active campaign yet.
+        """
+        rinex_entries = [
+            e
+            for e in self.catalog.assets_for(
+                network=self.scope.network,
+                station=self.scope.station,
+                campaign=self.scope.campaign,
+            )
+            if e.kind in RINEX_KINDS
+            and e.timestamp_data_start is not None
+            and e.timestamp_data_end is not None
+        ]
+        if not rinex_entries:
+            return None
+        starts = [e.timestamp_data_start.replace(tzinfo=None) for e in rinex_entries]
+        ends = [e.timestamp_data_end.replace(tzinfo=None) for e in rinex_entries]
+        return np.datetime64(min(starts), "D"), np.datetime64(max(ends), "D")
+
     @_pipeline_method
     def update_shotdata(self) -> None:
         """Refine QC shotdata with interpolated high-precision kinematic positions.
 
+        Scoped to the active campaign's RINEX date range (see
+        :meth:`_campaign_rinex_date_range`) so it doesn't re-merge other
+        campaigns' dates that happen to share this station's TileDB arrays.
+
         Returns
         -------
         None
-            Returns early without raising if the merge-signature lookup fails.
+            Returns early without raising if the merge-signature lookup fails,
+            or if the active campaign has no dates to merge.
         """
         ProcessLogger.info("Updating QC shotdata with interpolated QCKinPosition data")
 
@@ -708,6 +756,18 @@ class QCPipeline:
         except Exception as e:
             ProcessLogger.error(e)
             return
+
+        campaign_range = self._campaign_rinex_date_range()
+        if campaign_range is not None:
+            start, end = campaign_range
+            dates = [d for d in dates if start <= d <= end]
+            if not dates:
+                ProcessLogger.info(
+                    f"No shotdata/kin_position dates within the {self.scope.campaign} "
+                    "RINEX date range; nothing to refine."
+                )
+                return
+            merge_signature = [str(d) for d in dates]
 
         merge_job = {
             "parent_type": AssetKind.KINPOSITION.value,
