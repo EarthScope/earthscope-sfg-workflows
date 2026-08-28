@@ -884,6 +884,7 @@ class TestProcessRinex:
 
         config = SV3PipelineConfig()
         config.pride_config.cli.sample_frequency = 5
+        config.pride_config.override_products_download = True
         pipeline = _make_pipeline(tmp_path, catalog, config=config)
 
         mock_processor = MagicMock()
@@ -897,6 +898,7 @@ class TestProcessRinex:
 
         assert mock_cls.call_args.kwargs["cli_config"] is config.pride_config.cli
         assert mock_cls.call_args.kwargs["cli_config"].sample_frequency == 5
+        assert mock_cls.call_args.kwargs["override_products_download"] is True
 
 
 # ---------------------------------------------------------------------------

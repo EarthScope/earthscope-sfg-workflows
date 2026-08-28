@@ -724,6 +724,7 @@ class SV3Pipeline:
             output_dir=intermediate_dir,
             cli_config=pride_cfg.cli,
             mode=ProcessingMode.DEFAULT,
+            override_products_download=pride_cfg.override_products_download,
         )
         rinex_path_map = {e.local_path: e for e in rinex_entries}
         kin_count = res_count = upload_count = 0

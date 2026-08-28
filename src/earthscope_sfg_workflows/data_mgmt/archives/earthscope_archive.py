@@ -258,8 +258,17 @@ class EarthScopeArchive:
 
     # -- download ----------------------------------------------------------
 
-    def download_file(self, file_url: str, dest_path: Path) -> None:
+    def download_file(self, file_url: str, dest_path: Path, *, max_attempts: int = 3) -> None:
         """Download *file_url* to *dest_path*, creating parent directories as needed.
+
+        Streams to a ``.part`` temp file alongside *dest_path* and only
+        renames it into place once the transfer completes and (when the
+        server reports a ``Content-Length``) the byte count matches. This
+        keeps a truncated/dropped connection from ever leaving a corrupt
+        file at *dest_path*, where callers would otherwise mistake its mere
+        existence for a completed download and never retry it. Transient
+        network errors during the streaming read are retried up to
+        *max_attempts* times before giving up.
 
         Parameters
         ----------
@@ -267,6 +276,9 @@ class EarthScopeArchive:
             URL of the file to download.
         dest_path : Path
             Local destination path for the downloaded file.
+        max_attempts : int, optional
+            Number of attempts before giving up on a transient network
+            error. Default is ``3``.
 
         Raises
         ------
@@ -275,33 +287,61 @@ class EarthScopeArchive:
         ArchiveNotFoundError
             If the server returns HTTP 404.
         ArchiveError
-            For any other HTTP error or network failure.
+            For any other HTTP error, or a network failure that persists
+            across *max_attempts* retries.
         """
         token = self._ensure_token()
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            response = requests.get(
-                file_url,
-                headers={"authorization": f"Bearer {token}"},
-                stream=True,
-                timeout=60,
-            )
-        except requests.RequestException as exc:
-            raise ArchiveError(f"Network error downloading {file_url}: {exc}") from exc
+        tmp_path = dest_path.with_name(dest_path.name + ".part")
 
-        if response.status_code == 401:
-            raise ArchiveAuthError(f"Unauthorized: {file_url}")
-        if response.status_code == 404:
-            raise ArchiveNotFoundError(file_url)
-        if response.status_code != requests.codes.ok:
-            raise ArchiveError(
-                f"Failed to download {file_url}: HTTP {response.status_code} ({response.reason})"
-            )
+        last_exc: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = requests.get(
+                    file_url,
+                    headers={"authorization": f"Bearer {token}"},
+                    stream=True,
+                    timeout=60,
+                )
+            except requests.RequestException as exc:
+                raise ArchiveError(f"Network error downloading {file_url}: {exc}") from exc
 
-        with open(dest_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
+            if response.status_code == 401:
+                raise ArchiveAuthError(f"Unauthorized: {file_url}")
+            if response.status_code == 404:
+                raise ArchiveNotFoundError(file_url)
+            if response.status_code != requests.codes.ok:
+                raise ArchiveError(
+                    f"Failed to download {file_url}: HTTP {response.status_code} ({response.reason})"
+                )
+
+            expected_length = response.headers.get("content-length")
+            try:
+                written = 0
+                with open(tmp_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            written += len(chunk)
+                if expected_length is not None and written != int(expected_length):
+                    raise ArchiveError(
+                        f"Truncated download of {file_url}: got {written} bytes, "
+                        f"expected {expected_length}"
+                    )
+            except (requests.RequestException, ArchiveError) as exc:
+                last_exc = exc
+                tmp_path.unlink(missing_ok=True)
+                if attempt < max_attempts:
+                    continue
+                raise ArchiveError(
+                    f"Failed to download {file_url} after {max_attempts} attempts: {exc}"
+                ) from exc
+
+            tmp_path.replace(dest_path)
+            return
+
+        # Unreachable, but keeps type-checkers happy.
+        raise ArchiveError(f"Failed to download {file_url}: {last_exc}")
 
     def download_to_dir(self, file_url: str, dest_dir: Path) -> Path:
         """Download *file_url* into *dest_dir* using the URL's basename.
