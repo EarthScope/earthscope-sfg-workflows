@@ -13,6 +13,7 @@ from earthscope_sfg_workflows.data_mgmt.ports import (
     AssetCatalogPort,
     FileStorePort,
 )
+
 from .session import StationSession
 
 if TYPE_CHECKING:
@@ -260,8 +261,8 @@ class Workspace:
         *,
         network: str | None = None,
         station: str | None = None,
-        kind: "AssetKind | None" = None,
-    ) -> "list[AssetEntry]":
+        kind: AssetKind | None = None,
+    ) -> list[AssetEntry]:
         """Return catalog entries matching the optional *network*, *station*, and *kind* filters.
 
         Parameters
@@ -289,9 +290,9 @@ class Workspace:
 def _build_ports(directory: Path | str):
     from dataclasses import dataclass
 
-    from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
     from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import EarthScopeArchive
     from earthscope_sfg_workflows.data_mgmt.catalog.sql_asset_catalog import AssetCatalog
+    from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
 
     @dataclass
     class _P:
@@ -310,4 +311,4 @@ def _build_ports(directory: Path | str):
     )
 
 
-__all__ = ["Workspace", "StationSession"]
+__all__ = ["StationSession", "Workspace"]

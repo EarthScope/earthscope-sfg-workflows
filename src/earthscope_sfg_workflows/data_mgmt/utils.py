@@ -15,12 +15,12 @@ from typing import (
 )
 
 import numpy as np
-
-from earthscope_sfg_workflows.logging import ProcessLogger as logger
 from earthscope_sfg_tools.tiledb_integration import (
     TDBKinPositionArray,
     TDBShotDataArray,
 )
+
+from earthscope_sfg_workflows.logging import ProcessLogger as logger
 
 P = ParamSpec("P")
 R = TypeVar("R")

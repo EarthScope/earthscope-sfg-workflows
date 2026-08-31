@@ -3,10 +3,21 @@
 import itertools
 import time
 
-import gnatss.constants as constants
 import numpy as np
 import pandas as pd
 import pymap3d
+from earthscope_sfg_tools.datamodels.observationdata import (
+    IMUPositionDataFrame,
+    KinPositionDataFrame,
+)
+
+# Local imports
+from earthscope_sfg_tools.tiledb_integration import (
+    TDBIMUPositionArray,
+    TDBKinPositionArray,
+    TDBShotDataArray,
+)
+from gnatss import constants
 from gnatss.ops.kalman import run_filter_simulation
 from numpy import datetime64
 from pandera.typing import DataFrame
@@ -17,18 +28,7 @@ from sklearn.kernel_ridge import KernelRidge
 from sklearn.neighbors import KDTree, RadiusNeighborsRegressor
 from sklearn.preprocessing import StandardScaler
 
-from earthscope_sfg_tools.datamodels.observationdata import (
-    IMUPositionDataFrame,
-    KinPositionDataFrame,
-)
 from earthscope_sfg_workflows.logging import ProcessLogger as logger
-
-# Local imports
-from earthscope_sfg_tools.tiledb_integration import (
-    TDBIMUPositionArray,
-    TDBKinPositionArray,
-    TDBShotDataArray,
-)
 
 MEDIAN_EAST_POSITION = 0
 MEDIAN_NORTH_POSITION = 0
@@ -627,9 +627,9 @@ def merge_shotdata_kinposition(
 
         try:
             position_df = position_data.read_df(start=date) if position_data is not None else None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.info(
-                f"Error reading position data for date {str(date)}: {e}. Proceeding without position data."
+                f"Error reading position data for date {date!s}: {e}. Proceeding without position data."
             )
             position_df = None
         if shotdata_df is None or shotdata_df.empty:
@@ -637,7 +637,7 @@ def merge_shotdata_kinposition(
         if shotdata_df.empty:
             continue
 
-        logger.info(f"\nInterpolating shotdata for date {str(date)}")
+        logger.info(f"\nInterpolating shotdata for date {date!s}")
 
         # interpolate the enu values
         shotdata_df_updated = main(
@@ -688,7 +688,7 @@ def merge_shotdata_qc(
         if shotdata_df.empty:
             continue
 
-        logger.info(f"\nInterpolating shotdata for date {str(date)}")
+        logger.info(f"\nInterpolating shotdata for date {date!s}")
         positions_data: pd.DataFrame = shotdata_to_imu_position_df(shotdata_df)
         # interpolate the enu values
         shotdata_df_updated = main(
@@ -987,8 +987,8 @@ def merge_shotdata_kinposition_radius_regression(
     """
 
     logger.info("Merging shotdata and kin_position data")
-    for start, end in zip(dates, dates[1:], strict=False):
-        logger.info(f"\nInterpolating shotdata for date {str(start)}")
+    for start, end in itertools.pairwise(dates):
+        logger.info(f"\nInterpolating shotdata for date {start!s}")
 
         shotdata_df = shotdata_pre.read_df(start=start, end=end)
         kin_position_df = kin_position.read_df(start=start, end=end)

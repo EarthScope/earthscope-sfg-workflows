@@ -8,51 +8,52 @@ from pathlib import Path
 
 # Plotting imports
 import matplotlib.dates as mdates
-import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib import gridspec
 from matplotlib.colors import Normalize
 
 sns.set_theme(style="whitegrid")
 
-from earthscope_sfg_tools.datamodels.metadata import Survey  # noqa: E402
-from earthscope_sfg_tools.tiledb_integration import (  # noqa: E402
+from earthscope_sfg_tools.datamodels.metadata import Survey
+from earthscope_sfg_tools.tiledb_integration import (
     TDBShotDataArray,
 )
 
-from ...config.loadconfigs import (  # noqa: E402
+from earthscope_sfg_workflows.logging import GarposLogger as logger
+from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
+from earthscope_sfg_workflows.workflows.session import StationSession
+
+from ...config.loadconfigs import (
     GarposSiteConfig,
     get_garpos_site_config,
     get_survey_filter_config,
 )
-from ...data_mgmt.model import GARPOSLayout  # noqa: E402
-from .data_prep import (  # noqa: E402
+from ...data_mgmt.model import GARPOSLayout
+from ...prefiltering import filter_shotdata
+from .data_prep import (
     GP_Transponders_from_benchmarks,
     apply_survey_config,
     get_array_dpos_center,
     prepare_garpos_input_from_survey,
     prepare_shotdata_for_garpos,
 )
-from .functions import (  # noqa: E402
+from .functions import (
     CoordTransformer,
     drop_implausible_antenna_heights,
     garpos_results_to_gnatss_format,
     print_gnatss_format,
     process_garpos_results,
 )
-from .load_utils import get_drive_garpos, get_lib_paths  # noqa: E402
-from .schemas import (  # noqa: E402
+from .load_utils import get_drive_garpos, get_lib_paths
+from .schemas import (
     GarposFixed,
     GarposInput,
     InversionParams,
     ObservationData,
 )
-from ...prefiltering import filter_shotdata  # noqa: E402
-from earthscope_sfg_workflows.logging import GarposLogger as logger  # noqa: E402
-from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config  # noqa: E402
-from earthscope_sfg_workflows.workflows.session import StationSession  # noqa: E402
 
 colors = [
     "blue",
@@ -584,9 +585,8 @@ class GarposHandler:
             for d in garpos_layout.standard_dirs:
                 d.mkdir(parents=True, exist_ok=True)
 
-            if not garpos_layout.svp_file.exists():
-                if campaign.svp_file.exists():
-                    shutil.copy(campaign.svp_file, garpos_layout.svp_file)
+            if not garpos_layout.svp_file.exists() and campaign.svp_file.exists():
+                shutil.copy(campaign.svp_file, garpos_layout.svp_file)
 
             if not garpos_layout.settings_file.exists() or override:
                 GarposFixed()._to_datafile(garpos_layout.settings_file)
@@ -679,7 +679,7 @@ class GarposHandler:
         results_path = results_dir / f"{results_suffix}-res.dat"
 
         if results_path.exists() and not override:
-            print(f"Results already exist for {str(results_path)}")
+            print(f"Results already exist for {results_path!s}")
             return None
         logger.info(
             f"Running GARPOS model for {garpos_input.site_name}, {garpos_input.survey_id}. Run ID: {run_id}"
@@ -732,8 +732,10 @@ class GarposHandler:
             # Remove existing results directory if override is True
             try:
                 shutil.rmtree(results_dir)
-            except Exception as e:
-                logger.error(f"Failed to remove existing results directory {results_dir}: {e}")
+            except OSError as e:
+                raise OSError(
+                    f"Failed to remove existing results directory {results_dir}: {e}"
+                ) from e
 
         elif results_dir.exists() and not override:
             logger.info(
@@ -853,10 +855,10 @@ class GarposHandler:
                 )
             return
 
-        for survey_id in surveys_to_process:
-            logger.info(f"Running GARPOS model for survey {survey_id}. Run ID: {run_id}")
+        for sid in surveys_to_process:
+            logger.info(f"Running GARPOS model for survey {sid}. Run ID: {run_id}")
             self._run_garpos_survey(
-                survey_id=survey_id,
+                survey_id=sid,
                 run_id=run_id,
                 override=override,
                 iterations=iterations,
@@ -916,7 +918,7 @@ class GarposHandler:
                     shotdata_dfs[survey_name] = shotdata_df
                     # use utc
                     start = datetime.fromtimestamp(shotdata_df["pingTime"].iloc[0], tz=UTC)
-                    end = datetime.fromtimestamp(shotdata_df["pingTime"].iloc[-1], tz=UTC)  # noqa: F841
+                    end = datetime.fromtimestamp(shotdata_df["pingTime"].iloc[-1], tz=UTC)
                     shotdata_time_windows[survey_name] = (start, end)
 
                     shotdata_filtered_filepath = (
@@ -927,8 +929,8 @@ class GarposHandler:
                     )
                     shotdata_filtered_dfs[survey_name] = shotdata_filtered_df
 
-                except Exception as e:
-                    print(e)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"Skipping survey {survey_name}: {e}")
 
         self._plot_shotdata_replies_per_transponder(
             shotdata_dfs=shotdata_dfs,
@@ -1002,8 +1004,8 @@ class GarposHandler:
                 ).rename(columns={"MT": "transponderID", "ST": "pingTime"})
                 shotdata_filtered_dfs[survey.id] = shotdata_filtered_df
 
-            except Exception as e:
-                print(e)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Skipping survey {survey.id}: {e}")
 
         self._plot_shotdata_replies_per_transponder(
             shotdata_dfs=shotdata_dfs,
@@ -1081,8 +1083,8 @@ class GarposHandler:
                         linewidth=1,
                         alpha=0.1,
                     )
-            except Exception:
-                logger.warning(f"Error processing {survey_name}")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Error processing {survey_name}: {e}")
         fig.suptitle(
             f"Shotdata Reply Percentages for {self.station_session.scope.station} {self.station_session.scope.campaign}"
         )
@@ -1158,7 +1160,7 @@ class GarposHandler:
                     ymin=ymin,
                     ymax=ymax,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Skipping plotting for survey {sid}: {e}")
                 continue
 
@@ -1333,7 +1335,7 @@ class GarposHandler:
                     ymin=ymin,
                     ymax=ymax,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Skipping plotting for survey {sid}: {e}")
                 continue
 
@@ -1423,7 +1425,7 @@ class GarposHandler:
 
     def plot_ts_results(
         self,
-        survey_id: str = None,
+        survey_id: str | None = None,
         run_id: int | str = 0,
         res_filter: float = 10,
         savefig: bool = False,
@@ -1464,14 +1466,14 @@ class GarposHandler:
                     savefig=savefig,
                     showfig=showfig,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Skipping plotting for survey {sid}: {e}")
                 continue
 
     def _plot_ts_results(
         self,
         survey_id: str,
-        survey_type: str = None,
+        survey_type: str | None = None,
         run_id: int | str = 0,
         res_filter: float = 10,
         savefig: bool = False,
@@ -1706,7 +1708,7 @@ class GarposHandler:
         resiRange_filter = np.abs(resiRange_np) < 50
         resiRange = resiRange[resiRange_filter]
         max_value = resiRange.max()
-        flier_props = dict(marker=".", markerfacecolor="r", markersize=5, alpha=0.25)
+        flier_props = {"marker": ".", "markerfacecolor": "r", "markersize": 5, "alpha": 0.25}
         ax2.boxplot(resiRange.to_numpy(), vert=False, flierprops=flier_props)
         # keep axis plot limit slightly larger than max value for visibility
         ax2.set_xlim(0, max_value * 1.1)
@@ -1793,7 +1795,7 @@ class GarposHandler:
 
     def to_gnatss_format(
         self,
-        survey_id: str = None,
+        survey_id: str | None = None,
         run_id: int | str = 0,
     ) -> pd.DataFrame:
         """Recast GARPOS results into a GNATSS-style comparison table (SV3 pipeline).
@@ -1839,7 +1841,7 @@ class GarposHandler:
                 survey_frames.append(
                     self._gnatss_format_for_layout(self.current_garpos_survey_dir, run_id=run_id)
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Skipping GNATSS-format conversion for survey {sid}: {e}")
                 continue
 
@@ -1881,7 +1883,7 @@ class GarposHandler:
                 survey_frames.append(
                     self._gnatss_format_for_layout(garpos_survey_dir, run_id=run_id)
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Skipping GNATSS-format conversion for survey {survey_id}: {e}")
                 continue
 

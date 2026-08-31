@@ -8,23 +8,22 @@ module is fully testable with the in-memory adapters in
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from upath import UPath
 
 from .model import (
     AssetKind,
     CampaignLayout,
-    NetworkLayout,
     DirectoryTree,
+    GARPOSLayout,
+    NetworkLayout,
     SFGScope,
     StationLayout,
-    GARPOSLayout,
     SurveyLayout,
 )
 from .ports import FileStorePort
-
 
 # ---------------------------------------------------------------------------
 # File type detection (pure)
@@ -190,7 +189,7 @@ class FileManager:
         return self._remote_tree is not None and self._remote_backend is not None
 
     @property
-    def remote_backend(self) -> "FileStorePort | None":
+    def remote_backend(self) -> FileStorePort | None:
         """The remote :class:`FileStorePort`, or ``None`` when not configured.
 
         Returns
@@ -272,7 +271,7 @@ class FileManager:
 
     def ensure_campaign(
         self,
-        scope: "SFGScope | None" = None,
+        scope: SFGScope | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -309,7 +308,7 @@ class FileManager:
 
     def ensure_survey(
         self,
-        scope: "SFGScope | None" = None,
+        scope: SFGScope | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -350,7 +349,7 @@ class FileManager:
 
     def ensure_garpos_survey(
         self,
-        scope: "SFGScope | None" = None,
+        scope: SFGScope | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -538,7 +537,7 @@ class LayoutInspector:
 
 __all__ = [
     "DEFAULT_PATTERNS",
-    "FileTypeDetector",
     "FileManager",
+    "FileTypeDetector",
     "LayoutInspector",
 ]

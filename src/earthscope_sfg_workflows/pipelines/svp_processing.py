@@ -147,9 +147,9 @@ def process_svp_for_scope(
                         f"Processed SVP data from CTD file {ctd_entry.local_path} "
                         f"to dataframe with {function.__name__}"
                     )
-                    ProcessLogger.info(f"Saved SVP dataframe to {str(destination)}")
+                    ProcessLogger.info(f"Saved SVP dataframe to {destination!s}")
                     return
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 ProcessLogger.error(
                     f"Error processing CTD file {ctd_entry.local_path} "
                     f"with {function.__name__}: {e}"
@@ -167,9 +167,9 @@ def process_svp_for_scope(
                 catalog.update(seabird_entry)  # mark as processed
                 ProcessLogger.info(
                     f"Processed SVP data from Seabird file {seabird_entry.local_path} "
-                    f"and saved to {str(destination)}"
+                    f"and saved to {destination!s}"
                 )
                 return
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             ProcessLogger.error(f"Error processing Seabird file {seabird_entry.local_path}: {e}")
             continue

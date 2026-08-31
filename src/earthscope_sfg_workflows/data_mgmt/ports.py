@@ -18,10 +18,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+
 from upath import UPath
 
 from .model import ArchiveFile, AssetEntry, AssetKind, FileInfo
-
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -584,10 +584,10 @@ class ArchiveSourcePort(Protocol):
 
 
 __all__ = [
-    "ArchiveError",
     "ArchiveAuthError",
+    "ArchiveError",
     "ArchiveNotFoundError",
+    "ArchiveSourcePort",
     "AssetCatalogPort",
     "FileStorePort",
-    "ArchiveSourcePort",
 ]

@@ -115,12 +115,12 @@ def make_scope(
 
 
 __all__ = [
+    "FakeArchive",
     # in-memory doubles
     "InMemoryAssetStore",
     "InMemoryFileStore",
-    "FakeArchive",
+    "make_scope",
     # factories
     "make_session",
     "make_workspace",
-    "make_scope",
 ]

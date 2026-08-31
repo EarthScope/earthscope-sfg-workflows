@@ -316,10 +316,10 @@ class InversionParams(BaseModel):
         """Enforce `positionalOffset` consistency with `inversiontype`."""
         match values.inversiontype:
             case InversionType.gammas:
-                if any([x <= 0 for x in values.positionalOffset]):
+                if any(x <= 0 for x in values.positionalOffset):
                     logger.error("positionalOffset is required for InversionType.positions")
             case [InversionType.positions, InversionType.both]:
-                if any([x > 0 for x in values.positionalOffset]):
+                if any(x > 0 for x in values.positionalOffset):
                     values.positionalOffset = [0.0, 0.0, 0.0]
                     logger.error("positionalOffset is not required for InversionType.gammas")
 
@@ -506,10 +506,10 @@ class GarposInput(BaseModel):
     Date(UTC)   = {self.start_date.strftime("%Y-%m-%d")}
     Date(jday)  = {date_mjd}
     Ref.Frame   = {self.ref_frame}
-    SoundSpeed  = {str(self.sound_speed_data)}
+    SoundSpeed  = {self.sound_speed_data!s}
 
 [Data-file]
-    datacsv     = {str(self.shot_data)}
+    datacsv     = {self.shot_data!s}
     N_shot      = {self.n_shot}
     used_shot   = {0}
 
@@ -538,7 +538,7 @@ class GarposInput(BaseModel):
             f.write(obs_str)
 
     @classmethod
-    def from_datafile(cls, path: Path, survey_id: str = None) -> "GarposInput":
+    def from_datafile(cls, path: Path, survey_id: str | None = None) -> "GarposInput":
         """Build a `GarposInput` from a GARPOS observation INI file."""
         config = ConfigParser()
         config.read(path)
@@ -587,7 +587,6 @@ class GarposInput(BaseModel):
                         downward=position.up,
                     )
 
-        start_date = datetime.strptime(observation_section["Date(UTC)"], "%Y-%m-%d")
         date_mjd = float(observation_section["Date(jday)"])
         start_date = julian.from_jd(date_mjd + 2400000.5, fmt="jd")
 

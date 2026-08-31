@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import concurrent.futures
 import tarfile
-import threading
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -30,7 +29,7 @@ if TYPE_CHECKING:
 
 
 def _now() -> datetime:
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
 class IngestService:
@@ -74,7 +73,7 @@ class IngestService:
         Download cataloged remote assets to local storage.
     """
 
-    def __init__(self, session: "StationSession", *, override: bool = False) -> None:
+    def __init__(self, session: StationSession, *, override: bool = False) -> None:
         """Initialize the service.
 
         Parameters
@@ -156,7 +155,7 @@ class IngestService:
             try:
                 self._catalog.add(asset)
                 cataloged += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 errors.append(f"add failed for {info.path}: {exc}")
 
         return IngestReport(cataloged=cataloged, skipped=skipped, errors=tuple(errors))
@@ -213,41 +212,42 @@ class IngestService:
         for tb in tarballs:
             extract_dir = tarball_dir / tb.name.removesuffix(".tar.gz")
             try:
-                with fsspec.open(str(tb), "rb") as fo:
-                    with tarfile.open(fileobj=fo, mode="r:*") as tf:
-                        pin_members = [
-                            m
-                            for m in tf.getmembers()
-                            if m.isfile()
-                            and self.detect(m.name) in (AssetKind.QCPIN, AssetKind.QCSTA)
-                        ]
-                        if not pin_members:
+                with (
+                    fsspec.open(str(tb), "rb") as fo,
+                    tarfile.open(fileobj=fo, mode="r:*") as tf,
+                ):
+                    pin_members = [
+                        m
+                        for m in tf.getmembers()
+                        if m.isfile() and self.detect(m.name) in (AssetKind.QCPIN, AssetKind.QCSTA)
+                    ]
+                    if not pin_members:
+                        skipped += 1
+                        continue
+                    extract_dir.mkdir(parents=True, exist_ok=True)
+                    for member in pin_members:
+                        pin_name = Path(member.name).name
+                        dest = extract_dir / pin_name
+                        if not effective_override and self._catalog.by_local_path(UPath(dest)):
                             skipped += 1
                             continue
-                        extract_dir.mkdir(parents=True, exist_ok=True)
-                        for member in pin_members:
-                            pin_name = Path(member.name).name
-                            dest = extract_dir / pin_name
-                            if not effective_override and self._catalog.by_local_path(UPath(dest)):
-                                skipped += 1
-                                continue
-                            reader = tf.extractfile(member)
-                            if reader is None:
-                                skipped += 1
-                                continue
-                            dest.write_bytes(reader.read())
-                            asset = AssetEntry(
-                                kind=self.detect(member.name),
-                                scope=scope,
-                                local_path=UPath(dest),
-                                timestamp_created=_now(),
-                            )
-                            try:
-                                self._catalog.add(asset)
-                                cataloged += 1
-                            except Exception as exc:
-                                errors.append(f"add failed for {dest}: {exc}")
-            except Exception as exc:
+                        reader = tf.extractfile(member)
+                        if reader is None:
+                            skipped += 1
+                            continue
+                        dest.write_bytes(reader.read())
+                        asset = AssetEntry(
+                            kind=self.detect(member.name),
+                            scope=scope,
+                            local_path=UPath(dest),
+                            timestamp_created=_now(),
+                        )
+                        try:
+                            self._catalog.add(asset)
+                            cataloged += 1
+                        except Exception as exc:  # noqa: BLE001
+                            errors.append(f"add failed for {dest}: {exc}")
+            except Exception as exc:  # noqa: BLE001
                 errors.append(f"failed to open tarball {tb}: {exc}")
 
         return IngestReport(cataloged=cataloged, skipped=skipped, errors=tuple(errors))
@@ -371,20 +371,25 @@ class IngestService:
         errors: list[str] = []
 
         try:
-            with zipfile.ZipFile(zip_path) as zf:
-                members = [m for m in zf.infolist() if not m.is_dir()]
-                tar_members = [m for m in members if m.filename.lower().endswith(".tar.gz")]
-                skipped += len(members) - len(tar_members)
-                for member in tar_members:
-                    dest = tarball_dir / Path(member.filename).name
-                    if not effective_override and dest.exists():
-                        skipped += 1
-                        continue
-                    with zf.open(member) as src:
-                        dest.write_bytes(src.read())
-        except Exception as exc:
+            zf = zipfile.ZipFile(zip_path)
+        except (zipfile.BadZipFile, OSError) as exc:
             errors.append(f"failed to open qc.zip {zip_path}: {exc}")
             return IngestReport(skipped=skipped, errors=tuple(errors))
+
+        with zf:
+            members = [m for m in zf.infolist() if not m.is_dir()]
+            tar_members = [m for m in members if m.filename.lower().endswith(".tar.gz")]
+            skipped += len(members) - len(tar_members)
+            for member in tar_members:
+                dest = tarball_dir / Path(member.filename).name
+                if not effective_override and dest.exists():
+                    skipped += 1
+                    continue
+                try:
+                    with zf.open(member) as src:
+                        dest.write_bytes(src.read())
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"failed to extract {member.filename}: {exc}")
 
         report = self.qcpin_tarballs(tarball_dir=tarball_dir, override=override)
         return IngestReport(skipped=skipped, errors=tuple(errors)) + report
@@ -622,7 +627,7 @@ class IngestService:
 
         return report + self._discover_ctd_from_previous_campaign(scope)
 
-    def _discover_ctd_from_previous_campaign(self, scope: "SFGScope") -> IngestReport:
+    def _discover_ctd_from_previous_campaign(self, scope: SFGScope) -> IngestReport:
         """Search earlier campaigns for the same station for CTD data.
 
         Tries each earlier campaign for the station (most recent year first,
@@ -689,7 +694,7 @@ class IngestService:
                 try:
                     self._catalog.add(asset)
                     cataloged += 1
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     errors.append(f"add failed for {af.url}: {exc}")
 
             if cataloged:
@@ -720,7 +725,7 @@ class IngestService:
         download_report = self.download_remote(kinds=[AssetKind.CTD], override=override)
         return discover_report + download_report
 
-    def _discover_archive(self, scope: "SFGScope", directory_url: str) -> IngestReport:
+    def _discover_archive(self, scope: SFGScope, directory_url: str) -> IngestReport:
         """List *directory_url* and catalog every recognized file.
 
         Parameters
@@ -759,7 +764,7 @@ class IngestService:
             try:
                 self._catalog.add(asset)
                 cataloged += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 errors.append(f"add failed for {af.url}: {exc}")
 
         return IngestReport(cataloged=cataloged, skipped=skipped, errors=tuple(errors))
@@ -791,7 +796,7 @@ class IngestService:
 
     def download_remote(
         self,
-        kinds: "list[AssetKind] | None" = None,
+        kinds: list[AssetKind] | None = None,
         *,
         override: bool | None = None,
         rinex_1hz: bool = False,
@@ -848,8 +853,6 @@ class IngestService:
         errors: list[str] = []
 
         if s3_assets:
-            with threading.Lock():
-                boto3.client("s3")
             report = self._download_s3_files(s3_assets, layout)
             downloaded += report.downloaded
             skipped += report.skipped
@@ -865,9 +868,9 @@ class IngestService:
 
     def _collect_remote_candidates(
         self,
-        scope: "SFGScope",
-        kinds: "list[AssetKind] | None",
-    ) -> "list[AssetEntry]":
+        scope: SFGScope,
+        kinds: list[AssetKind] | None,
+    ) -> list[AssetEntry]:
         if kinds is None:
             return [
                 a
@@ -962,7 +965,8 @@ class IngestService:
             client = boto3.client("s3")
             client.download_file(Bucket=bucket, Key=str(prefix), Filename=str(local_path))
             return local_path
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            ProcessLogger.error(f"S3 download failed for {prefix}: {exc}")
             return None
 
     def _download_http_files(
@@ -1023,7 +1027,8 @@ class IngestService:
             if not local_path.exists():
                 raise FileNotFoundError(f"{local_path} not created after download")
             return local_path
-        except Exception:
+        except (ArchiveError, FileNotFoundError) as exc:
+            ProcessLogger.error(f"HTTP download failed for {remote_url}: {exc}")
             return None
 
 

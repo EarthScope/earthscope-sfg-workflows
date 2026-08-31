@@ -9,14 +9,12 @@ import shutil
 import tempfile
 import threading
 from collections import deque
+from collections.abc import Callable
 from dataclasses import replace
 from functools import partial, wraps
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
-from pride_ppp import PrideProcessor, ProcessingMode, kin_to_kin_position_df, rinex_get_time_range
-from rich.progress import track
 
 # Local Imports
 from earthscope_sfg_tools.novatel_tools.rangea_parser import (
@@ -30,6 +28,9 @@ from earthscope_sfg_tools.tiledb_integration import (
     TDBShotDataArray,
     tdb2rnx,
 )
+from pride_ppp import PrideProcessor, ProcessingMode, kin_to_kin_position_df, rinex_get_time_range
+from rich.progress import track
+
 from earthscope_sfg_workflows.logging import ProcessLogger
 
 from ..data_mgmt.model import (
@@ -132,7 +133,7 @@ def process_single_qcpin(
         rangea_string_queue.extend(rangea_strings)
         processed_asset_queue.append(entry)
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         ProcessLogger.error(f"Error processing {entry.local_path}: {e}")
         return False
 
@@ -786,7 +787,7 @@ class QCPipeline:
                     self.qcKinPositionTDB.write_df(df)
                     processed_count += 1
                     self.catalog.update(replace(entry, is_processed=True))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 ProcessLogger.error(f"Error processing {entry.local_path}: {e}")
 
         ProcessLogger.info(
@@ -845,7 +846,7 @@ class QCPipeline:
             merge_signature, dates = get_merge_signature_shotdata(
                 self.qcShotDataPreTDB, self.qcKinPositionTDB
             )
-        except Exception as e:
+        except ValueError as e:
             ProcessLogger.error(e)
             return
 

@@ -6,6 +6,6 @@ from .workspace import Workspace
 
 __all__ = [
     "StationSession",
-    "Workspace",
     "WorkflowHandler",
+    "Workspace",
 ]

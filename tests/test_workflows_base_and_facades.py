@@ -16,23 +16,21 @@ import pytest
 from earthscope_sfg_workflows.data_mgmt import (
     AssetEntry,
     AssetKind,
-    SFGScope,
     DirectoryTree,
     LayoutInspector,
+    SFGScope,
+)
+from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
+    FakeArchive,
+    InMemoryAssetStore,
 )
 from earthscope_sfg_workflows.data_mgmt.archives.earthscope_archive import (
     ARCHIVE_PREFIX,
     canonical_campaign_urls,
     list_campaign_archive_urls,
 )
-from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
-    FakeArchive,
-    InMemoryAssetStore,
-)
 from earthscope_sfg_workflows.workflows.session import StationSession as Workspace
-
 from tests.utils import make_session, make_workspace
-
 
 # ---------------------------------------------------------------------------
 # Workspace — scope semantics
@@ -199,12 +197,12 @@ class TestAssetQueryFacade:
 
     def test_update_returns_new_frozen_entry(self):
         ws = self._seed()
-        kw = dict(
-            kind=AssetKind.NOVATEL,
-            network=ws.scope.network,
-            station=ws.scope.station,
-            campaign=ws.scope.campaign,
-        )
+        kw = {
+            "kind": AssetKind.NOVATEL,
+            "network": ws.scope.network,
+            "station": ws.scope.station,
+            "campaign": ws.scope.campaign,
+        }
         entry = ws.catalog.assets_for(**kw)[0]
         assert entry.is_processed is False
 
@@ -342,7 +340,9 @@ class TestLayoutInspector:
 # Workspace class
 # ---------------------------------------------------------------------------
 
-from earthscope_sfg_workflows.workflows.workspace import Workspace as RealWorkspace  # noqa: E402,F401
+from earthscope_sfg_workflows.workflows.workspace import (
+    Workspace as RealWorkspace,  # noqa: F401
+)
 
 
 class TestRealWorkspace:

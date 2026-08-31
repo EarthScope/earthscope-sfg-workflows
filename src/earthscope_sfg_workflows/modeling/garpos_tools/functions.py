@@ -14,9 +14,9 @@ from scipy.stats import hmean as harmonic_mean
 sns.set_theme()
 
 
-from earthscope_sfg_workflows.logging import GarposLogger as logger  # noqa: E402
+from earthscope_sfg_workflows.logging import GarposLogger as logger
 
-from .schemas import (  # noqa: E402
+from .schemas import (
     GarposInput,
     GarposObservationOutput,
     GPPositionENU,
@@ -156,16 +156,7 @@ class CoordTransformer:
         """
 
         dX, dY, dZ = X - self.X0, Y - self.Y0, Z - self.Z0
-        e, n, u = xyz2enu(
-            **{
-                "x": dX,
-                "y": dY,
-                "z": dZ,
-                "lat0": self.lat0,
-                "lon0": self.lon0,
-                "hgt0": self.hgt0,
-            }
-        )
+        e, n, u = xyz2enu(x=dX, y=dY, z=dZ, lat0=self.lat0, lon0=self.lon0, hgt0=self.hgt0)
 
         return e, n, u
 
@@ -192,16 +183,7 @@ class CoordTransformer:
 
         X, Y, Z = pm.geodetic2ecef(lat, lon, hgt)
         dX, dY, dZ = X - self.X0, Y - self.Y0, Z - self.Z0
-        e, n, u = xyz2enu(
-            **{
-                "x": dX,
-                "y": dY,
-                "z": dZ,
-                "lat0": self.lat0,
-                "lon0": self.lon0,
-                "hgt0": self.hgt0,
-            }
-        )
+        e, n, u = xyz2enu(x=dX, y=dY, z=dZ, lat0=self.lat0, lon0=self.lon0, hgt0=self.hgt0)
 
         return e, n, u
 
@@ -228,16 +210,7 @@ class CoordTransformer:
 
         X, Y, Z = pm.geodetic2ecef(lat, lon, hgt)
         dX, dY, dZ = X - self.X0, Y - self.Y0, Z - self.Z0
-        e, n, u = xyz2enu(
-            **{
-                "x": dX,
-                "y": dY,
-                "z": dZ,
-                "lat0": self.lat0,
-                "lon0": self.lon0,
-                "hgt0": self.hgt0,
-            }
-        )
+        e, n, u = xyz2enu(x=dX, y=dY, z=dZ, lat0=self.lat0, lon0=self.lon0, hgt0=self.hgt0)
 
         return e, n, u
 
@@ -262,16 +235,7 @@ class CoordTransformer:
             Tuple containing arrays of East, North, and Up coordinates in meters.
         """
         dX, dY, dZ = X - self.X0, Y - self.Y0, Z - self.Z0
-        e, n, u = xyz2enu(
-            **{
-                "x": dX,
-                "y": dY,
-                "z": dZ,
-                "lat0": self.lat0,
-                "lon0": self.lon0,
-                "hgt0": self.hgt0,
-            }
-        )
+        e, n, u = xyz2enu(x=dX, y=dY, z=dZ, lat0=self.lat0, lon0=self.lon0, hgt0=self.hgt0)
 
         return e, n, u
 
@@ -560,7 +524,7 @@ def plot_enu_llh_side_by_side(garpos_input: GarposInput):
     """
 
     # Create a figure with two subplots
-    fig, axs = plt.subplots(1, 2, figsize=(20, 10))
+    _fig, axs = plt.subplots(1, 2, figsize=(20, 10))
 
     # Plot ENU plot on the first subplot
     ax_enu = axs[0]

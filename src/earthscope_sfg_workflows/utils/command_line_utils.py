@@ -182,6 +182,7 @@ def run_binary(
         cmd,
         cwd=cwd,
         capture_output=capture,
+        check=False,
     )
     if capture:
         parse_cli_logs(result, log)

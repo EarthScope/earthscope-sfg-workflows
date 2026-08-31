@@ -13,8 +13,9 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
+from earthscope_sfg_tools.datamodels.metadata import Site
 from pride_ppp.specifications.cli import PrideCLIConfig
 from upath import UPath
 
@@ -23,9 +24,8 @@ from earthscope_sfg_workflows.logging import ProcessLogger as logger
 from earthscope_sfg_workflows.logging import change_all_logger_dirs
 
 from ..data_mgmt.model import DEFAULT_PREPROCESS_KINDS
-from earthscope_sfg_tools.datamodels.metadata import Site
-from ..modeling.garpos_tools.schemas import InversionParams
 from ..modeling.garpos_tools.garpos_handler import GarposHandler
+from ..modeling.garpos_tools.schemas import InversionParams
 from ..pipelines.config import (
     DFOP00Config,
     NovatelConfig,
@@ -536,7 +536,7 @@ class WorkflowHandler:
             "refine_shotdata",
         ] = "all",
         primary_config: _QCConfig = None,
-        secondary_config: _QCConfig = None,  # noqa: ARG002 — reserved for future use
+        secondary_config: _QCConfig = None,
     ) -> None:
         """Run a named QC pipeline job for the active session.
 
@@ -558,7 +558,7 @@ class WorkflowHandler:
         assert job in QC_JOBS, f"Job must be one of {list(QC_JOBS)}"
         self._session.pipeline.run_qc(job=job, config=primary_config)
 
-    def qc_get_pipeline(self, config: Optional[QCPipelineConfig] = None) -> QCPipeline:
+    def qc_get_pipeline(self, config: QCPipelineConfig | None = None) -> QCPipeline:
         """Return a configured ``QCPipeline`` (alias for :meth:`preprocess_get_pipeline_qc`).
 
         Parameters
@@ -580,7 +580,7 @@ class WorkflowHandler:
 
     def midprocess_parse_surveys(
         self,
-        site_metadata: "Site | str | None" = None,  # noqa: ARG002 — session owns metadata
+        site_metadata: "Site | str | None" = None,
         override: bool = False,
         write_intermediate: bool = False,
         survey_id: str | None = None,
@@ -960,7 +960,7 @@ class WorkflowHandler:
         iterations: int = 1,
         garpos_settings: "dict | InversionParams | None" = None,
         garpos_override: bool = False,
-        pre_process_config: Optional[QCPipelineConfig] = None,
+        pre_process_config: QCPipelineConfig | None = None,
         survey_start: "datetime | None" = None,
         survey_end: "datetime | None" = None,
         survey_id: str | None = None,

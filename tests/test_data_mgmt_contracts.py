@@ -7,6 +7,7 @@ adapters (SQLite, Postgres, S3, EarthScope) reuse the same suite.
 
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
 
 import pytest
@@ -14,17 +15,16 @@ import pytest
 from earthscope_sfg_workflows.data_mgmt import (
     AssetEntry,
     AssetKind,
-    SFGScope,
     DirectoryTree,
     FileManager,
     FileTypeDetector,
+    SFGScope,
 )
 from earthscope_sfg_workflows.data_mgmt.adapters.memory import (
     FakeArchive,
     InMemoryAssetStore,
     InMemoryFileStore,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -388,7 +388,7 @@ class TestIngestService:
         assert kinds == {AssetKind.CTD}
 
     def test_discover_ctd_falls_back_to_previous_campaign(self, scope: SFGScope) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
         from types import SimpleNamespace
 
         from earthscope_sfg_tools.datamodels.metadata import Campaign
@@ -414,15 +414,15 @@ class TestIngestService:
                     name=older_campaign_name,
                     type="A",
                     vesselCode="V1",
-                    start=datetime(2020, 1, 1, tzinfo=timezone.utc),
-                    end=datetime(2020, 1, 2, tzinfo=timezone.utc),
+                    start=datetime(2020, 1, 1, tzinfo=UTC),
+                    end=datetime(2020, 1, 2, tzinfo=UTC),
                 ),
                 Campaign(
                     name=scope.campaign,
                     type="A",
                     vesselCode="V1",
-                    start=datetime(2024, 1, 1, tzinfo=timezone.utc),
-                    end=datetime(2024, 1, 2, tzinfo=timezone.utc),
+                    start=datetime(2024, 1, 1, tzinfo=UTC),
+                    end=datetime(2024, 1, 2, tzinfo=UTC),
                 ),
             ]
         )
@@ -523,8 +523,8 @@ class TestIngestService:
     @pytest.mark.skip(reason="_collect_remote_candidates passes scope as kind to assets_for")
     def test_download_marks_local_path(self, scope: SFGScope, tmp_path: Path) -> None:
         # Need a real local fs for download because FakeArchive writes to disk.
-        from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
         from earthscope_sfg_workflows.data_mgmt.core import FileManager
+        from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
         from tests.utils import make_session
 
         catalog = InMemoryAssetStore()
@@ -634,7 +634,7 @@ class TestIngestService:
             tf.addfile(info, io.BytesIO(pin_data))
         return buf.getvalue()
 
-    def _qc_session(self, scope: SFGScope, tmp_path: Path, archive: "FakeArchive"):
+    def _qc_session(self, scope: SFGScope, tmp_path: Path, archive: FakeArchive):
         from earthscope_sfg_workflows.data_mgmt.core import FileManager
         from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
         from tests.utils import make_session

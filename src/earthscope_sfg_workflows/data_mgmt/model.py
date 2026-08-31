@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
+
 from upath import UPath
 
 # ---------------------------------------------------------------------------
@@ -110,7 +111,7 @@ class AssetKind(str, Enum):
     QCSTA = "qcsta"
 
 
-_RINEX_KIND_BY_MAJOR_VERSION: dict[str, "AssetKind"] = {
+_RINEX_KIND_BY_MAJOR_VERSION: dict[str, AssetKind] = {
     "2": AssetKind.RINEX2,
     "3": AssetKind.RINEX3,
     "4": AssetKind.RINEX4,
@@ -120,10 +121,10 @@ _RINEX_KIND_BY_MAJOR_VERSION: dict[str, "AssetKind"] = {
 # of which version is currently configured. Used by callers that need to find
 # already-cataloged RINEX assets without knowing (or caring) which version
 # produced them.
-RINEX_KINDS: frozenset["AssetKind"] = frozenset(_RINEX_KIND_BY_MAJOR_VERSION.values())
+RINEX_KINDS: frozenset[AssetKind] = frozenset(_RINEX_KIND_BY_MAJOR_VERSION.values())
 
 
-def rinex_kind_for_version(rinex_version: str) -> "AssetKind":
+def rinex_kind_for_version(rinex_version: str) -> AssetKind:
     """Map a RINEX metadata version string (e.g. ``"4.02"``) to its :class:`AssetKind`.
 
     Raises
@@ -139,7 +140,7 @@ def rinex_kind_for_version(rinex_version: str) -> "AssetKind":
 
 
 # Default download sets used by WorkflowHandler.download_data().
-DEFAULT_PREPROCESS_KINDS: frozenset["AssetKind"] = frozenset(
+DEFAULT_PREPROCESS_KINDS: frozenset[AssetKind] = frozenset(
     {
         AssetKind.SONARDYNE,
         AssetKind.NOVATEL,
@@ -151,7 +152,7 @@ DEFAULT_PREPROCESS_KINDS: frozenset["AssetKind"] = frozenset(
     }
 )
 
-DEFAULT_INTERMEDIATE_KINDS: frozenset["AssetKind"] = frozenset(
+DEFAULT_INTERMEDIATE_KINDS: frozenset[AssetKind] = frozenset(
     {
         AssetKind.RINEX4,
         AssetKind.CTD,
@@ -207,7 +208,7 @@ class SFGScope:
         """
         return (self.network, self.station, self.campaign, self.survey)
 
-    def with_survey(self, survey: str) -> "SFGScope":
+    def with_survey(self, survey: str) -> SFGScope:
         """Return a new scope with ``survey`` set.
 
         Parameters
@@ -229,7 +230,7 @@ class SFGScope:
         station_name: str,
         campaign_name: str | None = None,
         survey_name: str | None = None,
-    ) -> "SFGScope":
+    ) -> SFGScope:
         """Constructor alias kept for backward compatibility.
 
         Parameters
@@ -322,7 +323,7 @@ class AssetEntry:
         """
         return self.local_path is not None or self.remote_path is not None
 
-    def with_id(self, asset_id: int) -> "AssetEntry":
+    def with_id(self, asset_id: int) -> AssetEntry:
         """Return a copy of this entry with *asset_id* set.
 
         Parameters
@@ -337,7 +338,7 @@ class AssetEntry:
         """
         return replace(self, id=asset_id)
 
-    def with_local_path(self, path: UPath) -> "AssetEntry":
+    def with_local_path(self, path: UPath) -> AssetEntry:
         """Return a copy of this entry with *local_path* set.
 
         Parameters
@@ -446,7 +447,7 @@ class TileDBLayout:
     qc_gnss_obs: UPath
 
     @staticmethod
-    def for_station(station_dir: UPath) -> "TileDBLayout":
+    def for_station(station_dir: UPath) -> TileDBLayout:
         """Build a TileDBLayout rooted under *station_dir*/TileDB.
 
         Parameters
@@ -547,7 +548,7 @@ class CampaignLayout:
     rinex: UPath | None = None
 
     @staticmethod
-    def for_campaign(campaign_dir: UPath) -> "CampaignLayout":
+    def for_campaign(campaign_dir: UPath) -> CampaignLayout:
         """Build a CampaignLayout rooted at *campaign_dir*.
 
         Parameters
@@ -693,17 +694,17 @@ class SurveyLayout:
 
     root: UPath
     metadata_file: UPath
-    garpos: "GARPOSLayout"
+    garpos: GARPOSLayout
     shotdata: UPath | None = None
     kinpositiondata: UPath | None = None
     imupositiondata: UPath | None = None
 
     @staticmethod
-    def for_survey(  # noqa: D102
+    def for_survey(
         survey_dir: UPath,
         survey_id: str | None = None,
         survey_type: str | None = None,
-    ) -> "SurveyLayout":
+    ) -> SurveyLayout:
         """Build a SurveyLayout rooted at *survey_dir*.
 
         Parameters
@@ -783,7 +784,7 @@ class GARPOSLayout:
     results: UPath
 
     @staticmethod
-    def for_survey(survey_dir: UPath) -> "GARPOSLayout":
+    def for_survey(survey_dir: UPath) -> GARPOSLayout:
         """Build a GARPOSLayout rooted at *survey_dir*/GARPOS.
 
         Parameters
@@ -882,7 +883,7 @@ class DirectoryTree:
 
     def station_dir(
         self,
-        scope: "SFGScope | None" = None,
+        scope: SFGScope | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -917,7 +918,7 @@ class DirectoryTree:
 
     def campaign_dir(
         self,
-        scope: "SFGScope | None" = None,
+        scope: SFGScope | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -956,7 +957,7 @@ class DirectoryTree:
 
     def survey_dir(
         self,
-        scope: "SFGScope | None" = None,
+        scope: SFGScope | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -1013,7 +1014,7 @@ class DirectoryTree:
 
     def station(
         self,
-        scope: "SFGScope | None" = None,
+        scope: SFGScope | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -1051,7 +1052,7 @@ class DirectoryTree:
 
     def tiledb(
         self,
-        scope: "SFGScope | None" = None,
+        scope: SFGScope | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -1085,7 +1086,7 @@ class DirectoryTree:
 
     def campaign(
         self,
-        scope: "SFGScope | None" = None,
+        scope: SFGScope | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -1126,7 +1127,7 @@ class DirectoryTree:
 
     def survey(
         self,
-        scope: "SFGScope | None" = None,
+        scope: SFGScope | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -1163,7 +1164,7 @@ class DirectoryTree:
 
     def garpos(
         self,
-        scope: "SFGScope | None" = None,
+        scope: SFGScope | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
@@ -1243,7 +1244,7 @@ class IngestReport:
         """
         return not self.errors
 
-    def __add__(self, other: "IngestReport") -> "IngestReport":
+    def __add__(self, other: IngestReport) -> IngestReport:
         """Combine two reports by summing counts and concatenating errors.
 
         Parameters
@@ -1317,15 +1318,15 @@ class ArchiveFile:
 
 
 __all__ = [
-    "AssetKind",
-    "SFGScope",
-    "AssetEntry",
-    "TileDBLayout",
-    "CampaignLayout",
-    "SurveyLayout",
-    "GARPOSLayout",
-    "DirectoryTree",
-    "IngestReport",
-    "FileInfo",
     "ArchiveFile",
+    "AssetEntry",
+    "AssetKind",
+    "CampaignLayout",
+    "DirectoryTree",
+    "FileInfo",
+    "GARPOSLayout",
+    "IngestReport",
+    "SFGScope",
+    "SurveyLayout",
+    "TileDBLayout",
 ]

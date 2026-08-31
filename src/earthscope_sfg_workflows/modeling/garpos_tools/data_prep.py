@@ -6,16 +6,17 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+from earthscope_sfg_tools.datamodels.metadata import (
+    Benchmark,
+    Campaign,
+    Site,
+    Survey,
+    Transponder,
+)
 
 from earthscope_sfg_workflows.logging import GarposLogger as logger
 
 from ...config.garpos_config import GarposSiteConfig
-from earthscope_sfg_tools.datamodels.metadata import Benchmark, Transponder
-from earthscope_sfg_tools.datamodels.metadata import (
-    Campaign,
-    Survey,
-)
-from earthscope_sfg_tools.datamodels.metadata import Site
 from .functions import (
     CoordTransformer,
     rectify_shotdata,
@@ -88,10 +89,11 @@ def GP_Transponders_from_benchmarks(
             current_transponder = benchmark.transponders[0]
         else:
             for transponder in benchmark.transponders:
-                if transponder.start <= survey.start:
-                    if transponder.end is None or transponder.end >= survey.end:
-                        current_transponder = transponder
-                        break
+                if transponder.start <= survey.start and (
+                    transponder.end is None or transponder.end >= survey.end
+                ):
+                    current_transponder = transponder
+                    break
 
         gp_transponder = create_GPTransponder(
             coord_transformer=coord_transformer,
@@ -268,7 +270,7 @@ def prepare_shotdata_for_garpos(
     )
     shot_data_rectified = shot_data_rectified.sort_values(by=["ST", "MT"]).reset_index(drop=True)
     shot_data_rectified.to_csv(str(shodata_out_path))
-    logger.info(f"Shot data prepared and saved to {str(shodata_out_path)}")
+    logger.info(f"Shot data prepared and saved to {shodata_out_path!s}")
 
     return shot_data_rectified
 

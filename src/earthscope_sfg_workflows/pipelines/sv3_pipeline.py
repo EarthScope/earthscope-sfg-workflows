@@ -6,11 +6,10 @@ import datetime
 import json
 import multiprocessing
 import os
-import sys
 import threading
+from collections.abc import Callable
 from functools import partial, wraps
 from pathlib import Path
-from typing import Callable
 
 # third-party
 from earthscope_sfg_tools import tiledb_integration as novb_ops
@@ -23,15 +22,16 @@ from earthscope_sfg_tools.tiledb_integration import (
     rinex_qc,
     tdb2rnx,
 )
-from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
-from earthscope_sfg_workflows.logging import ProcessLogger
 from pride_ppp import (
-    ProcessingMode,
     PrideProcessor,
+    ProcessingMode,
     kin_to_kin_position_df,
     rinex_get_time_range,
 )
 from rich.progress import track
+
+from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
+from earthscope_sfg_workflows.logging import ProcessLogger
 
 # local
 from ..data_mgmt.model import (
@@ -63,14 +63,14 @@ def _pipeline_method(fn):
     @wraps(fn)
     def wrapper(self, *args, **kwargs):
         if not self._lock.acquire(blocking=False):
-            raise Exception(
+            raise RuntimeError(
                 f"Pipeline is busy: cannot call '{fn.__name__}' while another method is running."
             )
-        _t0 = datetime.datetime.now()
+        _t0 = datetime.datetime.now(tz=datetime.UTC)
         try:
             return fn(self, *args, **kwargs)
         finally:
-            elapsed = (datetime.datetime.now() - _t0).total_seconds()
+            elapsed = (datetime.datetime.now(tz=datetime.UTC) - _t0).total_seconds()
             ProcessLogger.debug(f"{fn.__name__} completed in {elapsed:.1f}s")
             self._lock.release()
 
@@ -281,7 +281,7 @@ class SV3Pipeline:
                     self.catalog.add_merge_job(**merge_signature)
                     response = f"Added merge job for {len(novatel_770_entries)} Novatel 770 Entries to the catalog"
                     ProcessLogger.info(response)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     ProcessLogger.error(f"Error processing Novatel 770 files: {e}")
 
             else:
@@ -329,9 +329,8 @@ class SV3Pipeline:
                     ProcessLogger.info(
                         f"Added merge job for {len(novatel_000_entries)} Novatel 000 Entries to the catalog"
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     ProcessLogger.error(f"Error processing Novatel 000 files: {e}")
-                    sys.exit(1)
 
         else:
             ProcessLogger.info(
@@ -444,7 +443,7 @@ class SV3Pipeline:
             merge_signature, dates = get_merge_signature_shotdata(
                 self.shotDataPreTDB, self.kinPositionTDB
             )
-        except Exception as e:
+        except ValueError as e:
             ProcessLogger.error(e)
             return
         merge_job = {
@@ -834,7 +833,7 @@ class SV3Pipeline:
                     self.kinPositionTDB.write_df(df)
                     processed_count += 1
                     self.catalog.update(dataclasses.replace(entry, is_processed=True))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 ProcessLogger.error(f"Error processing {entry.local_path}: {e}")
 
         ProcessLogger.info(

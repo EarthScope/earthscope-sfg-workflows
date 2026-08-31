@@ -10,6 +10,7 @@ The notebook logger is used for the notebook module and prints to the console wi
 
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -94,8 +95,10 @@ class _BaseLogger:
             self.file_handler.setFormatter(self.format)
             self.file_handler.setLevel(logging.DEBUG)
             self.logger.addHandler(self.file_handler)
-        except Exception as e:
-            self.logger.error(f"Failed to set file handler: {e}")
+        except OSError as e:
+            # No file handler is attached at this point (removed above), so
+            # this failure could otherwise go unreported; print directly.
+            print(f"Failed to set file handler for {self.path}: {e}", file=sys.stderr)
 
     def set_dir(self, dir: Path) -> None:
         """Set the directory for the logger and update the file path.

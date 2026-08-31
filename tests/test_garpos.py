@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(
 
 # Imports below trigger filesystem lookups against ``GARPOS_PATH`` at import
 # time, so they must come after the skip marker is registered.
-from earthscope_sfg_workflows.modeling.garpos_tools.load_utils import (  # noqa: E402
+from earthscope_sfg_workflows.modeling.garpos_tools.load_utils import (
     get_drive_garpos,
     get_lib_paths,
 )

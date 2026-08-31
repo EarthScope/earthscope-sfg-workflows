@@ -15,9 +15,8 @@ from pathlib import Path
 
 from upath import UPath
 
-from ..model import ArchiveFile, AssetEntry, AssetKind, SFGScope, FileInfo
+from ..model import ArchiveFile, AssetEntry, AssetKind, FileInfo, SFGScope
 from ..ports import ArchiveNotFoundError
-
 
 # ---------------------------------------------------------------------------
 # InMemoryAssetStore
@@ -140,12 +139,12 @@ class InMemoryAssetStore:
 
     def assets_for(
         self,
-        kind: "AssetKind | None" = None,
+        kind: AssetKind | None = None,
         *,
         network: str | None = None,
         station: str | None = None,
         campaign: str | None = None,
-    ) -> list["AssetEntry"]:
+    ) -> list[AssetEntry]:
         """Return assets matching the given scope fields, optionally filtered by ``kind``.
 
         ``None`` scope fields are treated as wildcards (match any value).
@@ -295,13 +294,13 @@ class InMemoryAssetStore:
 
     def assets_to_process(
         self,
-        kind: "AssetKind | None" = None,
+        kind: AssetKind | None = None,
         override: bool = False,
         *,
         network: str | None = None,
         station: str | None = None,
         campaign: str | None = None,
-    ) -> list["AssetEntry"]:
+    ) -> list[AssetEntry]:
         """Return unprocessed assets, or all assets when *override* is ``True``.
 
         Parameters
@@ -417,7 +416,7 @@ class InMemoryAssetStore:
 
     def close(self) -> None:  # no-op
         """No-op for the in-memory store; present for port parity."""
-        return None
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -684,7 +683,7 @@ class InMemoryFileStore:
 
     def close(self) -> None:
         """No-op for the in-memory store; present for port parity."""
-        return None
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -799,11 +798,11 @@ class FakeArchive:
 
     def close(self) -> None:
         """No-op for the fake archive; present for port parity."""
-        return None
+        return
 
 
 __all__ = [
+    "FakeArchive",
     "InMemoryAssetStore",
     "InMemoryFileStore",
-    "FakeArchive",
 ]

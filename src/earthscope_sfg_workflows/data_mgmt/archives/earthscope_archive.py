@@ -13,8 +13,10 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from earthscope_sfg_tools.datamodels import Site, Vessel
 import requests
+from earthscope_sfg_tools.datamodels import Site, Vessel
+
+from earthscope_sfg_workflows.logging import ProcessLogger as logger
 
 from ..model import ArchiveFile, SFGScope
 from ..ports import ArchiveAuthError, ArchiveError, ArchiveNotFoundError
@@ -86,7 +88,7 @@ def list_campaign_archive_urls(archive: object, scope: SFGScope) -> list[str]:
     ):
         try:
             urls.extend(af.url for af in archive.list_files(dir_url))
-        except Exception:
+        except ArchiveNotFoundError:
             continue
     return urls
 
@@ -178,6 +180,7 @@ class EarthScopeArchive:
         # environments that don't have earthscope-sdk installed.
         from earthscope_cli.login import login as es_login
         from earthscope_sdk import EarthScopeClient
+        from earthscope_sdk.auth.error import AuthFlowError
         from earthscope_sdk.config.settings import SdkSettings
 
         prof = profile if profile is not None else self._profile
@@ -186,7 +189,8 @@ class EarthScopeArchive:
 
         try:
             client.ctx.auth_flow.refresh_if_necessary()
-        except Exception:
+        except AuthFlowError as exc:
+            logger.debug(f"Token refresh failed, falling back to login: {exc}")
             try:
                 es_login(sdk=client)
             except Exception as exc:
@@ -565,12 +569,12 @@ class EarthScopeArchive:
         finally:
             try:
                 local.unlink()
-            except Exception:
-                pass
+            except OSError as exc:
+                logger.debug(f"Failed to remove temporary file {local}: {exc}")
         return vessel
 
     def load_site_metadata(
-        self, scope: SFGScope = None, *, network: str = None, station: str = None
+        self, scope: SFGScope = None, *, network: str | None = None, station: str | None = None
     ) -> Site:
         """Load a :class:`Site` from the archive, populating per-campaign vessels.
 
@@ -611,8 +615,8 @@ class EarthScopeArchive:
         finally:
             try:
                 local.unlink()
-            except Exception:
-                pass
+            except OSError as exc:
+                logger.debug(f"Failed to remove temporary file {local}: {exc}")
 
         for campaign in site.campaigns:
             try:
@@ -628,9 +632,9 @@ class EarthScopeArchive:
 
 __all__ = [
     "ARCHIVE_PREFIX",
-    "canonical_campaign_urls",
-    "campaign_qc_zip_url",
-    "campaign_qc_dir_url",
-    "list_campaign_archive_urls",
     "EarthScopeArchive",
+    "campaign_qc_dir_url",
+    "campaign_qc_zip_url",
+    "canonical_campaign_urls",
+    "list_campaign_archive_urls",
 ]
