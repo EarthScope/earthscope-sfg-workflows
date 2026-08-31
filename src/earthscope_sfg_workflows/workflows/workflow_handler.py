@@ -990,9 +990,10 @@ class WorkflowHandler:
             ad hoc time window instead of the campaign's defined surveys (or
             the full-campaign fallback). All three must be given together.
         """
-        if any(v is not None for v in (survey_start, survey_end, survey_id)):
-            if survey_start is None or survey_end is None or survey_id is None:
-                raise ValueError("survey_start, survey_end, and survey_id must be provided together.")
+        if any(v is not None for v in (survey_start, survey_end, survey_id)) and any(
+            v is None for v in (survey_start, survey_end, survey_id)
+        ):
+            raise ValueError("survey_start, survey_end, and survey_id must be provided together.")
 
         self._session.pipeline.run_qc(config=pre_process_config)
 
