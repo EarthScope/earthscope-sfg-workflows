@@ -31,16 +31,17 @@ See `plans/rfc-a-data-mgmt-ports-and-adapters.md` for the full RFC.
 
 ```python
 from earthscope_sfg_workflows.data_mgmt import (
-    CampaignScope, TreeBuilder, Ingestor,
+    CampaignScope,
+    TreeBuilder,
+    Ingestor,
 )
 from earthscope_sfg_workflows.data_mgmt.adapters.local_fs import LocalFileStore
 from earthscope_sfg_workflows.data_mgmt.adapters.sql import SqlAssetStore
 
-scope = CampaignScope(network="cascadia-gorda", station="NCC1",
-                      campaign="2024_A_1126", survey=None)
-files  = LocalFileStore(root="/path/to/SFGMain")
+scope = CampaignScope(network="cascadia-gorda", station="NCC1", campaign="2024_A_1126", survey=None)
+files = LocalFileStore(root="/path/to/SFGMain")
 assets = SqlAssetStore(url="sqlite:///./SFGMain/catalog.sqlite")
-tree   = TreeBuilder(files=files, root=files.root)
+tree = TreeBuilder(files=files, root=files.root)
 tree.ensure_campaign(scope)
 ```
 

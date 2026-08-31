@@ -1,8 +1,10 @@
 root_dir = "/Volumes/DunbarSSD/Project/SeafloorGeodesy/SFGMain3"
-network = 'cascadia-gorda'
-station = 'NCC1'
-campaign = '2025_A_1126'
-raw_source = "/Volumes/DunbarSSD/Project/SeafloorGeodesy/SFGMain/cascadia-gorda/NCC1/2025_A_1126/raw"
+network = "cascadia-gorda"
+station = "NCC1"
+campaign = "2025_A_1126"
+raw_source = (
+    "/Volumes/DunbarSSD/Project/SeafloorGeodesy/SFGMain/cascadia-gorda/NCC1/2025_A_1126/raw"
+)
 qc_source = "/Volumes/DunbarSSD/Project/SeafloorGeodesy/SFGMain/cascadia-gorda/NCC1/2025_A_1126/qc"
 
 

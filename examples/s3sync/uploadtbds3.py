@@ -36,9 +36,8 @@ if __name__ == "__main__":
 
     for station in STATIONS:
         workflow.set_network_station_campaign(
-            network_id=NETWORK,
-            station_id=station,
-            campaign_id=None)
+            network_id=NETWORK, station_id=station, campaign_id=None
+        )
         print(f"Syncing station {station} data to S3")
         workflow.midprocess_sync_station_data_s3(overwrite=False)
 
@@ -46,8 +45,7 @@ if __name__ == "__main__":
         for campaign in campaigns:
             print(f"Syncing campaign {campaign.name} data to S3...")
             workflow.set_network_station_campaign(
-                network_id=NETWORK,
-                station_id=station,
-                campaign_id=campaign.name)
+                network_id=NETWORK, station_id=station, campaign_id=campaign.name
+            )
             workflow.midprocess_sync_campaign_data_s3(overwrite=False)
         print(f"Finished syncing station {station} data to S3\n")

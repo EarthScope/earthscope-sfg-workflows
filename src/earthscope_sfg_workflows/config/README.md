@@ -17,12 +17,15 @@ workflows. No I/O state — pure data and loader functions.
 
 ```python
 from earthscope_sfg_workflows.config import (
-    AssetType, FILE_TYPE,
+    AssetType,
+    FILE_TYPE,
     DEFAULT_FILE_TYPES_TO_DOWNLOAD,
     DEFAULT_INTERMEDIATE_FILE_TYPES_TO_DOWNLOAD,
     INTERMEDIATE_DOWNLOAD_TYPES,
     PREPROCESS_DOWNLOAD_TYPES,
-    DEFAULT_SITE_CONFIG, GarposSiteConfig,
-    get_garpos_site_config, get_survey_filter_config,
+    DEFAULT_SITE_CONFIG,
+    GarposSiteConfig,
+    get_garpos_site_config,
+    get_survey_filter_config,
 )
 ```

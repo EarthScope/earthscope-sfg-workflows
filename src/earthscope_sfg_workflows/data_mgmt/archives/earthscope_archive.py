@@ -251,9 +251,7 @@ class EarthScopeArchive:
         # the public host we listed from so the returned URIs are actually
         # downloadable.
         public = urlsplit(directory_url)
-        rewritten = [
-            urlunsplit((public.scheme, public.netloc) + urlsplit(u)[2:]) for u in urls
-        ]
+        rewritten = [urlunsplit((public.scheme, public.netloc) + urlsplit(u)[2:]) for u in urls]
         return [ArchiveFile(url=u) for u in rewritten]
 
     # -- download ----------------------------------------------------------

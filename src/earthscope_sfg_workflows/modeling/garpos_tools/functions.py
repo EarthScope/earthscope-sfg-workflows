@@ -429,7 +429,9 @@ def garpos_results_to_gnatss_format(
         coord_transformer, array_enu.east, array_enu.north, array_enu.up
     )
     sigma_e, sigma_n, sigma_u = array_dpos.get_std_dev()
-    sigma_x, sigma_y, sigma_z = enu_sigma_to_ecef_sigma(coord_transformer, sigma_e, sigma_n, sigma_u)
+    sigma_x, sigma_y, sigma_z = enu_sigma_to_ecef_sigma(
+        coord_transformer, sigma_e, sigma_n, sigma_u
+    )
     rows.append(
         {
             "id": "ARRAY",

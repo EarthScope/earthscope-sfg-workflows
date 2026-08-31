@@ -24,7 +24,7 @@ PACKAGE = "earthscope_sfg_workflows"
 API_DIR = ROOT / "docs" / "api"
 API_INDEX = API_DIR / "index.md"
 
-# If a module name matches a key in this dict, the value will be used as the section 
+# If a module name matches a key in this dict, the value will be used as the section
 # title instead of a humanized version of the module name.
 custom_titles = {
     "data_mgmt": "Data Management",
@@ -57,11 +57,7 @@ def fmt_annotation(value: Any) -> str:
     if re.fullmatch(r"<.+ object at 0x[0-9a-fA-F]+>", text):
         return type(value).__name__
 
-    return (
-        text.replace("typing.", "")
-        .replace("<class '", "")
-        .replace("'>", "")
-    )
+    return text.replace("typing.", "").replace("<class '", "").replace("'>", "")
 
 
 def safe_signature(obj: Any) -> str:
@@ -126,8 +122,7 @@ def write_fields(lines: list[str], cls: type) -> None:
                 description = ""
             else:
                 annotation = fmt_annotation(
-                    getattr(field, "outer_type_", None)
-                    or getattr(field, "annotation", "")
+                    getattr(field, "outer_type_", None) or getattr(field, "annotation", "")
                 )
                 field_info = getattr(field, "field_info", None)
                 description = getattr(field_info, "description", None) or ""
@@ -284,6 +279,7 @@ def render_module_page(module) -> list[str]:
 
     return lines
 
+
 def humanize_title(value: str) -> str:
     """Convert snake_case or module names into readable titles."""
 
@@ -304,9 +300,7 @@ def write_myst_yml(api_toc_lines: list[str]) -> None:
     placeholder = "{{ API_TOC }}"
 
     if placeholder not in template:
-        raise RuntimeError(
-            f"{template_path} is missing the {placeholder} placeholder."
-        )
+        raise RuntimeError(f"{template_path} is missing the {placeholder} placeholder.")
 
     api_toc = "\n".join(api_toc_lines)
 
@@ -454,9 +448,9 @@ def main() -> None:
     #   MyST warnings recommend including .md extensions explicitly.
     # -------------------------------------------------------------------------
     toc_lines = [
-    "    - title: API Reference",
-    "      children:",
-    "        - file: docs/api/index.md",
+        "    - title: API Reference",
+        "      children:",
+        "        - file: docs/api/index.md",
     ]
 
     for group in sorted(grouped_modules):
@@ -474,9 +468,7 @@ def main() -> None:
             for label, filename in sorted(grouped_modules[group][subgroup]):
                 stem = Path(filename).stem
 
-                toc_lines.append(
-                    f"                - file: docs/api/{stem}.md"
-                )
+                toc_lines.append(f"                - file: docs/api/{stem}.md")
 
     toc_path = ROOT / "docs" / "api_toc.yml"
     toc_path.write_text("\n".join(toc_lines), encoding="utf-8")
@@ -484,10 +476,6 @@ def main() -> None:
     write_myst_yml(toc_lines)
     print("Wrote myst.yml from myst.yml.template")
 
-    
-
 
 if __name__ == "__main__":
     main()
-
-    

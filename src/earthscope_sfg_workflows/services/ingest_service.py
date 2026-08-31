@@ -313,8 +313,7 @@ class IngestService:
             return None
         except ArchiveError as exc:
             ProcessLogger.warning(
-                f"Failed to download {url}: {exc}; falling back to individual "
-                "qc tarballs."
+                f"Failed to download {url}: {exc}; falling back to individual qc tarballs."
             )
             return None
         return dest_path
