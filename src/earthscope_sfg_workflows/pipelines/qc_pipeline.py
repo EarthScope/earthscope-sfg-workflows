@@ -123,14 +123,16 @@ def process_single_qcpin(
     try:
         df = qcjson_to_shotdata(entry.local_path, ProcessLogger.logger)
         rangea_strings: list[str] = extract_rangea_strings_from_qcpin(entry.local_path)
+        # GNSS observations are independent of whether this PIN contains valid
+        # acoustic shotdata. Keep every RANGEA message for the daily stream.
+        rangea_string_queue.extend(rangea_strings)
         if df is None or df.empty:
             ProcessLogger.warning(
-                f"No valid shotdata parsed from {entry.local_path.name}, skipping write"
+                f"No valid shotdata parsed from {entry.local_path.name}, skipping shotdata write"
             )
             return False
         entry = replace(entry, is_processed=True)
         shotdata_df_queue.append(df)
-        rangea_string_queue.extend(rangea_strings)
         processed_asset_queue.append(entry)
         return True
     except Exception as e:  # noqa: BLE001
@@ -143,11 +145,13 @@ def rangea_string_epoch(
     rangea_string_queue: deque,
     stop_event: threading.Event,
 ) -> None:
-    """Flush RANGEA string batches from the queue to the GNSS observation TileDB array.
+    """Write one chronologically ordered RANGEA stream to the GNSS TileDB array.
 
-    Intended to be run in a background thread.  Sleeps for 10 seconds between
-    flush cycles.  When *stop_event* is set the loop exits and any remaining
-    strings are written before the function returns.
+    Intended to be run in a background thread. Strings are drained from the
+    shared queue while producers run, but retained in memory until
+    *stop_event* is set. The complete collection is then deduplicated, sorted
+    by GPS week and seconds-of-week, and sent to ``nova2tile`` in one temporary
+    file. A single continuous stream is required for lock-time reset detection.
 
     Parameters
     ----------
@@ -165,20 +169,34 @@ def rangea_string_epoch(
     import time as _time
 
     SLEEP_TIME_SECONDS = 10
-    sleep_time = SLEEP_TIME_SECONDS
+    pending: list[str] = []
     while not stop_event.is_set():
-        _time.sleep(sleep_time)
-        start_time = _time.time()
-        rangea_string_list = list(rangea_string_queue)
+        _time.sleep(SLEEP_TIME_SECONDS)
+        pending.extend(rangea_string_queue)
         rangea_string_queue.clear()
-        if rangea_string_list:
-            gnss_obs_tdb.write_rangea_strings(rangea_string_list, verbose=False)
-        elapsed_time = _time.time() - start_time
-        sleep_time = max(0, SLEEP_TIME_SECONDS - elapsed_time)
-    # Drain any remaining strings after stop signal
-    final_batch = list(rangea_string_queue)
-    if final_batch:
-        gnss_obs_tdb.write_rangea_strings(final_batch, verbose=False)
+    pending.extend(rangea_string_queue)
+    rangea_string_queue.clear()
+    if pending:
+        unique = dict.fromkeys(pending)
+        ordered = sorted(unique, key=_rangea_gps_time)
+        gnss_obs_tdb.write_rangea_strings(ordered, verbose=False)
+
+
+def _rangea_gps_time(message: str) -> tuple[int, float]:
+    """Return the GPS week and seconds-of-week from a RANGEA header."""
+    sync = message.find("#RANGEA")
+    if sync < 0:
+        raise ValueError("RANGEA message has no #RANGEA sync marker")
+    header = message[sync:].split(";", 1)[0]
+    fields = header.split(",")
+    try:
+        week = int(fields[5])
+        seconds = float(fields[6])
+    except (IndexError, ValueError) as exc:
+        raise ValueError("RANGEA message has an invalid time header") from exc
+    if not 2_000 <= week <= 3_000 or not 0 <= seconds < 604_800:
+        raise ValueError("RANGEA message has an out-of-range GPS time")
+    return week, seconds
 
 
 class QCPipeline:

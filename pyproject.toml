@@ -10,7 +10,7 @@ authors = [
   { name = "Rachel Akie", email = "rachel.akie@earthscope.org" }
 ]
 dependencies = [
-  "earthscope-sfg-tools[tiledb] @ git+https://github.com/EarthScope/earthscope-sfg-tools.git@c86eeecc98f5ef5238b5302089b088e69a32ba9d",
+  "earthscope-sfg-tools[tiledb] @ git+https://github.com/EarthScope/earthscope-sfg-tools.git@fix-lli",
   "boto3>=1.40",
   "botocore>=1.40",
   "sqlalchemy>=2.0",
@@ -73,7 +73,7 @@ nodejs = ">=20"
 
 [tool.pixi.pypi-dependencies]
 earthscope_sfg_workflows = { path = ".", editable = true }
-earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-tools.git", rev = "c86eeecc98f5ef5238b5302089b088e69a32ba9d", extras = ["tiledb"] }
+earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-tools.git", rev = "fix-lli", extras = ["tiledb"] }
 # gpm-specs and gnss-product-management are transitive deps of pride-ppp, but
 # pride-ppp's own metadata requests them unpinned (default-branch HEAD), which
 # fails `pixi install --locked` validation in CI. Pin them to the same
