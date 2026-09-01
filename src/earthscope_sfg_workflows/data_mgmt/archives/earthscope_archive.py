@@ -11,9 +11,12 @@ from __future__ import annotations
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
-from earthscope_sfg_tools.datamodels import Site, Vessel
 import requests
+from earthscope_sfg_tools.datamodels import Site, Vessel
+
+from earthscope_sfg_workflows.logging import ProcessLogger as logger
 
 from ..model import ArchiveFile, SFGScope
 from ..ports import ArchiveAuthError, ArchiveError, ArchiveNotFoundError
@@ -50,6 +53,24 @@ def canonical_campaign_urls(scope: SFGScope) -> tuple[str, str, str, str]:
     )
 
 
+def campaign_qc_zip_url(scope: SFGScope) -> str:
+    """Return the archive URL for a campaign's ``qc.zip`` bundle."""
+    year = _campaign_year(scope.campaign)
+    base = f"{ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}"
+    return f"{base}/qc.zip"
+
+
+def campaign_qc_dir_url(scope: SFGScope) -> str:
+    """Return the archive URL for a campaign's ``qc`` directory (sibling to ``qc.zip``).
+
+    Some campaigns publish individual ``.tar.gz`` QC bundles in this
+    directory instead of (or in addition to) a single ``qc.zip``.
+    """
+    year = _campaign_year(scope.campaign)
+    base = f"{ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}"
+    return f"{base}/qc"
+
+
 def list_campaign_archive_urls(archive: object, scope: SFGScope) -> list[str]:
     """List every file URL for a campaign without writing to any catalog.
 
@@ -67,7 +88,7 @@ def list_campaign_archive_urls(archive: object, scope: SFGScope) -> list[str]:
     ):
         try:
             urls.extend(af.url for af in archive.list_files(dir_url))
-        except Exception:
+        except ArchiveNotFoundError:
             continue
     return urls
 
@@ -105,6 +126,10 @@ class EarthScopeArchive:
         Return the metadata directory URL for a campaign.
     campaign_rinex_url(scope, hz)
         Compose a RINEX directory URL for a given sample rate.
+    campaign_qc_zip_url(scope)
+        Return the archive URL for a campaign's qc.zip bundle.
+    campaign_qc_dir_url(scope)
+        Return the archive URL for a campaign's qc directory (sibling to qc.zip).
     site_metadata_url(scope)
         Return the archive URL for a station's site metadata JSON.
     vessel_json_url(vessel_code)
@@ -155,6 +180,7 @@ class EarthScopeArchive:
         # environments that don't have earthscope-sdk installed.
         from earthscope_cli.login import login as es_login
         from earthscope_sdk import EarthScopeClient
+        from earthscope_sdk.auth.error import AuthFlowError
         from earthscope_sdk.config.settings import SdkSettings
 
         prof = profile if profile is not None else self._profile
@@ -163,7 +189,8 @@ class EarthScopeArchive:
 
         try:
             client.ctx.auth_flow.refresh_if_necessary()
-        except Exception:
+        except AuthFlowError as exc:
+            logger.debug(f"Token refresh failed, falling back to login: {exc}")
             try:
                 es_login(sdk=client)
             except Exception as exc:
@@ -222,12 +249,28 @@ class EarthScopeArchive:
             raise ArchiveError(f"Failed to list {directory_url}: {exc}") from exc
 
         urls = [line.strip() for line in body.splitlines() if line.strip()]
-        return [ArchiveFile(url=u) for u in urls]
+        # The listing endpoint's `uris=1` output points at the raw backend
+        # (an execute-api host), which only serves directory listings, not
+        # individual file downloads. Rewrite each URL's scheme/host to match
+        # the public host we listed from so the returned URIs are actually
+        # downloadable.
+        public = urlsplit(directory_url)
+        rewritten = [urlunsplit((public.scheme, public.netloc) + urlsplit(u)[2:]) for u in urls]
+        return [ArchiveFile(url=u) for u in rewritten]
 
     # -- download ----------------------------------------------------------
 
-    def download_file(self, file_url: str, dest_path: Path) -> None:
+    def download_file(self, file_url: str, dest_path: Path, *, max_attempts: int = 3) -> None:
         """Download *file_url* to *dest_path*, creating parent directories as needed.
+
+        Streams to a ``.part`` temp file alongside *dest_path* and only
+        renames it into place once the transfer completes and (when the
+        server reports a ``Content-Length``) the byte count matches. This
+        keeps a truncated/dropped connection from ever leaving a corrupt
+        file at *dest_path*, where callers would otherwise mistake its mere
+        existence for a completed download and never retry it. Transient
+        network errors during the streaming read are retried up to
+        *max_attempts* times before giving up.
 
         Parameters
         ----------
@@ -235,6 +278,9 @@ class EarthScopeArchive:
             URL of the file to download.
         dest_path : Path
             Local destination path for the downloaded file.
+        max_attempts : int, optional
+            Number of attempts before giving up on a transient network
+            error. Default is ``3``.
 
         Raises
         ------
@@ -243,33 +289,61 @@ class EarthScopeArchive:
         ArchiveNotFoundError
             If the server returns HTTP 404.
         ArchiveError
-            For any other HTTP error or network failure.
+            For any other HTTP error, or a network failure that persists
+            across *max_attempts* retries.
         """
         token = self._ensure_token()
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            response = requests.get(
-                file_url,
-                headers={"authorization": f"Bearer {token}"},
-                stream=True,
-                timeout=60,
-            )
-        except requests.RequestException as exc:
-            raise ArchiveError(f"Network error downloading {file_url}: {exc}") from exc
+        tmp_path = dest_path.with_name(dest_path.name + ".part")
 
-        if response.status_code == 401:
-            raise ArchiveAuthError(f"Unauthorized: {file_url}")
-        if response.status_code == 404:
-            raise ArchiveNotFoundError(file_url)
-        if response.status_code != requests.codes.ok:
-            raise ArchiveError(
-                f"Failed to download {file_url}: HTTP {response.status_code} ({response.reason})"
-            )
+        last_exc: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = requests.get(
+                    file_url,
+                    headers={"authorization": f"Bearer {token}"},
+                    stream=True,
+                    timeout=60,
+                )
+            except requests.RequestException as exc:
+                raise ArchiveError(f"Network error downloading {file_url}: {exc}") from exc
 
-        with open(dest_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
+            if response.status_code == 401:
+                raise ArchiveAuthError(f"Unauthorized: {file_url}")
+            if response.status_code == 404:
+                raise ArchiveNotFoundError(file_url)
+            if response.status_code != requests.codes.ok:
+                raise ArchiveError(
+                    f"Failed to download {file_url}: HTTP {response.status_code} ({response.reason})"
+                )
+
+            expected_length = response.headers.get("content-length")
+            try:
+                written = 0
+                with open(tmp_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            written += len(chunk)
+                if expected_length is not None and written != int(expected_length):
+                    raise ArchiveError(
+                        f"Truncated download of {file_url}: got {written} bytes, "
+                        f"expected {expected_length}"
+                    )
+            except (requests.RequestException, ArchiveError) as exc:
+                last_exc = exc
+                tmp_path.unlink(missing_ok=True)
+                if attempt < max_attempts:
+                    continue
+                raise ArchiveError(
+                    f"Failed to download {file_url} after {max_attempts} attempts: {exc}"
+                ) from exc
+
+            tmp_path.replace(dest_path)
+            return
+
+        # Unreachable, but keeps type-checkers happy.
+        raise ArchiveError(f"Failed to download {file_url}: {last_exc}")
 
     def download_to_dir(self, file_url: str, dest_dir: Path) -> Path:
         """Download *file_url* into *dest_dir* using the URL's basename.
@@ -405,6 +479,40 @@ class EarthScopeArchive:
         year = _campaign_year(scope.campaign)
         return f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/rinex_{hz}"
 
+    def campaign_qc_zip_url(self, scope: SFGScope) -> str:
+        """Return the archive URL for a campaign's ``qc.zip`` bundle.
+
+        Parameters
+        ----------
+        scope : SFGScope
+            Network, station, and campaign identifiers.
+
+        Returns
+        -------
+        str
+            URL of the campaign's ``qc.zip`` file on the archive.
+        """
+        year = _campaign_year(scope.campaign)
+        return (
+            f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/qc.zip"
+        )
+
+    def campaign_qc_dir_url(self, scope: SFGScope) -> str:
+        """Return the archive URL for a campaign's ``qc`` directory (sibling to ``qc.zip``).
+
+        Parameters
+        ----------
+        scope : SFGScope
+            Network, station, and campaign identifiers.
+
+        Returns
+        -------
+        str
+            URL of the campaign's ``qc`` directory on the archive.
+        """
+        year = _campaign_year(scope.campaign)
+        return f"{self.ARCHIVE_PREFIX}/{scope.network}/{year}/{scope.station}/{scope.campaign}/qc"
+
     def site_metadata_url(self, scope: SFGScope) -> str:
         """Return the archive URL for a station's site metadata JSON.
 
@@ -461,12 +569,12 @@ class EarthScopeArchive:
         finally:
             try:
                 local.unlink()
-            except Exception:
-                pass
+            except OSError as exc:
+                logger.debug(f"Failed to remove temporary file {local}: {exc}")
         return vessel
 
     def load_site_metadata(
-        self, scope: SFGScope = None, *, network: str = None, station: str = None
+        self, scope: SFGScope = None, *, network: str | None = None, station: str | None = None
     ) -> Site:
         """Load a :class:`Site` from the archive, populating per-campaign vessels.
 
@@ -507,8 +615,8 @@ class EarthScopeArchive:
         finally:
             try:
                 local.unlink()
-            except Exception:
-                pass
+            except OSError as exc:
+                logger.debug(f"Failed to remove temporary file {local}: {exc}")
 
         for campaign in site.campaigns:
             try:
@@ -524,7 +632,9 @@ class EarthScopeArchive:
 
 __all__ = [
     "ARCHIVE_PREFIX",
+    "EarthScopeArchive",
+    "campaign_qc_dir_url",
+    "campaign_qc_zip_url",
     "canonical_campaign_urls",
     "list_campaign_archive_urls",
-    "EarthScopeArchive",
 ]

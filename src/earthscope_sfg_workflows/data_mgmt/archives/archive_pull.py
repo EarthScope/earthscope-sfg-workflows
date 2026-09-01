@@ -2,6 +2,7 @@
 
 import os
 import ssl
+import urllib.error
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
@@ -10,12 +11,18 @@ import boto3
 import requests
 from earthscope_cli.login import login as es_login
 from earthscope_sdk import EarthScopeClient
+from earthscope_sdk.auth.error import AuthFlowError
 from earthscope_sdk.config.settings import SdkSettings
+from earthscope_sfg_tools.datamodels.metadata import Site, Vessel, import_site, import_vessel
 
 from earthscope_sfg_workflows.data_mgmt.core import FileTypeDetector
-from earthscope_sfg_workflows.data_mgmt.ports import ArchiveAuthError
+from earthscope_sfg_workflows.data_mgmt.ports import (
+    ArchiveAuthError,
+    ArchiveError,
+    ArchiveNotFoundError,
+)
 from earthscope_sfg_workflows.logging import ProcessLogger as logger
-from earthscope_sfg_tools.datamodels.metadata import Site, Vessel, import_site, import_vessel
+
 from ..model import AssetKind
 
 _detector = FileTypeDetector()
@@ -46,7 +53,8 @@ def retrieve_token(profile=None):
 
     try:
         es.ctx.auth_flow.refresh_if_necessary()
-    except Exception:
+    except AuthFlowError as exc:
+        logger.debug(f"Token refresh failed, falling back to login: {exc}")
         try:
             es_login(sdk=es)
         except Exception as exc:
@@ -89,10 +97,13 @@ def download_file_from_archive(url, dest_dir="./", profile=None, show_details: b
         if show_details:
             logger.info(f"Downloading {url} to {destination_file}")
         with open(destination_file, "wb") as f:
-            for data in r:
-                f.write(data)
+            f.writelines(r)
+    elif r.status_code == requests.codes.unauthorized:
+        raise ArchiveAuthError(f"Unauthorized: {url}")
+    elif r.status_code == requests.codes.not_found:
+        raise ArchiveNotFoundError(url)
     else:
-        raise Exception(
+        raise ArchiveError(
             f"Failed to download file from {url}, status code: {r.status_code}, reason: {r.reason}"
         )
 
@@ -129,7 +140,12 @@ def list_files_from_archive(url) -> list:
         # Send the request and capture the response
         with urllib.request.urlopen(req) as response:
             result = response.read().decode("utf-8")
-    except Exception as e:
+    except urllib.error.HTTPError as e:
+        if e.code == requests.codes.unauthorized:
+            raise ArchiveAuthError(f"Unauthorized listing {list_url}") from e
+        logger.error(e)
+        return []
+    except urllib.error.URLError as e:
         logger.error(e)
         return []
 
@@ -181,7 +197,7 @@ def download_file_list_from_archive(file_urls: list, dest_dir="./files") -> None
         try:
             download_file_from_archive(url=url, dest_dir=dest_dir)
             successful_files.append(url)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to download {url}: {e}")
             failed_files.append(url)
 
@@ -265,7 +281,7 @@ def generate_archive_rinex_url(network, station, campaign, hz):
     return f"{ARCHIVE_PREFIX}/{network}/{year}/{station}/{campaign}/rinex_{hz}"
 
 
-def generate_archive_site_json_url(network, station, profile: str = None) -> str:
+def generate_archive_site_json_url(network, station, profile: str | None = None) -> str:
     """Generate a URL for the site JSON file in the public archive.
 
     Parameters
@@ -288,7 +304,7 @@ def generate_archive_site_json_url(network, station, profile: str = None) -> str
         raise ValueError("Invalid profile specified.")
 
 
-def generate_archive_vessel_json_url(vessel_code, profile: str = None) -> str:
+def generate_archive_vessel_json_url(vessel_code, profile: str | None = None) -> str:
     """Generate a URL for the vessel JSON file in the public archive.
 
     Parameters
@@ -310,7 +326,7 @@ def generate_archive_vessel_json_url(vessel_code, profile: str = None) -> str:
 
 
 def load_vessel_metadata(
-    vessel_code: str, profile: str = None, local_path: Path | str = None
+    vessel_code: str, profile: str | None = None, local_path: Path | str | None = None
 ) -> Vessel:
     """Load the vessel metadata from the s3 archive.
 
@@ -358,7 +374,7 @@ def load_vessel_metadata(
         return vessel
 
 
-def load_site_metadata(network: str, station: str, profile: str = None) -> Site:
+def load_site_metadata(network: str, station: str, profile: str | None = None) -> Site:
     """Load the site metadata from the s3 archive.
 
     Note

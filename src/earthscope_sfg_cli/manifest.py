@@ -14,8 +14,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from earthscope_sfg_workflows.modeling.garpos_tools.schemas import InversionParams
-from earthscope_sfg_workflows.prefiltering.schemas import FilterConfig
 from earthscope_sfg_workflows.pipelines.config import SV3PipelineConfig
+from earthscope_sfg_workflows.prefiltering.schemas import FilterConfig
 
 
 class PipelineJobType(StrEnum):

@@ -7,6 +7,7 @@ based on manifest files.
 
 import multiprocessing
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -16,9 +17,10 @@ except RuntimeError:
     # This will fail if the context has already been set, which is fine.
     pass
 
-from earthscope_sfg_workflows.logging import ProcessLogger
 from earthscope_sfg_cli.commands import run_manifest
 from earthscope_sfg_cli.manifest import PipelineManifest
+from earthscope_sfg_workflows.logging import ProcessLogger
+
 # This adds the PRIDE binary path to the system's PATH.
 # A better long-term solution is for the user to configure this in their shell.
 # pride_path = Path.home() / ".PRIDE_PPPAR_BIN"
@@ -51,10 +53,10 @@ def run(file: Path):
 
 @app.command()
 def preprocess(
-    main_dir: Path = typer.Option(..., help="Root directory for the workspace"),
-    network: str = typer.Option(..., help="Network ID"),
-    campaign: str = typer.Option(..., help="Campaign ID"),
-    stations: list[str] = typer.Option(..., help="List of station IDs"),
+    main_dir: Annotated[Path, typer.Option(help="Root directory for the workspace")],
+    network: Annotated[str, typer.Option(help="Network ID")],
+    campaign: Annotated[str, typer.Option(help="Campaign ID")],
+    stations: Annotated[list[str], typer.Option(help="List of station IDs")],
 ):
     """Run the preprocessing pipeline for a network, campaign, and set of stations."""
     from earthscope_sfg_workflows.config.env_config import Environment

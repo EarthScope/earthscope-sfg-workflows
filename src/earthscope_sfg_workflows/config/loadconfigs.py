@@ -6,6 +6,7 @@ type of survey being processed (e.g., CENTER, CIRCLE).
 """
 
 from earthscope_sfg_tools.datamodels.metadata import SurveyType, classify_survey_type
+
 from ..prefiltering.schemas import FilterConfig
 from .garpos_config import DEFAULT_SITE_CONFIG, GarposSiteConfig
 from .shotdata_filters import (

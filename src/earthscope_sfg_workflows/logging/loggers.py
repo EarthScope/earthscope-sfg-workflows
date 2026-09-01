@@ -10,6 +10,7 @@ The notebook logger is used for the notebook module and prints to the console wi
 
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -94,8 +95,10 @@ class _BaseLogger:
             self.file_handler.setFormatter(self.format)
             self.file_handler.setLevel(logging.DEBUG)
             self.logger.addHandler(self.file_handler)
-        except Exception as e:
-            self.logger.error(f"Failed to set file handler: {e}")
+        except OSError as e:
+            # No file handler is attached at this point (removed above), so
+            # this failure could otherwise go unreported; print directly.
+            print(f"Failed to set file handler for {self.path}: {e}", file=sys.stderr)
 
     def set_dir(self, dir: Path) -> None:
         """Set the directory for the logger and update the file path.
@@ -160,6 +163,10 @@ class _BaseLogger:
             self.console_handler.setFormatter(self.console_format)
             self.console_handler.setLevel(logging.INFO)
             self.logger.addHandler(self.console_handler)
+            # This handler already prints to the console, so don't also propagate
+            # to the root logger - a caller with its own logging.basicConfig(...)
+            # (as most notebooks add) would otherwise print every message twice.
+            self.logger.propagate = False
             self.debug(f"Routing {self.name} logger to console")
 
     def non_negotiable_console_log(self, message: str) -> str | None:
@@ -290,24 +297,23 @@ def change_all_logger_dirs(dir: Path):
 # Create the base logger
 BaseLogger = _BaseLogger()
 
-# Create loggers for specific modules & set them to propagate to the base logger
+# Create loggers for specific modules. Propagation to the root logger is
+# disabled by route_to_console() below, once each logger has its own console
+# handler - see route_to_console()'s docstring/comment for why.
 PRIDELogger = _BaseLogger(
     name="base_logger.pride_logger",
     file_name="pride.log",
 )
-PRIDELogger.propagate = True
 
 ProcessLogger = _BaseLogger(
     name="base_logger.processing_logger",
     file_name="processing.log",
 )
-ProcessLogger.propagate = True
 
 GarposLogger = _BaseLogger(
     name="base_logger.garpos_logger",
     file_name="garpos.log",
 )
-GarposLogger.propagate = True
 
 
 # Route all loggers to the console

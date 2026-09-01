@@ -18,10 +18,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+
 from upath import UPath
 
 from .model import ArchiveFile, AssetEntry, AssetKind, FileInfo
-
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -158,6 +158,21 @@ class AssetCatalogPort(Protocol):
         -------
         list[AssetEntry]
             All assets whose ``local_path`` equals *path*.
+        """
+        ...
+
+    def by_remote_path(self, remote_path: str) -> list[AssetEntry]:
+        """Return all assets with ``remote_path == remote_path``.
+
+        Parameters
+        ----------
+        remote_path : str
+            Remote URL to match.
+
+        Returns
+        -------
+        list[AssetEntry]
+            All assets whose ``remote_path`` equals *remote_path*.
         """
         ...
 
@@ -569,10 +584,10 @@ class ArchiveSourcePort(Protocol):
 
 
 __all__ = [
-    "ArchiveError",
     "ArchiveAuthError",
+    "ArchiveError",
     "ArchiveNotFoundError",
+    "ArchiveSourcePort",
     "AssetCatalogPort",
     "FileStorePort",
-    "ArchiveSourcePort",
 ]

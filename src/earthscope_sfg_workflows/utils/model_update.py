@@ -39,8 +39,9 @@ def validate_keys_recursively(config_dict: dict, model_class: BaseModel, path: s
             else:
                 suggestion_text = "No similar keys found."
 
+            model_name = model_class if isinstance(model_class, type) else type(model_class)
             errors.append(
-                f"Invalid key '{current_path}' in {model_class.__name__}. {suggestion_text}"
+                f"Invalid key '{current_path}' in {model_name.__name__}. {suggestion_text}"
             )
 
         # If the value is a dict and the field exists, check nested structure

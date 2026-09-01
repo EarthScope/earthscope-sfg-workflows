@@ -23,10 +23,10 @@ def run_manifest(manifest_object):
         If a directory listed in an ingestion job does not exist.
     """
     from earthscope_sfg_workflows.config.env_config import Environment
-    from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
-    from earthscope_sfg_workflows.modeling.garpos_tools.load_utils import get_lib_paths
-    from earthscope_sfg_workflows.workflows.workflow_handler import WorkflowHandler
     from earthscope_sfg_workflows.logging import ProcessLogger
+    from earthscope_sfg_workflows.modeling.garpos_tools.load_utils import get_lib_paths
+    from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
+    from earthscope_sfg_workflows.workflows.workflow_handler import WorkflowHandler
 
     from .manifest import GARPOSConfig
     from .utils import display_pipelinemanifest

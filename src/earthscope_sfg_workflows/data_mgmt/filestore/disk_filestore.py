@@ -330,7 +330,7 @@ class FsspecFileStore:
 
     def close(self) -> None:
         """No-op; fsspec manages its own connection pools."""
-        return None
+        return
 
 
 __all__ = ["FsspecFileStore"]

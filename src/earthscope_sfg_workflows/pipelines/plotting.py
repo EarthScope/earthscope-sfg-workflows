@@ -5,8 +5,9 @@ from collections import defaultdict
 
 import matplotlib.pyplot as plt
 import numpy as np
-
 from earthscope_sfg_tools.tiledb_integration import TDBKinPositionArray
+
+from earthscope_sfg_workflows.logging import ProcessLogger as logger
 
 from ..data_mgmt.model import AssetEntry
 
@@ -28,7 +29,7 @@ def to_timestamp(time: np.datetime64 | datetime.datetime) -> float:
     """
     if isinstance(time, int):
         time = datetime.datetime.fromtimestamp(time / 1e9, tz=datetime.UTC)
-    if isinstance(time, datetime.datetime) or isinstance(time, datetime.date):
+    if isinstance(time, (datetime.datetime, datetime.date)):
         time = np.datetime64(time)
     return (time - UNIX_EPOCH) / np.timedelta64(1, "s")
 
@@ -47,7 +48,9 @@ def get_rinex_timelast(rinex_asset: AssetEntry) -> datetime.datetime:
         The last timestamp in the RINEX file.
     """
     year = str(rinex_asset.timestamp_data_start.year)[2:]
-    ref_date = datetime.datetime(1970, 1, 1, 0, 0, 0)
+    # Kept naive (UTC-implicit): np.datetime64() deprecates tz-aware input, and
+    # RINEX epochs are always UTC.
+    ref_date = datetime.datetime(1970, 1, 1, 0, 0, 0)  # noqa: DTZ001
     with open(rinex_asset.local_path) as f:
         for line in f:
             stripped = line.strip()
@@ -62,7 +65,7 @@ def get_rinex_timelast(rinex_asset: AssetEntry) -> datetime.datetime:
             else:
                 continue
             try:
-                current_date = datetime.datetime(
+                current_date = datetime.datetime(  # noqa: DTZ001
                     year=int(date_line[0]) if full_year else 2000 + int(date_line[0]),
                     month=int(date_line[1]),
                     day=int(date_line[2]),
@@ -70,15 +73,14 @@ def get_rinex_timelast(rinex_asset: AssetEntry) -> datetime.datetime:
                     minute=int(date_line[4]),
                     second=int(float(date_line[5])),
                 )
-                if current_date > ref_date:
-                    ref_date = current_date
-            except Exception:
-                pass
+                ref_date = max(ref_date, current_date)
+            except (ValueError, IndexError) as exc:
+                logger.debug(f"Skipping malformed RINEX epoch line {stripped!r}: {exc}")
     return ref_date
 
 
 def plot_kin_position_data(
-    kin_position_data: TDBKinPositionArray, rinex_entries: list[AssetEntry] = None
+    kin_position_data: TDBKinPositionArray, rinex_entries: list[AssetEntry] | None = None
 ) -> None:
     """Plots KinPosition data over time.
     This function plots KinPosition data over time, with each subplot
@@ -163,7 +165,7 @@ def plot_kin_position_data(
             current = markers_hourly[-1] + np.timedelta64(6, "h")
             markers_hourly.append(current.astype("datetime64[h]"))
 
-        markers_daily = sorted(set([x.astype("datetime64[D]") for x in markers_hourly]))
+        markers_daily = sorted({x.astype("datetime64[D]") for x in markers_hourly})
 
         df_timestamps = []
         for i in range(df_dates.shape[0]):

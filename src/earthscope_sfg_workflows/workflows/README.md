@@ -30,10 +30,10 @@ Subclasses of `WorkflowBase` interact with the data layer **only** through
 the four façades exposed on `self.workspace`:
 
 ```python
-self.workspace.layout    # LayoutFacade — paths, materialization
+self.workspace.layout  # LayoutFacade — paths, materialization
 self.workspace.metadata  # MetadataFacade — site / station metadata
-self.workspace.assets    # AssetsFacade — read/write asset catalog
-self.workspace.ingest    # IngestFacade — discover + register
+self.workspace.assets  # AssetsFacade — read/write asset catalog
+self.workspace.ingest  # IngestFacade — discover + register
 ```
 
 Each façade is a frozen dataclass constructed on every property access. It
@@ -48,7 +48,9 @@ from earthscope_sfg_workflows.workflows import WorkflowHandler
 
 handler = WorkflowHandler(directory=Path("/path/to/SFGMain"))
 handler.workspace.set_scope(
-    network="cascadia-gorda", station="NCC1", campaign="2024_A_1126",
+    network="cascadia-gorda",
+    station="NCC1",
+    campaign="2024_A_1126",
 )
 handler.data_handler.discover()
 handler.data_handler.ingest()

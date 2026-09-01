@@ -5,15 +5,16 @@ import concurrent.futures
 import datetime
 import json
 import os
+import shutil
+import tempfile
 import threading
 from collections import deque
+from collections.abc import Callable
 from dataclasses import replace
 from functools import partial, wraps
 from pathlib import Path
-from typing import Callable
 
-from pride_ppp import PrideProcessor, ProcessingMode, kin_to_kin_position_df, rinex_get_time_range
-from rich.progress import track
+import numpy as np
 
 # Local Imports
 from earthscope_sfg_tools.novatel_tools.rangea_parser import (
@@ -27,6 +28,9 @@ from earthscope_sfg_tools.tiledb_integration import (
     TDBShotDataArray,
     tdb2rnx,
 )
+from pride_ppp import PrideProcessor, ProcessingMode, kin_to_kin_position_df, rinex_get_time_range
+from rich.progress import track
+
 from earthscope_sfg_workflows.logging import ProcessLogger
 
 from ..data_mgmt.model import (
@@ -46,8 +50,33 @@ from .exceptions import (
     NoQCPinFound,
     NoRinexBuilt,
     NoRinexFound,
+    NoSVPFound,
 )
 from .shotdata_gnss_refinement import merge_shotdata_qc
+from .svp_processing import process_svp_for_scope
+
+# tdb2rnx names observation files differently depending on RinexConfig's RINEX
+# version: short form "STAT####.YYo" for v2, long form "..._MO.rnx" for v3/v4.
+_RINEX_OBS_GLOBS = ("*.??o", "*.rnx")
+
+
+def _find_rinex_files(rinex_dest: Path) -> list[Path]:
+    """Find RINEX observation files written by tdb2rnx, in either v2 or v3/v4 naming."""
+    return sorted(p for pattern in _RINEX_OBS_GLOBS for p in rinex_dest.glob(pattern))
+
+
+def _rinex_content_equal(path_a: Path, path_b: Path) -> bool:
+    """Compare two RINEX files, ignoring the "PGM / RUN BY / DATE" header line.
+
+    tdb2rnx stamps that line with the current wall-clock generation time on
+    every run, so it always differs between two otherwise byte-identical
+    regenerations of the same observation data — a plain file comparison
+    would treat every day as "changed" on every rebuild.
+    """
+    with open(path_a, "rb") as fa, open(path_b, "rb") as fb:
+        lines_a = [line for line in fa if b"PGM / RUN BY / DATE" not in line]
+        lines_b = [line for line in fb if b"PGM / RUN BY / DATE" not in line]
+    return lines_a == lines_b
 
 
 def _pipeline_method(fn):
@@ -96,7 +125,7 @@ def process_single_qcpin(
         rangea_strings: list[str] = extract_rangea_strings_from_qcpin(entry.local_path)
         if df is None or df.empty:
             ProcessLogger.warning(
-                f"No valid shotdata parsed from {entry.local_path}, skipping write"
+                f"No valid shotdata parsed from {entry.local_path.name}, skipping write"
             )
             return False
         entry = replace(entry, is_processed=True)
@@ -104,7 +133,7 @@ def process_single_qcpin(
         rangea_string_queue.extend(rangea_strings)
         processed_asset_queue.append(entry)
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         ProcessLogger.error(f"Error processing {entry.local_path}: {e}")
         return False
 
@@ -198,6 +227,8 @@ class QCPipeline:
         Process KIN files to generate QC kinematic-position DataFrames.
     update_shotdata()
         Refine QC shotdata with interpolated high-precision kinematic positions.
+    process_svp(override=False)
+        Process CTD and Seabird files to generate a sound velocity profile.
     run_pipeline()
         Execute the complete QC data processing pipeline in sequence.
     """
@@ -391,6 +422,24 @@ class QCPipeline:
     def get_rinex_files(self) -> None:
         """Generate and catalog daily RINEX files from the QC GNSS observation TileDB array.
 
+        ``tdb2rnx`` only supports whole-year regeneration — there's no way to
+        ask it to rebuild a single day — so every call regenerates every
+        day's file into a staging directory first. Each freshly-generated
+        file is then content-compared (byte-for-byte) against the existing
+        file for that same day, matched by the day the RINEX header actually
+        covers rather than by filename, since a day's filename can shift
+        (different start time / sampling) as more data arrives for it within
+        the same calendar day. Days whose content is unchanged are discarded
+        from staging, leaving the existing file, its mtime, and its catalog
+        entry untouched; only genuinely new or changed days get replaced.
+
+        This makes it safe to call unconditionally — no ``override`` is
+        needed just to notice that a previously-partial day now has more
+        data — and it keeps RINEX mtimes meaningful as a "did this actually
+        change" signal for :meth:`process_rinex`'s own staleness check.
+        ``rinex_cfg.override`` skips the content comparison and treats every
+        staged day as changed, forcing a full rebuild.
+
         Raises
         ------
         NoRinexBuilt
@@ -398,7 +447,8 @@ class QCPipeline:
             return code.
         """
         rinex_cfg: RinexConfig = self.config.rinex_config
-        rinex_dest = self._campaign_layout.rinex
+        rinex_dest = self._campaign_layout.qc / "rinex"
+        rinex_dest.mkdir(parents=True, exist_ok=True)
 
         year = (
             rinex_cfg.processing_year
@@ -415,33 +465,23 @@ class QCPipeline:
         rinex_version = self._build_rinex_meta()
         rinex_kind = rinex_kind_for_version(rinex_version)
 
-        parent_ids = (
-            f"N-{self.scope.network}"
-            f"|ST-{self.scope.station}"
-            f"|SV-{self.scope.campaign}"
-            f"|TDB-{gnss_uri}"
-            f"|YEAR-{year}"
-            f"|QC"
-        )
-        merge_signature = {
-            "parent_type": AssetKind.GNSSOBSTDB.value,
-            "child_type": rinex_kind.value,
-            "parent_ids": [parent_ids],
+        existing_by_day: dict[datetime.date, AssetEntry] = {
+            e.timestamp_data_start.date(): e
+            for e in self.catalog.assets_for(
+                network=self.scope.network,
+                station=self.scope.station,
+                campaign=self.scope.campaign,
+                kind=rinex_kind,
+            )
+            if e.timestamp_data_start is not None
         }
 
-        if rinex_cfg.override or not self.catalog.is_merge_complete(**merge_signature):
-            try:
-                # tdb2rnx writes RINEX files to CWD; run from rinex_dest.
-                # Remove any pre-existing RINEX output so the post-run glob is
-                # clean. Matches both the v3/v4 long name (*.rnx, current
-                # output format) and the legacy v2 short name (*.??o, in case
-                # a directory still has files from before the naming switch).
-                rinex_dest.mkdir(parents=True, exist_ok=True)
-                for _stale in [*rinex_dest.glob("*.rnx"), *rinex_dest.glob("*.??o")]:
-                    _stale.unlink()
+        try:
+            with tempfile.TemporaryDirectory(dir=rinex_dest) as staging:
+                staging_dir = Path(staging)
                 old_cwd = Path.cwd()
                 try:
-                    os.chdir(rinex_dest)
+                    os.chdir(staging_dir)
                     result = tdb2rnx(
                         tdb_path=str(gnss_uri),
                         settings_file=str(rinex_cfg.settings_path),
@@ -456,9 +496,9 @@ class QCPipeline:
                 if result.returncode != 0:
                     raise NoRinexBuilt(f"tdb2rnx exited with code {result.returncode}")
 
-                rinex_paths = sorted(rinex_dest.glob("*.rnx"))
+                staged_paths = _find_rinex_files(staging_dir)
 
-                if not rinex_paths:
+                if not staged_paths:
                     ProcessLogger.warning(
                         f"No QC RINEX files generated for "
                         f"{self.scope.network} {self.scope.station} {year}."
@@ -466,65 +506,139 @@ class QCPipeline:
                     raise NoRinexBuilt("No QC RINEX files were built.")
 
                 rinex_entries: list[AssetEntry] = []
-                upload_count = 0
+                changed_count = 0
+                unchanged_count = 0
 
-                for rinex_path in rinex_paths:
-                    start, end = rinex_get_time_range(rinex_path)
+                for staged_path in staged_paths:
+                    start, end = rinex_get_time_range(staged_path)
+                    existing_entry = existing_by_day.get(start.date())
+                    existing_path = (
+                        Path(existing_entry.local_path)
+                        if existing_entry is not None and existing_entry.local_path is not None
+                        else None
+                    )
+
+                    if (
+                        not rinex_cfg.override
+                        and existing_path is not None
+                        and existing_path.exists()
+                        and _rinex_content_equal(staged_path, existing_path)
+                    ):
+                        unchanged_count += 1
+                        rinex_entries.append(existing_entry)
+                        continue
+
+                    changed_count += 1
+                    if existing_entry is not None:
+                        if existing_path is not None:
+                            existing_path.unlink(missing_ok=True)
+                        if existing_entry.id is not None:
+                            self.catalog.delete_by_id(existing_entry.id)
+
+                    final_path = rinex_dest / staged_path.name
+                    shutil.move(str(staged_path), str(final_path))
                     entry = AssetEntry(
                         kind=rinex_kind,
                         scope=self.scope,
-                        local_path=rinex_path,
+                        local_path=final_path,
                         timestamp_data_start=start,
                         timestamp_data_end=end,
                         timestamp_created=datetime.datetime.now(tz=datetime.UTC),
                     )
                     persisted = self.catalog.add(entry)
                     rinex_entries.append(persisted if persisted is not None else entry)
-                    if persisted is not None:
-                        upload_count += 1
 
-                self.catalog.add_merge_job(**merge_signature)
+            ProcessLogger.info(
+                f"QC RINEX for {self.scope.network} {self.scope.station} {year}: "
+                f"{changed_count} day(s) changed/new, {unchanged_count} day(s) unchanged "
+                f"({len(rinex_entries)} total)."
+            )
 
+        except NoRinexBuilt:
+            raise
+
+        except Exception as e:
+            if (
+                message := ProcessLogger.error(f"Error generating QC RINEX files: {e}")
+            ) is not None:
+                print(message)
+            raise NoRinexBuilt(f"QC RINEX generation failed: {e}") from e
+
+    def _select_rinex_needing_pride(
+        self, rinex_entries: list[AssetEntry], intermediate_dir: Path, force: bool
+    ) -> list[AssetEntry]:
+        """Filter to RINEX entries that actually need a PRIDE-PPP run, clearing stale outputs.
+
+        ``PrideProcessor`` only checks whether a ``.kin`` file exists and
+        parses (see ``PrideProcessor._validate_kinfile``) — it has no notion
+        of the source RINEX having changed since that file was written.
+        :meth:`get_rinex_files` only replaces a day's RINEX (and thus its
+        mtime) when that day's content actually changed, so comparing
+        mtimes here identifies exactly the days that need reprocessing.
+        Their stale ``.kin``/``.res`` are deleted so ``_validate_kinfile``
+        doesn't skip them anyway just because a (now-outdated) file still
+        happens to parse; days that don't need work are dropped from the
+        returned list entirely, so ``process_batch`` never pays its per-day
+        dependency-resolution cost for them.
+
+        Parameters
+        ----------
+        rinex_entries : list of AssetEntry
+            All cataloged RINEX entries for the active campaign.
+        intermediate_dir : Path
+            Directory containing ``.kin``/``.res`` output files (matches
+            ``PrideProcessor``'s ``output_dir``).
+        force : bool
+            If ``True``, return every entry unconditionally (matches
+            ``PrideConfig.override``) instead of comparing mtimes.
+
+        Returns
+        -------
+        list of AssetEntry
+            The subset that's new, changed, or force-selected.
+        """
+        if force:
+            return rinex_entries
+
+        site = self.scope.station.lower()
+        needs_processing: list[AssetEntry] = []
+        for entry in rinex_entries:
+            if entry.local_path is None or entry.timestamp_data_start is None:
+                continue
+            rinex_path = Path(entry.local_path)
+            if not rinex_path.exists():
+                continue
+            doy = entry.timestamp_data_start.timetuple().tm_yday
+            year = entry.timestamp_data_start.year
+            kin_path = intermediate_dir / f"kin_{year}{doy:03d}_{site}.kin"
+            res_path = intermediate_dir / f"res_{year}{doy:03d}_{site}.res"
+
+            if kin_path.exists() and rinex_path.stat().st_mtime <= kin_path.stat().st_mtime:
+                continue  # up to date
+
+            if kin_path.exists():
+                kin_path.unlink()
+                if res_path.exists():
+                    res_path.unlink()
                 ProcessLogger.info(
-                    f"Generated {len(rinex_entries)} QC RINEX files spanning "
-                    f"{rinex_entries[0].timestamp_data_start} to "
-                    f"{rinex_entries[-1].timestamp_data_end}"
+                    f"RINEX {rinex_path.name} changed since last PRIDE run; "
+                    f"cleared stale {kin_path.name} for reprocessing."
                 )
-                ProcessLogger.debug(
-                    f"Added {upload_count} out of {len(rinex_entries)} QC RINEX files to the catalog"
-                )
-
-            except NoRinexBuilt:
-                raise
-
-            except Exception as e:
-                if (
-                    message := ProcessLogger.error(f"Error generating QC RINEX files: {e}")
-                ) is not None:
-                    print(message)
-                raise NoRinexBuilt(f"QC RINEX generation failed: {e}") from e
-
-        else:
-            rinex_entries = self.catalog.assets_for(
-                network=self.scope.network,
-                station=self.scope.station,
-                campaign=self.scope.campaign,
-                kind=rinex_kind,
-            )
-            ProcessLogger.debug(
-                f"QC RINEX already generated for {self.scope.network}, "
-                f"{self.scope.station}, {year}. "
-                f"Found {len(rinex_entries)} entries."
-            )
+            needs_processing.append(entry)
+        return needs_processing
 
     @_pipeline_method
     def process_rinex(self) -> None:
         """Run PRIDE-PPP on QC RINEX files to generate KIN and residual files.
 
-        Raises
-        ------
-        NoRinexFound
-            If no processable QC RINEX files are found in the catalog.
+        Selection is based on file mtimes (see
+        :meth:`_select_rinex_needing_pride`), not the catalog's
+        ``is_processed`` flag — a RINEX file can be re-marked "processed"
+        from a prior run yet still need a fresh PRIDE-PPP pass if
+        :meth:`get_rinex_files` has since replaced its content (e.g. a
+        partial day completed by newly-arrived data). If none need work,
+        logs the up-to-date count and returns without running PRIDE-PPP,
+        rather than raising.
         """
         pride_cfg: PrideConfig = self.config.pride_config
 
@@ -538,24 +652,33 @@ class QCPipeline:
         pride_dir = intermediate_dir / "pride"
         pride_dir.mkdir(parents=True, exist_ok=True)
 
-        rinex_entries: list[AssetEntry] = self.catalog.assets_to_process(
-            network=self.scope.network,
-            station=self.scope.station,
-            campaign=self.scope.campaign,
-            override=pride_cfg.override,
-        )
-        rinex_entries = [
-            e for e in rinex_entries if e.local_path is not None and e.kind in RINEX_KINDS
+        all_rinex: list[AssetEntry] = [
+            e
+            for e in self.catalog.assets_for(
+                network=self.scope.network,
+                station=self.scope.station,
+                campaign=self.scope.campaign,
+            )
+            if e.local_path is not None and e.kind in RINEX_KINDS
         ]
 
-        if not rinex_entries:
-            msg = (
-                f"No QC RINEX files found to process for "
-                f"{self.scope.network} {self.scope.station} "
-                f"{self.scope.campaign}"
+        if not all_rinex:
+            ProcessLogger.info(
+                f"No QC RINEX files cataloged for {self.scope.network} "
+                f"{self.scope.station} {self.scope.campaign}."
             )
-            ProcessLogger.error(msg)
-            raise NoRinexFound(msg)
+            return
+
+        rinex_entries = self._select_rinex_needing_pride(
+            all_rinex, intermediate_dir, force=pride_cfg.override
+        )
+
+        if not rinex_entries:
+            ProcessLogger.info(
+                f"All {len(all_rinex)} QC RINEX file(s) for {self.scope.network} "
+                f"{self.scope.station} {self.scope.campaign} are already up to date."
+            )
+            return
 
         ProcessLogger.info(f"Found {len(rinex_entries)} QC RINEX files to process")
 
@@ -564,6 +687,7 @@ class QCPipeline:
             output_dir=intermediate_dir,
             cli_config=pride_cfg.cli,
             mode=ProcessingMode.DEFAULT,
+            override_products_download=pride_cfg.override_products_download,
         )
         rinex_path_map = {e.local_path: e for e in rinex_entries}
         kin_count = res_count = upload_count = 0
@@ -637,7 +761,7 @@ class QCPipeline:
             station=self.scope.station,
             campaign=self.scope.campaign,
             kind=AssetKind.KIN,
-            override=self.config.rinex_config.override,
+            override=self.config.kin_config.override,
         )
         if not kin_entries:
             msg = (
@@ -663,21 +787,58 @@ class QCPipeline:
                     self.qcKinPositionTDB.write_df(df)
                     processed_count += 1
                     self.catalog.update(replace(entry, is_processed=True))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 ProcessLogger.error(f"Error processing {entry.local_path}: {e}")
 
         ProcessLogger.info(
             f"Generated {processed_count} QC KinPosition dataframes from {len(kin_entries)} KIN files"
         )
 
+    def _campaign_rinex_date_range(self) -> tuple[np.datetime64, np.datetime64] | None:
+        """Return the (min, max) day-granularity date range of this campaign's RINEX files.
+
+        The shotdata/kin-position TileDB arrays are shared across every campaign ever
+        run at this station (``TileDBLayout.for_station``), so a raw date intersection
+        between them spans the station's whole history, not just the active campaign.
+        RINEX assets, unlike the TileDB arrays, are cataloged per campaign, so their
+        date bounds are used to scope the merge back down to the active campaign.
+
+        Returns
+        -------
+        tuple[np.datetime64, np.datetime64] or None
+            ``(min, max)`` dates, or ``None`` if no dated RINEX assets are cataloged
+            for the active campaign yet.
+        """
+        rinex_entries = [
+            e
+            for e in self.catalog.assets_for(
+                network=self.scope.network,
+                station=self.scope.station,
+                campaign=self.scope.campaign,
+            )
+            if e.kind in RINEX_KINDS
+            and e.timestamp_data_start is not None
+            and e.timestamp_data_end is not None
+        ]
+        if not rinex_entries:
+            return None
+        starts = [e.timestamp_data_start.replace(tzinfo=None) for e in rinex_entries]
+        ends = [e.timestamp_data_end.replace(tzinfo=None) for e in rinex_entries]
+        return np.datetime64(min(starts), "D"), np.datetime64(max(ends), "D")
+
     @_pipeline_method
     def update_shotdata(self) -> None:
         """Refine QC shotdata with interpolated high-precision kinematic positions.
 
+        Scoped to the active campaign's RINEX date range (see
+        :meth:`_campaign_rinex_date_range`) so it doesn't re-merge other
+        campaigns' dates that happen to share this station's TileDB arrays.
+
         Returns
         -------
         None
-            Returns early without raising if the merge-signature lookup fails.
+            Returns early without raising if the merge-signature lookup fails,
+            or if the active campaign has no dates to merge.
         """
         ProcessLogger.info("Updating QC shotdata with interpolated QCKinPosition data")
 
@@ -685,9 +846,21 @@ class QCPipeline:
             merge_signature, dates = get_merge_signature_shotdata(
                 self.qcShotDataPreTDB, self.qcKinPositionTDB
             )
-        except Exception as e:
+        except ValueError as e:
             ProcessLogger.error(e)
             return
+
+        campaign_range = self._campaign_rinex_date_range()
+        if campaign_range is not None:
+            start, end = campaign_range
+            dates = [d for d in dates if start <= d <= end]
+            if not dates:
+                ProcessLogger.info(
+                    f"No shotdata/kin_position dates within the {self.scope.campaign} "
+                    "RINEX date range; nothing to refine."
+                )
+                return
+            merge_signature = [str(d) for d in dates]
 
         merge_job = {
             "parent_type": AssetKind.KINPOSITION.value,
@@ -709,6 +882,40 @@ class QCPipeline:
             self.catalog.add_merge_job(**merge_job)
 
     @_pipeline_method
+    def process_svp(self, override: bool = False) -> None:
+        """Process CTD and Seabird files to generate a sound velocity profile (SVP).
+
+        Processing order:
+
+        1. Tries each CTD file with ``CTD_to_svp_v2``, then ``CTD_to_svp_v1``.
+        2. If no CTD file yields a valid SVP, tries each Seabird file with
+           ``seabird_to_soundvelocity``.
+
+        The first successful SVP is written to
+        :attr:`CampaignLayout.svp_file` (``<campaign_root>/processed/svp.csv``)
+        and processing stops. Shared with
+        :meth:`~earthscope_sfg_workflows.pipelines.sv3_pipeline.SV3Pipeline.process_svp`,
+        since both pipelines' GARPOS runs read from the same ``svp_file``.
+
+        Parameters
+        ----------
+        override : bool, optional
+            If ``True``, forces reprocessing even if the SVP CSV already
+            exists.  Default is ``False``.
+
+        Raises
+        ------
+        NoSVPFound
+            If no CTD or Seabird files are cataloged for the active campaign.
+        """
+        process_svp_for_scope(
+            catalog=self.catalog,
+            scope=self.scope,
+            destination=self._campaign_layout.svp_file,
+            override=override,
+        )
+
+    @_pipeline_method
     def run_pipeline(self) -> None:
         """Execute the complete QC data processing pipeline in sequence.
 
@@ -719,6 +926,7 @@ class QCPipeline:
         3. :meth:`process_rinex` — RINEX → KIN + residual files via PRIDE-PPP.
         4. :meth:`process_kin` — KIN files → kinematic-position DataFrames.
         5. :meth:`update_shotdata` — merge kinematic positions into final shotdata.
+        6. :meth:`process_svp` — CTD/Seabird files → SVP CSV.
 
         Each step's expected exception is caught and logged so that the
         remaining steps still execute.
@@ -750,6 +958,11 @@ class QCPipeline:
 
         self.update_shotdata()
 
+        try:
+            self.process_svp()
+        except NoSVPFound:
+            pass
+
         ProcessLogger.info(
             f"Completed QC Processing Pipeline for {self.scope.network} "
             f"{self.scope.station} {self.scope.campaign}"
@@ -763,4 +976,5 @@ QC_JOBS: dict[str, Callable[["QCPipeline"], None]] = {
     "run_pride": lambda p: p.process_rinex(),
     "process_kinematic": lambda p: p.process_kin(),
     "refine_shotdata": lambda p: p.update_shotdata(),
+    "process_svp": lambda p: p.process_svp(override=p.config.svp_config.override),
 }

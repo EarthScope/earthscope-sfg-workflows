@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import datetime as _dt
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import (
@@ -26,8 +26,8 @@ from sqlalchemy import (
     select,
     update,
 )
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from ..model import AssetEntry, AssetKind, SFGScope
@@ -97,7 +97,7 @@ def _entry_to_kwargs(asset: AssetEntry) -> dict:
         "parent_id": asset.parent_id,
         "timestamp_data_start": asset.timestamp_data_start,
         "timestamp_data_end": asset.timestamp_data_end,
-        "timestamp_created": asset.timestamp_created or datetime.now(tz=timezone.utc),
+        "timestamp_created": asset.timestamp_created or datetime.now(tz=_dt.UTC),
     }
 
 
@@ -170,7 +170,7 @@ class AssetCatalog:
     # -- factories ---------------------------------------------------------
 
     @classmethod
-    def sqlite(cls, db_path: Path, *, create_schema: bool = True) -> "AssetCatalog":
+    def sqlite(cls, db_path: Path, *, create_schema: bool = True) -> AssetCatalog:
         """Build an :class:`AssetCatalog` backed by a local SQLite file.
 
         Parameters
@@ -191,7 +191,7 @@ class AssetCatalog:
         return cls(engine, create_schema=create_schema)
 
     @classmethod
-    def from_url(cls, url: str, *, create_schema: bool = True) -> "AssetCatalog":
+    def from_url(cls, url: str, *, create_schema: bool = True) -> AssetCatalog:
         """Build an :class:`AssetCatalog` from a SQLAlchemy database URL.
 
         Parameters
@@ -240,6 +240,8 @@ class AssetCatalog:
         except IntegrityError:
             # Duplicate local_path or remote_path — return existing entry.
             existing = self.by_local_path(Path(asset.local_path)) if asset.local_path else []
+            if not existing and asset.remote_path:
+                existing = self.by_remote_path(asset.remote_path)
             if existing:
                 return existing[0]
             raise
@@ -318,6 +320,27 @@ class AssetCatalog:
         with self._Session() as session:
             rows = (
                 session.execute(select(Assets).where(Assets.local_path == str(path)))
+                .scalars()
+                .all()
+            )
+            return [_row_to_entry(r) for r in rows]
+
+    def by_remote_path(self, remote_path: str) -> list[AssetEntry]:
+        """Return all assets whose remote_path matches a given URL.
+
+        Parameters
+        ----------
+        remote_path : str
+            Remote URL to match against.
+
+        Returns
+        -------
+        list[AssetEntry]
+            All entries with ``remote_path == remote_path``.
+        """
+        with self._Session() as session:
+            rows = (
+                session.execute(select(Assets).where(Assets.remote_path == remote_path))
                 .scalars()
                 .all()
             )

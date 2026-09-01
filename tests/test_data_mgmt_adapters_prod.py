@@ -22,7 +22,6 @@ from earthscope_sfg_workflows.data_mgmt import (
     FileStorePort,
 )
 
-
 # ---------------------------------------------------------------------------
 # EarthScopeArchive
 # ---------------------------------------------------------------------------
@@ -36,8 +35,9 @@ class TestEarthScopeArchiveShape:
         assert isinstance(arc, ArchiveSourcePort)
 
     def test_list_files_translates_404(self) -> None:
-        from earthscope_sfg_workflows.data_mgmt.adapters import EarthScopeArchive
         import urllib.error
+
+        from earthscope_sfg_workflows.data_mgmt.adapters import EarthScopeArchive
 
         arc = EarthScopeArchive()
         arc._token = "fake"  # bypass auth path
@@ -45,13 +45,16 @@ class TestEarthScopeArchiveShape:
         def boom(req: Any) -> Any:
             raise urllib.error.HTTPError(url=req.full_url, code=404, msg="nf", hdrs=None, fp=None)
 
-        with patch("urllib.request.urlopen", side_effect=boom):
-            with pytest.raises(ArchiveNotFoundError):
-                arc.list_files("https://archive/missing")
+        with (
+            patch("urllib.request.urlopen", side_effect=boom),
+            pytest.raises(ArchiveNotFoundError),
+        ):
+            arc.list_files("https://archive/missing")
 
     def test_list_files_translates_401(self) -> None:
-        from earthscope_sfg_workflows.data_mgmt.adapters import EarthScopeArchive
         import urllib.error
+
+        from earthscope_sfg_workflows.data_mgmt.adapters import EarthScopeArchive
 
         arc = EarthScopeArchive()
         arc._token = "fake"
@@ -59,9 +62,11 @@ class TestEarthScopeArchiveShape:
         def boom(req: Any) -> Any:
             raise urllib.error.HTTPError(url=req.full_url, code=401, msg="auth", hdrs=None, fp=None)
 
-        with patch("urllib.request.urlopen", side_effect=boom):
-            with pytest.raises(ArchiveAuthError):
-                arc.list_files("https://archive/x")
+        with (
+            patch("urllib.request.urlopen", side_effect=boom),
+            pytest.raises(ArchiveAuthError),
+        ):
+            arc.list_files("https://archive/x")
 
     def test_download_translates_status(self, tmp_path: Path) -> None:
         from earthscope_sfg_workflows.data_mgmt.adapters import EarthScopeArchive
@@ -70,9 +75,8 @@ class TestEarthScopeArchiveShape:
         arc._token = "fake"
 
         resp = MagicMock(status_code=500, reason="boom")
-        with patch("requests.get", return_value=resp):
-            with pytest.raises(ArchiveError):
-                arc.download_file("https://archive/x", tmp_path / "x")
+        with patch("requests.get", return_value=resp), pytest.raises(ArchiveError):
+            arc.download_file("https://archive/x", tmp_path / "x")
 
 
 # ---------------------------------------------------------------------------

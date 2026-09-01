@@ -3,6 +3,7 @@
 import datetime
 import json
 from pathlib import Path
+from typing import ClassVar
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -11,7 +12,7 @@ from matplotlib.colors import Normalize
 
 sns.set_theme()
 
-from .schemas import GPPositionENU, GPTransponder  # noqa: E402
+from .schemas import GPPositionENU, GPTransponder
 
 
 class DOYResult:
@@ -33,7 +34,10 @@ class DOYResult:
         """
         self.year = year
         self.doy = doy
-        self.date = datetime.datetime(year, 1, 1) + datetime.timedelta(days=doy - 1)
+        # Kept naive (UTC-implicit): np.datetime64() deprecates tz-aware input.
+        self.date = datetime.datetime(year, 1, 1) + datetime.timedelta(  # noqa: DTZ001
+            days=doy - 1
+        )
         self.df = pd.read_csv(df_path)
         self.df["time"] = [
             self.date + datetime.timedelta(seconds=x) for x in self.df["ST"].tolist()
@@ -51,7 +55,7 @@ class DOYResult:
 class DOYPlotter:
     """Multi-day plotter that aggregates `DOYResult`s into time-series plots."""
 
-    colors = [
+    colors: ClassVar[list[str]] = [
         "blue",
         "green",
         "red",
@@ -160,8 +164,8 @@ class DOYPlotter:
 
     def make_survey_image(
         self,
-        start_date: datetime.datetime = None,
-        end_date: datetime.datetime = None,
+        start_date: datetime.datetime | None = None,
+        end_date: datetime.datetime | None = None,
         survey_type="survey",
         survey_name="survey",
         filepath="survey_image.png",
@@ -218,8 +222,8 @@ class DOYPlotter:
 
     def make_ts_plots(
         self,
-        start_date: datetime.datetime = None,
-        end_date: datetime.datetime = None,
+        start_date: datetime.datetime | None = None,
+        end_date: datetime.datetime | None = None,
         filepath="ts_plot.png",
     ):
         """Plot range/time residuals over `[start_date, end_date]` and save to `filepath`."""
@@ -304,8 +308,8 @@ if __name__ == "__main__":
       "start": "2024-09-22T17:30:00",
                     "end": "2024-09-23T00:35:00"
     """
-    start = datetime.datetime(2024, 9, 22, 17, 30)
-    end = datetime.datetime(2024, 9, 23, 0, 35)
+    start = datetime.datetime(2024, 9, 22, 17, 30)  # noqa: DTZ001
+    end = datetime.datetime(2024, 9, 23, 0, 35)  # noqa: DTZ001
 
     plotter.make_survey_image(
         start_date=start,

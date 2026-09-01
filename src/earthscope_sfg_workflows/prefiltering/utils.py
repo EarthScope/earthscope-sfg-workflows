@@ -5,11 +5,11 @@ from datetime import UTC, datetime
 import numpy as np
 import pandas as pd
 import pymap3d as pm
+from earthscope_sfg_tools.datamodels.metadata import Site, SurveyType
 
 from earthscope_sfg_workflows.logging import GarposLogger as logger
 from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
 
-from earthscope_sfg_tools.datamodels.metadata import Site, SurveyType
 from .schemas import FilterConfig, FilterLevel
 
 
@@ -151,7 +151,7 @@ def filter_wg_distance_from_center(
         removed.
     """
     # Convert array center lat/lon to ECEF coordinates (assuming sea level)
-    center_x, center_y, center_z = pm.geodetic2ecef(
+    center_x, center_y, _center_z = pm.geodetic2ecef(
         lat=array_center_lat, lon=array_center_lon, alt=0
     )
 

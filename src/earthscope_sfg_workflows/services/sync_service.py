@@ -40,7 +40,7 @@ class SyncService:
         Download TileDB arrays and active campaign files from the remote mirror.
     """
 
-    def __init__(self, session: "StationSession") -> None:
+    def __init__(self, session: StationSession) -> None:
         """Initialize the service.
 
         Parameters
@@ -236,7 +236,7 @@ class SyncService:
             if not compressed.exists():
                 try:
                     crinex_compress(rinex_file, compressed, gzip=True, logger=logger.logger)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"Failed to compress {rinex_file}: {e}")
 
 

@@ -81,14 +81,28 @@ class PositionUpdateConfig(BaseModel):
     plot: bool = Field(False)
 
 
+class KinConfig(BaseModel):
+    """Configuration for KIN file -> kinematic-position processing."""
+
+    override: bool = Field(False, title="Flag to Override Existing Data")
+
+
+class SVPConfig(BaseModel):
+    """Configuration for CTD/Seabird -> sound-velocity-profile processing."""
+
+    override: bool = Field(False, title="Flag to Override Existing Data")
+
+
 class SV3PipelineConfig(BaseModel):
     """Top-level config bundling all SV3 pipeline stage configs."""
 
     pride_config: PrideConfig = PrideConfig()
     novatel_config: NovatelConfig = NovatelConfig()
     rinex_config: RinexConfig = RinexConfig()
+    kin_config: KinConfig = KinConfig()
     dfop00_config: DFOP00Config = DFOP00Config()
     position_update_config: PositionUpdateConfig = PositionUpdateConfig()
+    svp_config: SVPConfig = SVPConfig()
 
     model_config = ConfigDict(title="SV3 Pipeline Configuration", arbitrary_types_allowed=True)
 
@@ -98,7 +112,7 @@ class SV3PipelineConfig(BaseModel):
         copy = self.model_copy().model_dump()
         for key, value in update_dict.items():
             if key in copy:
-                copy[key] = value | copy[key]
+                copy[key] = copy[key] | value
         return SV3PipelineConfig(**copy)
 
     def to_yaml(self, filepath: Path):
@@ -159,8 +173,12 @@ class QCPipelineConfig(BaseModel):
 
     qcpin_config: QCPinConfig = QCPinConfig()
     pride_config: PrideConfig = PrideConfig()
-    rinex_config: RinexConfig = RinexConfig()
+    # QC data is intermittent, so default to 24h query windows to avoid walking
+    # many empty hourly slices during tdb2rnx (SV3 pipeline keeps the 1h default).
+    rinex_config: RinexConfig = RinexConfig(time_interval=24)
+    kin_config: KinConfig = KinConfig()
     position_update_config: PositionUpdateConfig = PositionUpdateConfig()
+    svp_config: SVPConfig = SVPConfig()
 
     model_config = ConfigDict(title="QC Pipeline Configuration", arbitrary_types_allowed=True)
 
@@ -169,7 +187,7 @@ class QCPipelineConfig(BaseModel):
         copy = self.model_copy().model_dump()
         for key, value in update_dict.items():
             if key in copy:
-                copy[key] = value | copy[key]
+                copy[key] = copy[key] | value
         return QCPipelineConfig(**copy)
 
     def to_yaml(self, filepath: Path):

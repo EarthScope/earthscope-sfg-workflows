@@ -16,32 +16,32 @@ from __future__ import annotations
 
 import json
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Optional, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
+from earthscope_sfg_tools.datamodels.metadata import Campaign, Site
 from upath import UPath
 
 from earthscope_sfg_workflows.data_mgmt.core import (
     FileManager,
 )
-from earthscope_sfg_workflows.data_mgmt.ports import ArchiveNotFoundError
+from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
 from earthscope_sfg_workflows.data_mgmt.model import (
     CampaignLayout,
+    DirectoryTree,
     GARPOSLayout,
     NetworkLayout,
     SFGScope,
-    DirectoryTree,
     StationLayout,
     SurveyLayout,
     TileDBLayout,
 )
-
-from earthscope_sfg_tools.datamodels.metadata import Campaign, Site
-from earthscope_sfg_workflows.data_mgmt.filestore.disk_filestore import FsspecFileStore
 from earthscope_sfg_workflows.data_mgmt.ports import (
+    ArchiveNotFoundError,
     ArchiveSourcePort,
     AssetCatalogPort,
 )
@@ -58,6 +58,7 @@ if TYPE_CHECKING:  # pragma: no cover
         TDBKinPositionArray,
         TDBShotDataArray,
     )
+
     from earthscope_sfg_workflows.services.ingest_service import IngestService
     from earthscope_sfg_workflows.services.processing_service import ProcessingService
     from earthscope_sfg_workflows.services.sync_service import SyncService
@@ -105,7 +106,7 @@ def _require_campaign(method: _F) -> _F:
     """
 
     @wraps(method)
-    def wrapper(self: "StationSession", *args, **kwargs):
+    def wrapper(self: StationSession, *args, **kwargs):
         if self._scope.campaign is None:
             raise ValueError(
                 f"{method.__name__} requires a campaign to be set; call set_campaign() first"
@@ -135,7 +136,7 @@ def _require_survey(method: _F) -> _F:
     """
 
     @wraps(method)
-    def wrapper(self: "StationSession", *args, **kwargs):
+    def wrapper(self: StationSession, *args, **kwargs):
         if self._scope.survey is None:
             raise ValueError(
                 f"{method.__name__} requires a survey to be set; call set_survey() first"
@@ -165,7 +166,7 @@ def _require_site_metadata(method: _F) -> _F:
     """
 
     @wraps(method)
-    def wrapper(self: "StationSession", *args, **kwargs):
+    def wrapper(self: StationSession, *args, **kwargs):
         if self._site is None:
             raise ValueError(
                 f"{method.__name__} requires station metadata to be available; "
@@ -203,13 +204,13 @@ class TileDBRegistry:
         TileDB array handle for secondary GNSS observation data.
     """
 
-    acoustic: "TDBAcousticArray"
-    kin_position: "TDBKinPositionArray"
-    imu_position: "TDBIMUPositionArray"
-    shotdata: "TDBShotDataArray"
-    shotdata_pre: "TDBShotDataArray"
-    gnss_obs: "TDBGNSSObsArray"
-    gnss_obs_secondary: "TDBGNSSObsArray"
+    acoustic: TDBAcousticArray
+    kin_position: TDBKinPositionArray
+    imu_position: TDBIMUPositionArray
+    shotdata: TDBShotDataArray
+    shotdata_pre: TDBShotDataArray
+    gnss_obs: TDBGNSSObsArray
+    gnss_obs_secondary: TDBGNSSObsArray
 
 
 # ---------------------------------------------------------------------------
@@ -324,12 +325,12 @@ class StationSession:
         self._station_layout: StationLayout = self._file_manager.ensure_station(
             network=network, station=station
         )
-        self._site: "Site | None" = self._fetch_site_metadata(network, station)
+        self._site: Site | None = self._fetch_site_metadata(network, station)
 
         # Mutable campaign/survey slots — None until explicitly set.
-        self._campaign_layout: "CampaignLayout | None" = None
-        self._survey_layout: "SurveyLayout | None" = None
-        self._campaign_meta: "Campaign | None" = None
+        self._campaign_layout: CampaignLayout | None = None
+        self._survey_layout: SurveyLayout | None = None
+        self._campaign_meta: Campaign | None = None
 
         # Lazy-initialised service instances.
         self._ingest_service = None
@@ -390,7 +391,7 @@ class StationSession:
         """Live view of the current network/station/campaign/survey context."""
         return self._scope
 
-    def _fetch_site_metadata(self, network: str, station: str) -> "Site | None":
+    def _fetch_site_metadata(self, network: str, station: str) -> Site | None:
         """Load site metadata: disk first, then EarthScope archive. Persist on fetch.
 
         Parameters
@@ -414,21 +415,25 @@ class StationSession:
         if write_dest.exists():
             try:
                 return _Site.from_json(write_dest)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 warnings.warn(f"Error loading site metadata from disk: {exc}")
 
         try:
             site = self._archive.load_site_metadata(network=network, station=station)
-            with open(write_dest, "w") as f:
-                json.dump(site.model_dump(mode="json"), f, indent=4)
-            return site
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             if not isinstance(exc, ArchiveNotFoundError):
                 warnings.warn(f"Error loading site metadata from EarthScope archive: {exc}")
+            return None
 
-        return None
+        try:
+            with open(write_dest, "w") as f:
+                json.dump(site.model_dump(mode="json"), f, indent=4)
+        except OSError as exc:
+            warnings.warn(f"Error caching site metadata to disk: {exc}")
 
-    def _resolve_campaign_in_site(self, campaign_id: str) -> "Campaign | None":
+        return site
+
+    def _resolve_campaign_in_site(self, campaign_id: str) -> Campaign | None:
         """Find the campaign object in site metadata matching ``campaign_id``.
 
         Parameters
@@ -451,7 +456,7 @@ class StationSession:
             pass
         return None
 
-    def _resolve_survey_in_campaign(self, survey_id: str) -> "Survey | None":
+    def _resolve_survey_in_campaign(self, survey_id: str) -> Survey | None:
         """Find the survey object in campaign metadata matching ``survey_id``.
 
         Parameters
@@ -518,7 +523,7 @@ class StationSession:
         ValueError
             If a campaign has not been set (enforced by :func:`_require_campaign`).
         """
-        layout: Optional[SurveyLayout] = self._file_manager.ensure_survey(
+        layout: SurveyLayout | None = self._file_manager.ensure_survey(
             network=self._scope.network,
             station=self._scope.station,
             campaign=self._scope.campaign,
@@ -537,12 +542,12 @@ class StationSession:
     # ------------------------------------------------------------------
 
     @property
-    def site(self) -> "Site | None":
+    def site(self) -> Site | None:
         """Station site metadata loaded from disk or EarthScope archive, or ``None`` if unavailable."""
         return self._site
 
     @property
-    def campaign_meta(self) -> "Campaign | None":
+    def campaign_meta(self) -> Campaign | None:
         """Campaign metadata object for the active campaign, or ``None`` if not resolved."""
         return self._campaign_meta
 
@@ -641,7 +646,7 @@ class StationSession:
         )
 
     @property
-    def garpos_survey_layout(self) -> "GARPOSLayout":
+    def garpos_survey_layout(self) -> GARPOSLayout:
         """Cached GARPOS layout for the active survey (read-only; no side effects).
 
         Raises :class:`ValueError` if survey is not set.
@@ -658,7 +663,7 @@ class StationSession:
             survey=self._scope.survey,
         )
 
-    def prepare_garpos_survey(self) -> "GARPOSLayout":
+    def prepare_garpos_survey(self) -> GARPOSLayout:
         """Materialise GARPOS survey directories on disk and return the layout.
 
         Unlike :attr:`garpos_survey_layout`, this method creates the directories
@@ -719,7 +724,7 @@ class StationSession:
         return list(seen.keys())
 
     @property
-    def active_campaign_layout(self) -> "CampaignLayout | None":
+    def active_campaign_layout(self) -> CampaignLayout | None:
         """The :class:`CampaignLayout` for the currently active campaign, or ``None``."""
         return self._campaign_layout
 
@@ -728,7 +733,7 @@ class StationSession:
     # ------------------------------------------------------------------
 
     @property
-    def ingest(self) -> "IngestService":
+    def ingest(self) -> IngestService:
         """Ingest operations scoped to this session."""
         from earthscope_sfg_workflows.services.ingest_service import IngestService
 
@@ -737,7 +742,7 @@ class StationSession:
         return self._ingest_service
 
     @property
-    def pipeline(self) -> "ProcessingService":
+    def pipeline(self) -> ProcessingService:
         """Pipeline construction and execution scoped to this session."""
         from earthscope_sfg_workflows.services.processing_service import ProcessingService
 
@@ -746,7 +751,7 @@ class StationSession:
         return self._pipeline_service
 
     @property
-    def sync(self) -> "SyncService":
+    def sync(self) -> SyncService:
         """Remote sync operations scoped to this session."""
         from earthscope_sfg_workflows.services.sync_service import SyncService
 

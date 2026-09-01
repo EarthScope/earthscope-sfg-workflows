@@ -41,10 +41,7 @@ def main():
         )
         workflow.ingest_discover_archive()
         workflow.download_data()
-        workflow.preprocess_run_pipeline_sv3(
-            job="all",
-            primary_config=global_config
-        )
+        workflow.preprocess_run_pipeline_sv3(job="all", primary_config=global_config)
 
 
 if __name__ == "__main__":

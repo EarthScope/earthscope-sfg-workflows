@@ -8,45 +8,52 @@ from pathlib import Path
 
 # Plotting imports
 import matplotlib.dates as mdates
-import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib import gridspec
 from matplotlib.colors import Normalize
 
 sns.set_theme(style="whitegrid")
 
-from earthscope_sfg_tools.datamodels.metadata import Survey  # noqa: E402
-from earthscope_sfg_tools.tiledb_integration import (  # noqa: E402
+from earthscope_sfg_tools.datamodels.metadata import Survey
+from earthscope_sfg_tools.tiledb_integration import (
     TDBShotDataArray,
 )
 
-from ...config.loadconfigs import (  # noqa: E402
+from earthscope_sfg_workflows.logging import GarposLogger as logger
+from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
+from earthscope_sfg_workflows.workflows.session import StationSession
+
+from ...config.loadconfigs import (
     GarposSiteConfig,
     get_garpos_site_config,
     get_survey_filter_config,
 )
-from ...data_mgmt.model import GARPOSLayout  # noqa: E402
-from .data_prep import (  # noqa: E402
+from ...data_mgmt.model import GARPOSLayout
+from ...prefiltering import filter_shotdata
+from .data_prep import (
     GP_Transponders_from_benchmarks,
     apply_survey_config,
     get_array_dpos_center,
     prepare_garpos_input_from_survey,
     prepare_shotdata_for_garpos,
 )
-from .functions import CoordTransformer, process_garpos_results  # noqa: E402
-from .load_utils import get_drive_garpos, get_lib_paths  # noqa: E402
-from .schemas import (  # noqa: E402
+from .functions import (
+    CoordTransformer,
+    drop_implausible_antenna_heights,
+    garpos_results_to_gnatss_format,
+    print_gnatss_format,
+    process_garpos_results,
+)
+from .load_utils import get_drive_garpos, get_lib_paths
+from .schemas import (
     GarposFixed,
     GarposInput,
     InversionParams,
     ObservationData,
 )
-from ...prefiltering import filter_shotdata  # noqa: E402
-from earthscope_sfg_workflows.logging import GarposLogger as logger  # noqa: E402
-from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config  # noqa: E402
-from earthscope_sfg_workflows.workflows.session import StationSession  # noqa: E402
 
 colors = [
     "blue",
@@ -91,17 +98,17 @@ class GarposHandler:
         Prepare shotdata for GARPOS processing for the active campaign.
     prepare_single_garpos_survey(survey, custom_filters, overwrite)
         Prepare a single survey for GARPOS processing.
-    get_pseudo_surveys(shotdatatdb)
-        Generate pseudo-surveys from unique shotdata dates.
-    parse_surveys_qc(shotdata_uri, override)
-        Parse QC pseudo-surveys and produce GARPOS input files.
+    get_qc_surveys(shotdatatdb, start, end, survey_id)
+        Resolve which survey(s) to process for the QC pipeline.
+    parse_surveys_qc(shotdata_uri, override, start, end, survey_id)
+        Parse QC survey(s) and produce GARPOS input files.
     run_garpos(survey_id, run_id, iterations, override, custom_settings, surveys)
         Run the GARPOS model for specified surveys or all campaign surveys.
     plot_shotdata_replies_per_transponder(savefig, showfig)
         Plot shotdata reply percentages per transponder for the active campaign.
-    plot_residuals_per_transponder_before_and_after(survey_id, run_id, savefig, showfig)
+    plot_residuals_per_transponder_before_and_after(survey_id, run_id, savefig, showfig, ymin, ymax)
         Plot per-transponder range residuals before and after inversion.
-    plot_remaining_residuals_per_transponder(survey_id, run_id, subplots, savefig, showfig)
+    plot_remaining_residuals_per_transponder(survey_id, run_id, subplots, savefig, showfig, ymin, ymax)
         Plot the remaining (unflagged) residuals for each transponder.
     plot_ts_results(survey_id, run_id, res_filter, savefig, showfig)
         Plot the time series results for a given survey.
@@ -416,64 +423,114 @@ class GarposHandler:
             )
             garpos_input_configured.to_datafile(garpos_layout.obs_file)
 
-    def get_pseudo_surveys(self, shotdatatdb: TDBShotDataArray) -> list[Survey]:
-        """Generate pseudo-surveys from unique shotdata dates.
+    def get_qc_surveys(
+        self,
+        shotdatatdb: TDBShotDataArray,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        survey_id: str | None = None,
+    ) -> list[Survey]:
+        """Resolve which survey(s) to process for the QC pipeline.
+
+        Resolution order:
+
+        1. If `start`/`end` are given, return a single ad hoc :class:`Survey`
+           spanning that window (requires `survey_id`, since there is no
+           metadata name to fall back on).
+        2. Else, if the active campaign's metadata defines real surveys,
+           return those directly — one per survey, using each survey's own
+           start/end/benchmarkIDs, the same as the SV3 pipeline.
+        3. Else, fall back to a single synthetic :class:`Survey` spanning all
+           available shotdata for the campaign year.
 
         Parameters
         ----------
         shotdatatdb : TDBShotDataArray
-            TileDB shot-data array from which unique calendar dates are read.
+            TileDB shot-data array from which unique calendar dates are read
+            (only used for the case-3 fallback).
+        start : datetime or None, optional
+            Start of an explicit, ad hoc processing window. Must be given
+            together with `end`. Default is ``None``.
+        end : datetime or None, optional
+            End of an explicit, ad hoc processing window. Must be given
+            together with `start`. Default is ``None``.
+        survey_id : str or None, optional
+            Identifier for the ad hoc survey created when `start`/`end` are
+            given. Required in that case. Default is ``None``.
 
         Returns
         -------
         list of Survey
-            One :class:`Survey` per unique date that falls within the active
-            campaign year. Returns an empty list when no matching dates exist.
+            The survey(s) to process. Returns an empty list when case 3 is
+            reached and no matching shotdata dates exist.
+
+        Raises
+        ------
+        ValueError
+            If only one of `start`/`end` is given, or if `start`/`end` are
+            given without `survey_id`.
         """
-        pseudo_surveys: list[Survey] = []
+        if start is not None or end is not None:
+            if start is None or end is None:
+                raise ValueError("start and end must both be provided together.")
+            if not survey_id:
+                raise ValueError("survey_id is required when start/end are provided explicitly.")
+            return [
+                Survey(id=survey_id, type="unknown", start=start, end=end, benchmarkIDs=[]),
+            ]
+
+        campaign_meta = self.station_session.campaign_meta
+        if campaign_meta is not None and campaign_meta.surveys:
+            return list(campaign_meta.surveys)
+
+        # No surveys defined in metadata — fall back to the full campaign data window.
+        surveys: list[Survey] = []
         dates: list[np.datetime64] = shotdatatdb.get_unique_dates().tolist()
         if not dates:
-            logger.warning("No shotdata dates found to generate pseudo-surveys.")
-            return pseudo_surveys
+            logger.warning("No shotdata dates found to build a QC survey window.")
+            return surveys
 
         campaign_name = self.station_session.scope.campaign
         if campaign_name is None:
-            return pseudo_surveys
+            return surveys
         current_year = int(campaign_name.split("_")[0])
-        filtered_dates = [d for d in dates if d.year == current_year]
+        filtered_dates = sorted(d for d in dates if d.year == current_year)
         if not filtered_dates:
             logger.warning(
                 f"No shotdata dates found for campaign year {current_year} "
-                "to generate pseudo-surveys."
+                "to build a QC survey window."
             )
-            return pseudo_surveys
+            return surveys
 
-        for idx, date in enumerate(sorted(filtered_dates)):
-            start_time = (
-                pd.Timestamp(date)
-                .tz_localize("UTC")
-                .to_pydatetime()
-                .replace(hour=0, minute=0, second=0, microsecond=0)
+        start_time = (
+            pd.Timestamp(filtered_dates[0])
+            .tz_localize("UTC")
+            .to_pydatetime()
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+        )
+        last_date = pd.Timestamp(filtered_dates[-1]).tz_localize("UTC").to_pydatetime()
+        end_time = datetime.combine(last_date.date(), time.max).replace(tzinfo=UTC)
+
+        surveys.append(
+            Survey(
+                id=campaign_name,
+                type="unknown",
+                start=start_time,
+                end=end_time,
+                benchmarkIDs=[],
             )
-            end_time = datetime.combine(start_time.date(), time.max).replace(tzinfo=UTC)
-            year, month, day = start_time.year, start_time.month, start_time.day
-            pseudo_surveys.append(
-                Survey(
-                    id=f"{year}_{month}_{day}_{idx + 1}",
-                    type="unknown",
-                    start=start_time,
-                    end=end_time,
-                    benchmarkIDs=[],
-                )
-            )
-        return pseudo_surveys
+        )
+        return surveys
 
     def parse_surveys_qc(
         self,
         shotdata_uri: str | Path,
         override: bool = False,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        survey_id: str | None = None,
     ) -> list[GARPOSLayout] | None:
-        """Parse QC pseudo-surveys and produce GARPOS input files.
+        """Parse QC survey(s) and produce GARPOS input files.
 
         Parameters
         ----------
@@ -482,11 +539,15 @@ class GarposHandler:
         override : bool, optional
             If ``True``, regenerate all intermediate files even when they
             already exist. Default is ``False``.
+        start, end, survey_id : optional
+            Forwarded to :meth:`get_qc_surveys` to process an explicit, ad hoc
+            time window instead of the campaign's defined surveys (or the
+            full-campaign fallback). See :meth:`get_qc_surveys` for details.
 
         Returns
         -------
         list of GARPOSLayout or None
-            A layout object for each successfully prepared pseudo-survey, or
+            A layout object for each successfully prepared survey, or
             ``None`` if rectification fails for any survey.
         """
 
@@ -497,7 +558,9 @@ class GarposHandler:
 
         garpos_layouts: list[GARPOSLayout] = []
         shotDataTDB = TDBShotDataArray(Path(shotdata_uri))
-        surveys_to_process: list[Survey] = self.get_pseudo_surveys(shotDataTDB)
+        surveys_to_process: list[Survey] = self.get_qc_surveys(
+            shotDataTDB, start=start, end=end, survey_id=survey_id
+        )
 
         for survey in surveys_to_process:
             survey_dir = campaign.qc / survey.id
@@ -522,24 +585,26 @@ class GarposHandler:
             for d in garpos_layout.standard_dirs:
                 d.mkdir(parents=True, exist_ok=True)
 
-            if not garpos_layout.svp_file.exists():
-                if campaign.svp_file.exists():
-                    shutil.copy(campaign.svp_file, garpos_layout.svp_file)
+            if not garpos_layout.svp_file.exists() and campaign.svp_file.exists():
+                shutil.copy(campaign.svp_file, garpos_layout.svp_file)
 
             if not garpos_layout.settings_file.exists() or override:
                 GarposFixed()._to_datafile(garpos_layout.settings_file)
 
             rectified_path = garpos_layout.root / f"{shotdata_dest.stem}_rectified.csv"
 
-            if not rectified_path.exists() or override:
-                gp_transponders = GP_Transponders_from_benchmarks(
-                    coord_transformer=self._coord_transformer,
-                    survey=survey,
-                    site=site,
-                    is_qc=True,
-                )
-                array_dpos_center = get_array_dpos_center(self._coord_transformer, gp_transponders)
+            # Computed unconditionally: both are needed below regardless of whether
+            # rectification actually re-runs this pass, and are cheap (geometry only,
+            # no I/O) — unlike shotdata_rectified they don't need a cached-read path.
+            gp_transponders = GP_Transponders_from_benchmarks(
+                coord_transformer=self._coord_transformer,
+                survey=survey,
+                site=site,
+                is_qc=True,
+            )
+            array_dpos_center = get_array_dpos_center(self._coord_transformer, gp_transponders)
 
+            if not rectified_path.exists() or override:
                 if rectified_path.exists():
                     shotdata_rectified = pd.read_csv(rectified_path)
                 else:
@@ -559,6 +624,8 @@ class GarposHandler:
                         )
                         return None
                     shotdata_rectified.to_csv(rectified_path)
+            else:
+                shotdata_rectified = pd.read_csv(rectified_path)
 
             if not garpos_layout.obs_file.exists() or override:
                 garpos_input = prepare_garpos_input_from_survey(
@@ -612,13 +679,28 @@ class GarposHandler:
         results_path = results_dir / f"{results_suffix}-res.dat"
 
         if results_path.exists() and not override:
-            print(f"Results already exist for {str(results_path)}")
+            print(f"Results already exist for {results_path!s}")
             return None
         logger.info(
             f"Running GARPOS model for {garpos_input.site_name}, {garpos_input.survey_id}. Run ID: {run_id}"
         )
         input_path = results_dir / f"_{run_id}_observation.ini"
         fixed_path = results_dir / f"_{run_id}_settings.ini"
+
+        # A period of degraded GNSS tracking (too few satellites for a
+        # well-determined fix) can leave a subset of shots with antenna
+        # heights off by hundreds to thousands of meters. GARPOS's own
+        # ray tracer rejects these with an unrecoverable sys.exit() deep in
+        # a multiprocessing worker, which SystemExit-escapes Pool's
+        # exception handling and hangs the pool forever instead of
+        # surfacing an error. Drop them before they ever reach the solver.
+        filtered_shot_data_path, n_dropped = drop_implausible_antenna_heights(
+            garpos_input.shot_data, results_dir / f"_{run_id}_shotdata.csv"
+        )
+        if n_dropped:
+            garpos_input.shot_data = filtered_shot_data_path
+            garpos_input.n_shot -= n_dropped
+
         garpos_fixed_params._to_datafile(fixed_path)
         garpos_input.to_datafile(input_path)
 
@@ -650,8 +732,10 @@ class GarposHandler:
             # Remove existing results directory if override is True
             try:
                 shutil.rmtree(results_dir)
-            except Exception as e:
-                logger.error(f"Failed to remove existing results directory {results_dir}: {e}")
+            except OSError as e:
+                raise OSError(
+                    f"Failed to remove existing results directory {results_dir}: {e}"
+                ) from e
 
         elif results_dir.exists() and not override:
             logger.info(
@@ -771,10 +855,10 @@ class GarposHandler:
                 )
             return
 
-        for survey_id in surveys_to_process:
-            logger.info(f"Running GARPOS model for survey {survey_id}. Run ID: {run_id}")
+        for sid in surveys_to_process:
+            logger.info(f"Running GARPOS model for survey {sid}. Run ID: {run_id}")
             self._run_garpos_survey(
-                survey_id=survey_id,
+                survey_id=sid,
                 run_id=run_id,
                 override=override,
                 iterations=iterations,
@@ -834,7 +918,7 @@ class GarposHandler:
                     shotdata_dfs[survey_name] = shotdata_df
                     # use utc
                     start = datetime.fromtimestamp(shotdata_df["pingTime"].iloc[0], tz=UTC)
-                    end = datetime.fromtimestamp(shotdata_df["pingTime"].iloc[-1], tz=UTC)  # noqa: F841
+                    end = datetime.fromtimestamp(shotdata_df["pingTime"].iloc[-1], tz=UTC)
                     shotdata_time_windows[survey_name] = (start, end)
 
                     shotdata_filtered_filepath = (
@@ -845,9 +929,103 @@ class GarposHandler:
                     )
                     shotdata_filtered_dfs[survey_name] = shotdata_filtered_df
 
-                except Exception as e:
-                    print(e)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"Skipping survey {survey_name}: {e}")
 
+        self._plot_shotdata_replies_per_transponder(
+            shotdata_dfs=shotdata_dfs,
+            shotdata_filtered_dfs=shotdata_filtered_dfs,
+            metadata_time_windows=metadata_time_windows,
+            metadata_surveys=metadata_surveys,
+            savefig=savefig,
+            showfig=showfig,
+        )
+
+    def plot_shotdata_replies_per_transponder_qc(
+        self,
+        shotdata_uri: str | Path,
+        savefig: bool = False,
+        showfig: bool = True,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        survey_id: str | None = None,
+    ) -> None:
+        """Plot shotdata reply percentages per transponder for the QC pipeline.
+
+        QC survey directories live outside the SV3 campaign/survey directory
+        structure (see `parse_surveys_qc`), so shotdata is read directly from
+        the QC survey directories (`campaign.qc / survey.id`) rather than from
+        `campaign_meta.surveys`. "Filtered" here is the rectified shotdata CSV
+        (the closest QC analog to SV3's `_filtered.csv`, since QC doesn't have
+        a separate pre-rectification filtering step).
+
+        Parameters
+        ----------
+        shotdata_uri : str or Path
+            URI or file-system path to the TileDB shot-data array, as passed to
+            `parse_surveys_qc`.
+        savefig : bool, optional
+            If ``True``, save the figure as a PNG file in the campaign root.
+            Default is ``False``.
+        showfig : bool, optional
+            If ``True``, display the figure interactively. Default is ``True``.
+        start, end, survey_id : optional
+            Forwarded to :meth:`get_qc_surveys` to plot an explicit, ad hoc
+            time window instead of the campaign's defined surveys (or the
+            full-campaign fallback).
+        """
+        campaign = self.station_session.ensure_campaign()
+        shotDataTDB = TDBShotDataArray(Path(shotdata_uri))
+        surveys = self.get_qc_surveys(shotDataTDB, start=start, end=end, survey_id=survey_id)
+
+        metadata_time_windows = {}
+        shotdata_dfs = {}
+        shotdata_filtered_dfs = {}
+        for survey in surveys:
+            try:
+                survey_dir = campaign.qc / survey.id
+                shotdata_file_name = f"{survey.id}_{survey.type.value}_shotdata.csv".replace(
+                    " ", ""
+                )
+                shotdata_filepath = survey_dir / shotdata_file_name
+                shotdata_df = pd.read_csv(shotdata_filepath, sep=",", header=0, index_col=0)
+                shotdata_dfs[survey.id] = shotdata_df
+                metadata_time_windows[survey.id] = (
+                    survey.start.replace(tzinfo=UTC),
+                    survey.end.replace(tzinfo=UTC),
+                )
+
+                garpos_layout = GARPOSLayout.for_survey(survey_dir)
+                rectified_files = list(garpos_layout.root.glob("*_rectified.csv"))
+                if not rectified_files:
+                    continue
+                shotdata_filtered_df = pd.read_csv(
+                    rectified_files[0], sep=",", header=0, index_col=0
+                ).rename(columns={"MT": "transponderID", "ST": "pingTime"})
+                shotdata_filtered_dfs[survey.id] = shotdata_filtered_df
+
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Skipping survey {survey.id}: {e}")
+
+        self._plot_shotdata_replies_per_transponder(
+            shotdata_dfs=shotdata_dfs,
+            shotdata_filtered_dfs=shotdata_filtered_dfs,
+            metadata_time_windows=metadata_time_windows,
+            metadata_surveys=surveys,
+            savefig=savefig,
+            showfig=showfig,
+        )
+
+    def _plot_shotdata_replies_per_transponder(
+        self,
+        shotdata_dfs: dict,
+        shotdata_filtered_dfs: dict,
+        metadata_time_windows: dict,
+        metadata_surveys: list,
+        savefig: bool = False,
+        showfig: bool = True,
+    ) -> None:
+        """Render the shotdata-reply-percentage figure shared by the SV3 and QC callers."""
         fig, axs = plt.subplots(3, 1, figsize=(20, 15), sharex=False)
         for i, (survey_name, shotdata_df) in enumerate(shotdata_dfs.items()):
             try:
@@ -905,8 +1083,8 @@ class GarposHandler:
                         linewidth=1,
                         alpha=0.1,
                     )
-            except Exception:
-                logger.warning(f"Error processing {survey_name}")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Error processing {survey_name}: {e}")
         fig.suptitle(
             f"Shotdata Reply Percentages for {self.station_session.scope.station} {self.station_session.scope.campaign}"
         )
@@ -931,8 +1109,12 @@ class GarposHandler:
         self,
         survey_id: str,
         run_id: int | str = 0,
+        subplots: bool = True,
+        point_size: float = 1,
         savefig: bool = False,
         showfig: bool = True,
+        ymin: float | None = None,
+        ymax: float | None = None,
     ):
         """Plot per-transponder range residuals before and after inversion.
 
@@ -943,10 +1125,22 @@ class GarposHandler:
         run_id : int or str, optional
             Run identifier selecting which result directory to read. Default is
             ``0``.
+        subplots : bool, optional
+            If ``True``, draw one subplot per transponder. If ``False``, overlay
+            all transponders on a single axes (color = transponder, opacity =
+            raw vs. unflagged). Default is ``True``.
+        point_size : float, optional
+            Marker size passed to ``scatter``. Default is ``1``.
         savefig : bool, optional
             If ``True``, save the figure as a PNG file. Default is ``False``.
         showfig : bool, optional
             If ``True``, display the figure interactively. Default is ``True``.
+        ymin : float or None, optional
+            Lower y-axis limit for the residual plots. ``None`` leaves that
+            bound auto-scaled. Default is ``None``.
+        ymax : float or None, optional
+            Upper y-axis limit for the residual plots. ``None`` leaves that
+            bound auto-scaled. Default is ``None``.
         """
         surveys_to_process = []
         for survey in self.station_session.campaign_meta.surveys:
@@ -959,10 +1153,14 @@ class GarposHandler:
                 self._plot_residuals_per_transponder_before_and_after(
                     survey_id=sid,
                     run_id=run_id,
+                    subplots=subplots,
+                    point_size=point_size,
                     savefig=savefig,
                     showfig=showfig,
+                    ymin=ymin,
+                    ymax=ymax,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Skipping plotting for survey {sid}: {e}")
                 continue
 
@@ -970,26 +1168,20 @@ class GarposHandler:
         self,
         survey_id: str,
         run_id: int | str = 0,
+        subplots: bool = True,
+        point_size: float = 1,
         savefig: bool = False,
         showfig: bool = True,
+        ymin: float | None = None,
+        ymax: float | None = None,
     ):
-        """Plot flagged vs unflagged residuals on three subplots for a given survey."""
+        """Plot flagged vs unflagged residuals, optionally as one subplot per transponder."""
         results_dir: Path = self.current_garpos_survey_dir.results
         run_dir = results_dir / f"run_{run_id}"
         if not run_dir.exists():
             raise FileNotFoundError(f"Run directory {run_dir} does not exist.")
 
         garpos_results = GarposInput.from_datafile(self._load_results_file(run_dir))
-
-        array_enu = garpos_results.array_center_enu
-        array_dpos = garpos_results.delta_center_position
-        if array_enu is None or array_dpos is None:
-            raise ValueError("Array center or delta position not found in GARPOS results.")
-
-        array_final_position = array_dpos.model_copy()
-        array_final_position.east += array_enu.east
-        array_final_position.north += array_enu.north
-        array_final_position.up += array_enu.up
 
         results_df_raw = pd.read_csv(garpos_results.shot_data)
         results_df_raw = ObservationData.validate(results_df_raw, lazy=True)
@@ -999,42 +1191,83 @@ class GarposHandler:
         df_filter_2 = ~results_df_raw["flag"]
         results_df = results_df_raw[df_filter_2]
         unique_ids = results_df_raw["MT"].unique()
-        # make a plot with 3 subplots showing ResiRange vs time for each unique_id
-        fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
-        fig.suptitle(
+        transponder_colors = ["green", "orange", "blue"]
+
+        fig_suptitle = (
             f"Residuals for {self.station_session.scope.station} {survey_id} (Run {run_id})"
         )
-        for i, unique_id in enumerate(unique_ids):
-            transponder_df_raw = results_df_raw[results_df_raw["MT"] == unique_id].sort_values(
-                "time"
-            )
-            transponder_df = results_df[results_df["MT"] == unique_id].sort_values("time")
-            axs[i].scatter(
-                transponder_df_raw["time"],
-                transponder_df_raw["ResiRange"],
-                s=1,
-                label=f"{unique_id}_raw {transponder_df_raw['time'].count()}",
-                color="blue",
-            )
-            percent_remaining = round(
-                transponder_df["time"].count() / transponder_df_raw["time"].count() * 100,
-                1,
-            )
-            axs[i].scatter(
-                transponder_df["time"],
-                transponder_df["ResiRange"],
-                s=1,
-                label=f"{unique_id}_unflagged {transponder_df['time'].count()} ({percent_remaining} %)",
-                color="orange",
-            )
-            axs[i].set_ylabel("Residual (m)")
-            axs[i].legend(loc="upper right")
-            axs[i].grid()
-        axs[-1].set_xlabel("Time")
-        plt.xticks(rotation=45)
-        # add gridlines
-        for ax in axs:
+        if subplots:
+            # make a plot with 3 subplots showing ResiRange vs time for each unique_id
+            fig, axs = plt.subplots(3, 1, figsize=(20, 8), sharex=True)
+            fig.suptitle(fig_suptitle)
+            for i, unique_id in enumerate(unique_ids):
+                transponder_df_raw = results_df_raw[results_df_raw["MT"] == unique_id].sort_values(
+                    "time"
+                )
+                transponder_df = results_df[results_df["MT"] == unique_id].sort_values("time")
+                axs[i].scatter(
+                    transponder_df_raw["time"],
+                    transponder_df_raw["ResiRange"],
+                    s=point_size,
+                    label=f"{unique_id}_raw {transponder_df_raw['time'].count()}",
+                    color="blue",
+                )
+                percent_remaining = round(
+                    transponder_df["time"].count() / transponder_df_raw["time"].count() * 100,
+                    1,
+                )
+                axs[i].scatter(
+                    transponder_df["time"],
+                    transponder_df["ResiRange"],
+                    s=point_size,
+                    label=f"{unique_id}_unflagged {transponder_df['time'].count()} ({percent_remaining} %)",
+                    color="orange",
+                )
+                axs[i].set_ylabel("Residual (m)")
+                axs[i].legend(loc="upper right")
+                axs[i].grid()
+                axs[i].set_ylim(ymin, ymax)
+            axs[-1].set_xlabel("Time")
+            for ax in axs:
+                ax.grid()
+        else:
+            # Overlay all transponders on one axes: color identifies the
+            # transponder, opacity distinguishes raw (faded) from unflagged
+            # (solid), since both dimensions can't be encoded via color alone.
+            fig, ax = plt.subplots(figsize=(20, 8))
+            fig.suptitle(fig_suptitle)
+            for i, unique_id in enumerate(unique_ids):
+                color = transponder_colors[i % len(transponder_colors)]
+                transponder_df_raw = results_df_raw[results_df_raw["MT"] == unique_id].sort_values(
+                    "time"
+                )
+                transponder_df = results_df[results_df["MT"] == unique_id].sort_values("time")
+                ax.scatter(
+                    transponder_df_raw["time"],
+                    transponder_df_raw["ResiRange"],
+                    s=point_size,
+                    alpha=0.3,
+                    label=f"{unique_id}_raw {transponder_df_raw['time'].count()}",
+                    color=color,
+                )
+                percent_remaining = round(
+                    transponder_df["time"].count() / transponder_df_raw["time"].count() * 100,
+                    1,
+                )
+                ax.scatter(
+                    transponder_df["time"],
+                    transponder_df["ResiRange"],
+                    s=point_size,
+                    alpha=1.0,
+                    label=f"{unique_id}_unflagged {transponder_df['time'].count()} ({percent_remaining} %)",
+                    color=color,
+                )
+            ax.set_ylabel("Residual (m)")
+            ax.set_xlabel("Time")
+            ax.legend(loc="upper right")
             ax.grid()
+            ax.set_ylim(ymin, ymax)
+        plt.xticks(rotation=45)
         plt.tight_layout()
         fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.scope.station}_{survey_id}_flagged_residuals.png"
         if savefig:
@@ -1053,8 +1286,11 @@ class GarposHandler:
         survey_id: str,
         run_id: int | str = 0,
         subplots: bool = True,
+        point_size: float = 1,
         savefig: bool = False,
         showfig: bool = True,
+        ymin: float | None = None,
+        ymax: float | None = None,
     ) -> None:
         """Plot the remaining (unflagged) residuals for each transponder.
 
@@ -1068,10 +1304,18 @@ class GarposHandler:
         subplots : bool, optional
             If ``True``, draw one subplot per transponder. If ``False``, overlay
             all transponders on a single axes. Default is ``True``.
+        point_size : float, optional
+            Marker size passed to ``scatter``. Default is ``1``.
         savefig : bool, optional
             If ``True``, save the figure as a PNG file. Default is ``False``.
         showfig : bool, optional
             If ``True``, display the figure interactively. Default is ``True``.
+        ymin : float or None, optional
+            Lower y-axis limit for the residual plots. ``None`` leaves that
+            bound auto-scaled. Default is ``None``.
+        ymax : float or None, optional
+            Upper y-axis limit for the residual plots. ``None`` leaves that
+            bound auto-scaled. Default is ``None``.
         """
         surveys_to_process = []
         for survey in self.station_session.campaign_meta.surveys:
@@ -1085,10 +1329,13 @@ class GarposHandler:
                     survey_id=sid,
                     run_id=run_id,
                     subplots=subplots,
+                    point_size=point_size,
                     savefig=savefig,
                     showfig=showfig,
+                    ymin=ymin,
+                    ymax=ymax,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Skipping plotting for survey {sid}: {e}")
                 continue
 
@@ -1097,8 +1344,11 @@ class GarposHandler:
         survey_id: str,
         run_id: int | str = 0,
         subplots: bool = True,
+        point_size: float = 1,
         savefig: bool = False,
         showfig: bool = True,
+        ymin: float | None = None,
+        ymax: float | None = None,
     ):
         """Render unflagged residuals for a single survey, optionally as subplots."""
         results_dir: Path = self.current_garpos_survey_dir.results
@@ -1107,16 +1357,6 @@ class GarposHandler:
             raise FileNotFoundError(f"Run directory {run_dir} does not exist.")
 
         garpos_results = GarposInput.from_datafile(self._load_results_file(run_dir))
-
-        array_enu = garpos_results.array_center_enu
-        array_dpos = garpos_results.delta_center_position
-        if array_enu is None or array_dpos is None:
-            raise ValueError("Array center or delta position not found in GARPOS results.")
-
-        array_final_position = array_dpos.model_copy()
-        array_final_position.east += array_enu.east
-        array_final_position.north += array_enu.north
-        array_final_position.up += array_enu.up
 
         results_df_raw = pd.read_csv(garpos_results.shot_data)
         results_df_raw = ObservationData.validate(results_df_raw, lazy=True)
@@ -1138,13 +1378,14 @@ class GarposHandler:
                 axs[i].scatter(
                     transponder_df["time"],
                     transponder_df["ResiRange"],
-                    s=1,
+                    s=point_size,
                     label=f"{unique_id}_unflagged {transponder_df['time'].count()}",
                     color=transponder_colors[i],
                 )
                 axs[i].set_ylabel("Residual (m)")
                 axs[i].legend(loc="upper right")
                 axs[i].grid()
+                axs[i].set_ylim(ymin, ymax)
             axs[-1].set_xlabel("Time")
             plt.xticks(rotation=45)
             # add gridlines
@@ -1157,7 +1398,7 @@ class GarposHandler:
                 ax.scatter(
                     transponder_df["time"],
                     transponder_df["ResiRange"],
-                    s=1,
+                    s=point_size,
                     label=f"{unique_id}_unflagged {transponder_df['time'].count()}",
                     color=transponder_colors[i],
                 )
@@ -1168,6 +1409,7 @@ class GarposHandler:
             plt.xticks(rotation=45)
             # add gridlines
             ax.grid()
+            ax.set_ylim(ymin, ymax)
         plt.tight_layout()
         fig_path = f"{self.current_garpos_survey_dir.results}/{self.station_session.scope.station}_{survey_id}_garpos_residuals.png"
         if savefig:
@@ -1183,7 +1425,7 @@ class GarposHandler:
 
     def plot_ts_results(
         self,
-        survey_id: str = None,
+        survey_id: str | None = None,
         run_id: int | str = 0,
         res_filter: float = 10,
         savefig: bool = False,
@@ -1224,14 +1466,14 @@ class GarposHandler:
                     savefig=savefig,
                     showfig=showfig,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Skipping plotting for survey {sid}: {e}")
                 continue
 
     def _plot_ts_results(
         self,
         survey_id: str,
-        survey_type: str = None,
+        survey_type: str | None = None,
         run_id: int | str = 0,
         res_filter: float = 10,
         savefig: bool = False,
@@ -1258,10 +1500,11 @@ class GarposHandler:
         if array_enu is None or array_dpos is None:
             raise ValueError("Array center or delta position not found in GARPOS results.")
 
-        array_final_position = array_dpos.model_copy()
-        array_final_position.east += array_enu.east
-        array_final_position.north += array_enu.north
-        array_final_position.up += array_enu.up
+        # `array_center_enu`, as written to a results file, is already the array's
+        # final converged centroid (mean of transponder positions after
+        # `delta_center_position` is applied to each) — it does not need
+        # `delta_center_position` added again.
+        array_final_position = array_enu
 
         results_df_raw = pd.read_csv(garpos_results.shot_data)
         results_df_raw = ObservationData.validate(results_df_raw, lazy=True)
@@ -1321,7 +1564,15 @@ class GarposHandler:
         figure_text += f"Array Delta Position :  East {dpos[0]:.3f} m, North {dpos[1]:.3f} m, Up {dpos[2]:.3f} m \n"
         for _, transponder in enumerate(garpos_results.transponders):
             try:
-                dpos = transponder.position_enu.get_position()
+                # Per GARPOS's own internal position formula (sta0 = MT_dPos +
+                # dCentPos), a transponder's `position_enu` alone is not yet its
+                # final position — the shared array correction must be added.
+                tsp_pos = transponder.position_enu.get_position()
+                dpos = [
+                    tsp_pos[0] + array_dpos.east,
+                    tsp_pos[1] + array_dpos.north,
+                    tsp_pos[2] + array_dpos.up,
+                ]
                 figure_text += f"TSP {transponder.id} : East {dpos[0]:.3f} m, North {dpos[1]:.3f} m, Up {dpos[2]:.3f} m \n"
             except ValueError:
                 figure_text += f"TSP {transponder.id} : No results found\n"
@@ -1457,7 +1708,7 @@ class GarposHandler:
         resiRange_filter = np.abs(resiRange_np) < 50
         resiRange = resiRange[resiRange_filter]
         max_value = resiRange.max()
-        flier_props = dict(marker=".", markerfacecolor="r", markersize=5, alpha=0.25)
+        flier_props = {"marker": ".", "markerfacecolor": "r", "markersize": 5, "alpha": 0.25}
         ax2.boxplot(resiRange.to_numpy(), vert=False, flierprops=flier_props)
         # keep axis plot limit slightly larger than max value for visibility
         ax2.set_xlim(0, max_value * 1.1)
@@ -1503,3 +1754,168 @@ class GarposHandler:
                 bbox_inches="tight",
                 pad_inches=0.1,
             )
+
+    _GNATSS_FORMAT_COLUMNS = (
+        "survey_id",
+        "id",
+        "x",
+        "y",
+        "z",
+        "sigma_x",
+        "sigma_y",
+        "sigma_z",
+        "latitude",
+        "longitude",
+        "height_msl",
+        "del_e",
+        "del_n",
+        "del_u",
+        "sigma_e",
+        "sigma_n",
+        "sigma_u",
+    )
+
+    def _gnatss_format_for_layout(
+        self, garpos_survey_dir: GARPOSLayout, run_id: int | str = 0
+    ) -> pd.DataFrame:
+        """Convert a single resolved survey layout's GARPOS results into GNATSS-style format."""
+        run_dir = garpos_survey_dir.results / f"run_{run_id}"
+        if not run_dir.exists():
+            raise FileNotFoundError(f"Run directory {run_dir} does not exist.")
+
+        garpos_results = GarposInput.from_datafile(self._load_results_file(run_dir))
+        df = garpos_results_to_gnatss_format(garpos_results, self._coord_transformer)
+        df.insert(0, "survey_id", garpos_survey_dir.root.parent.name)
+        return df
+
+    def _concat_gnatss_frames(self, survey_frames: list[pd.DataFrame]) -> pd.DataFrame:
+        if not survey_frames:
+            return pd.DataFrame(columns=self._GNATSS_FORMAT_COLUMNS)
+        return pd.concat(survey_frames, ignore_index=True)
+
+    def to_gnatss_format(
+        self,
+        survey_id: str | None = None,
+        run_id: int | str = 0,
+    ) -> pd.DataFrame:
+        """Recast GARPOS results into a GNATSS-style comparison table (SV3 pipeline).
+
+        Converts each survey's local-ENU GARPOS output (array center + per-transponder
+        positions, relative to the site's array-center origin) into absolute ECEF XYZ
+        and geodetic lat/lon/Hgt.msl, matching GNATSS's reported format so results from
+        the two tools can be compared directly. See `garpos_results_to_gnatss_format`
+        for the conversion details and caveats (in particular, `del_e/del_n/del_u` rely
+        on an assumption about the results file preserving the a priori position).
+
+        Uses the active campaign's real surveys (`campaign_meta.surveys`). For the
+        QC pipeline, use `to_gnatss_format_qc` instead.
+
+        Parameters
+        ----------
+        survey_id : str or None, optional
+            Identifier of the survey to convert. ``None`` converts all surveys in the
+            active campaign. Default is ``None``.
+        run_id : int or str, optional
+            Run identifier selecting which result directory to read. Default is ``0``.
+
+        Returns
+        -------
+        pd.DataFrame
+            One row per transponder plus one ``"ARRAY"`` row, per survey, with columns
+            ``survey_id, id, x, y, z, sigma_x, sigma_y, sigma_z, latitude, longitude,
+            height_msl, del_e, del_n, del_u, sigma_e, sigma_n, sigma_u``.
+        """
+        if self._coord_transformer is None:
+            raise ValueError("No coordinate transformer available; site center is not set.")
+
+        surveys_to_process = [
+            survey.id
+            for survey in self.station_session.campaign_meta.surveys
+            if survey.id == survey_id or survey_id is None
+        ]
+
+        survey_frames = []
+        for sid in surveys_to_process:
+            try:
+                self.set_survey(sid)
+                survey_frames.append(
+                    self._gnatss_format_for_layout(self.current_garpos_survey_dir, run_id=run_id)
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Skipping GNATSS-format conversion for survey {sid}: {e}")
+                continue
+
+        return self._concat_gnatss_frames(survey_frames)
+
+    def to_gnatss_format_qc(
+        self,
+        surveys: list[GARPOSLayout],
+        run_id: int | str = 0,
+    ) -> pd.DataFrame:
+        """Recast QC-pipeline GARPOS results into a GNATSS-style comparison table.
+
+        QC survey directories live outside the SV3 campaign/survey directory structure
+        (see `parse_surveys_qc`), so they're addressed directly by their resolved
+        `GARPOSLayout` objects rather than by survey id + `set_survey`. Pass the same
+        list returned by `parse_surveys_qc(...)`.
+
+        Parameters
+        ----------
+        surveys : list of GARPOSLayout
+            Resolved QC survey layouts, e.g. from `parse_surveys_qc(...)`.
+        run_id : int or str, optional
+            Run identifier selecting which result directory to read. Default is ``0``.
+
+        Returns
+        -------
+        pd.DataFrame
+            One row per transponder plus one ``"ARRAY"`` row, per survey, with columns
+            ``survey_id, id, x, y, z, sigma_x, sigma_y, sigma_z, latitude, longitude,
+            height_msl, del_e, del_n, del_u, sigma_e, sigma_n, sigma_u``.
+        """
+        if self._coord_transformer is None:
+            raise ValueError("No coordinate transformer available; site center is not set.")
+
+        survey_frames = []
+        for garpos_survey_dir in surveys:
+            survey_id = garpos_survey_dir.root.parent.name
+            try:
+                survey_frames.append(
+                    self._gnatss_format_for_layout(garpos_survey_dir, run_id=run_id)
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Skipping GNATSS-format conversion for survey {survey_id}: {e}")
+                continue
+
+        return self._concat_gnatss_frames(survey_frames)
+
+    def print_gnatss_format(
+        self,
+        df: pd.DataFrame,
+        survey_id: str | None = None,
+        station: str | None = None,
+    ) -> None:
+        """Print a `to_gnatss_format`/`to_gnatss_format_qc` result in GNATSS's own
+        text layout. See `functions.print_gnatss_format` for the exact format and
+        the sigma-approximation caveats.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Result of `to_gnatss_format` or `to_gnatss_format_qc`. If it contains
+            more than one distinct `survey_id`, `survey_id` must be given to select
+            which one to print.
+        survey_id : str or None, optional
+            Which survey's rows to print. Required if `df` covers multiple surveys.
+        station : str or None, optional
+            Station name for each block's label (`"{station}-{n}"`). Defaults to
+            the active session's station.
+        """
+        if survey_id is not None:
+            df = df[df["survey_id"] == survey_id]
+        elif df["survey_id"].nunique() > 1:
+            raise ValueError(
+                "df contains multiple surveys; pass survey_id to select which one to print."
+            )
+        station = station or self.station_session.scope.station
+        print_gnatss_format(df, station)

@@ -69,6 +69,7 @@ def _make_scope():
 def _build_tiledb_layout(base: Path):
     """Create a TileDBLayout rooted under *base*/TileDB."""
     from upath import UPath
+
     from earthscope_sfg_workflows.data_mgmt.model import TileDBLayout
 
     return TileDBLayout.for_station(UPath(base))
@@ -77,6 +78,7 @@ def _build_tiledb_layout(base: Path):
 def _build_campaign_layout(base: Path):
     """Create a CampaignLayout rooted at *base*."""
     from upath import UPath
+
     from earthscope_sfg_workflows.data_mgmt.model import CampaignLayout
 
     layout = CampaignLayout.for_campaign(UPath(base))
@@ -104,15 +106,16 @@ def _make_pipeline(tmp_path: Path, catalog, *, config=None):
 
 def _add_kin_entry(catalog, kin_file: Path):
     """Catalog a KIN asset entry for the NCC1 scope."""
-    from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
     from upath import UPath
+
+    from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
 
     scope = _make_scope()
     entry = AssetEntry(
         kind=AssetKind.KIN,
         scope=scope,
         local_path=UPath(kin_file),
-        timestamp_created=datetime.datetime.now(tz=datetime.timezone.utc),
+        timestamp_created=datetime.datetime.now(tz=datetime.UTC),
     )
     return catalog.add(entry)
 
@@ -188,8 +191,8 @@ class TestProcessKin:
         pipeline.process_kin()
 
         df = pipeline.kinPositionTDB.read_df(
-            start=datetime.datetime(2025, 9, 8, tzinfo=datetime.timezone.utc),
-            end=datetime.datetime(2025, 9, 8, 0, 1, tzinfo=datetime.timezone.utc),
+            start=datetime.datetime(2025, 9, 8, tzinfo=datetime.UTC),
+            end=datetime.datetime(2025, 9, 8, 0, 1, tzinfo=datetime.UTC),
         )
         assert len(df) > 0, "Expected kin_position rows after process_kin"
 
@@ -224,11 +227,11 @@ class TestProcessKin:
             pipeline.process_kin()
 
     def test_override_reruns_processed_entries(self, tmp_path, catalog):
-        """override=True in RinexConfig forces reprocessing of already-processed KIN entries."""
+        """override=True in KinConfig forces reprocessing of already-processed KIN entries."""
         from earthscope_sfg_workflows.pipelines.config import SV3PipelineConfig
 
         config = SV3PipelineConfig()
-        config.rinex_config.override = True
+        config.kin_config.override = True
         p = _make_pipeline(tmp_path, catalog, config=config)
 
         kin_file = FIXTURES / "kin_2025251_ncc1.kin"
@@ -241,8 +244,8 @@ class TestProcessKin:
         p.process_kin()
 
         df = p.kinPositionTDB.read_df(
-            start=datetime.datetime(2025, 9, 8, tzinfo=datetime.timezone.utc),
-            end=datetime.datetime(2025, 9, 8, 0, 1, tzinfo=datetime.timezone.utc),
+            start=datetime.datetime(2025, 9, 8, tzinfo=datetime.UTC),
+            end=datetime.datetime(2025, 9, 8, 0, 1, tzinfo=datetime.UTC),
         )
         assert len(df) > 0, "Expected kin_position rows after override re-run"
 
@@ -254,8 +257,8 @@ class TestProcessKin:
         pipeline.process_kin()
 
         df = pipeline.kinPositionTDB.read_df(
-            start=datetime.datetime(2025, 9, 8, tzinfo=datetime.timezone.utc),
-            end=datetime.datetime(2025, 9, 8, 0, 1, tzinfo=datetime.timezone.utc),
+            start=datetime.datetime(2025, 9, 8, tzinfo=datetime.UTC),
+            end=datetime.datetime(2025, 9, 8, 0, 1, tzinfo=datetime.UTC),
         )
         assert len(df) > 0, "Need rows to check longitude"
         assert (df["longitude"] <= 180).all(), (
@@ -277,8 +280,8 @@ class TestUpdateShotdata:
         seeded_pipeline.update_shotdata()
 
         df = seeded_pipeline.shotDataFinalTDB.read_df(
-            start=datetime.datetime(2025, 9, 7, tzinfo=datetime.timezone.utc),
-            end=datetime.datetime(2025, 9, 14, tzinfo=datetime.timezone.utc),
+            start=datetime.datetime(2025, 9, 7, tzinfo=datetime.UTC),
+            end=datetime.datetime(2025, 9, 14, tzinfo=datetime.UTC),
         )
         assert len(df) > 0, "Expected shotdata_final rows after update_shotdata"
 
@@ -287,8 +290,8 @@ class TestUpdateShotdata:
         seeded_pipeline.update_shotdata()
 
         df_after_first = seeded_pipeline.shotDataFinalTDB.read_df(
-            start=datetime.datetime(2025, 9, 7, tzinfo=datetime.timezone.utc),
-            end=datetime.datetime(2025, 9, 14, tzinfo=datetime.timezone.utc),
+            start=datetime.datetime(2025, 9, 7, tzinfo=datetime.UTC),
+            end=datetime.datetime(2025, 9, 14, tzinfo=datetime.UTC),
         )
         row_count_after_first = len(df_after_first)
 
@@ -296,8 +299,8 @@ class TestUpdateShotdata:
         seeded_pipeline.update_shotdata()
 
         df_after_second = seeded_pipeline.shotDataFinalTDB.read_df(
-            start=datetime.datetime(2025, 9, 7, tzinfo=datetime.timezone.utc),
-            end=datetime.datetime(2025, 9, 14, tzinfo=datetime.timezone.utc),
+            start=datetime.datetime(2025, 9, 7, tzinfo=datetime.UTC),
+            end=datetime.datetime(2025, 9, 14, tzinfo=datetime.UTC),
         )
         assert len(df_after_second) == row_count_after_first, (
             "Second update_shotdata call should not add duplicate rows"
@@ -358,8 +361,9 @@ class TestCatalogDeduplication:
 
     def test_assets_to_process_excludes_processed(self, catalog):
         """assets_to_process omits entries already marked as processed."""
-        from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
         from upath import UPath
+
+        from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
 
         scope = _make_scope()
         entry = catalog.add(
@@ -379,8 +383,9 @@ class TestCatalogDeduplication:
 
     def test_assets_to_process_override_includes_processed(self, catalog):
         """assets_to_process with override=True returns all entries regardless of status."""
-        from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
         from upath import UPath
+
+        from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
 
         scope = _make_scope()
         entry = catalog.add(
@@ -409,8 +414,9 @@ class TestCatalogDeduplication:
 
     def test_mark_processed_bulk_is_idempotent(self, catalog):
         """Calling mark_processed_bulk twice on the same ids is safe."""
-        from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
         from upath import UPath
+
+        from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
 
         scope = _make_scope()
         entry = catalog.add(
@@ -425,8 +431,9 @@ class TestCatalogDeduplication:
 
     def test_separate_scopes_are_independent(self, catalog):
         """Assets for different campaigns are isolated in assets_to_process."""
-        from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind, SFGScope
         from upath import UPath
+
+        from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind, SFGScope
 
         scope_a = SFGScope(network=NETWORK, station=STATION, campaign="2025_A_1126")
         scope_b = SFGScope(network=NETWORK, station=STATION, campaign="2024_A_0101")
@@ -517,21 +524,22 @@ def _successful_completed_process():
     return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
 
-_T0 = datetime.datetime(2025, 9, 8, 0, 0, 0, tzinfo=datetime.timezone.utc)
-_T1 = datetime.datetime(2025, 9, 9, 0, 0, 0, tzinfo=datetime.timezone.utc)
+_T0 = datetime.datetime(2025, 9, 8, 0, 0, 0, tzinfo=datetime.UTC)
+_T1 = datetime.datetime(2025, 9, 9, 0, 0, 0, tzinfo=datetime.UTC)
 
 
 def _add_novatel770_entry(catalog, fake_path: Path):
     """Catalog a NOVATEL770 asset entry pointing at *fake_path*."""
-    from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
     from upath import UPath
+
+    from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
 
     scope = _make_scope()
     entry = AssetEntry(
         kind=AssetKind.NOVATEL770,
         scope=scope,
         local_path=UPath(fake_path),
-        timestamp_created=datetime.datetime.now(tz=datetime.timezone.utc),
+        timestamp_created=datetime.datetime.now(tz=datetime.UTC),
     )
     return catalog.add(entry)
 
@@ -824,9 +832,8 @@ class TestGetRinexFiles:
             args=[], returncode=1, stdout="", stderr="tdb2rnx: fatal error"
         )
 
-        with patch(_TDB2RNX_MOCK, return_value=failed_result):
-            with pytest.raises(NoRinexBuilt):
-                pipeline.get_rinex_files()
+        with patch(_TDB2RNX_MOCK, return_value=failed_result), pytest.raises(NoRinexBuilt):
+            pipeline.get_rinex_files()
 
     def test_raises_no_rinex_built_when_no_files_produced(self, tmp_path, catalog):
         """``tdb2rnx`` exits 0 but writes no ``.rnx`` files → ``NoRinexBuilt``."""
@@ -841,9 +848,8 @@ class TestGetRinexFiles:
 
         empty_result = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
-        with patch(_TDB2RNX_MOCK, return_value=empty_result):
-            with pytest.raises(NoRinexBuilt):
-                pipeline.get_rinex_files()
+        with patch(_TDB2RNX_MOCK, return_value=empty_result), pytest.raises(NoRinexBuilt):
+            pipeline.get_rinex_files()
 
 
 # ---------------------------------------------------------------------------
@@ -853,15 +859,16 @@ class TestGetRinexFiles:
 
 def _add_rinex4_entry(catalog, rinex_file: Path):
     """Catalog a RINEX4 asset entry for the NCC1 scope."""
-    from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
     from upath import UPath
+
+    from earthscope_sfg_workflows.data_mgmt.model import AssetEntry, AssetKind
 
     scope = _make_scope()
     entry = AssetEntry(
         kind=AssetKind.RINEX4,
         scope=scope,
         local_path=UPath(rinex_file),
-        timestamp_created=datetime.datetime.now(tz=datetime.timezone.utc),
+        timestamp_created=datetime.datetime.now(tz=datetime.UTC),
     )
     return catalog.add(entry)
 
@@ -879,11 +886,12 @@ class TestProcessRinex:
         from earthscope_sfg_workflows.pipelines.config import SV3PipelineConfig
 
         fake_rinex = tmp_path / "NCC1_2025_251_R_20252510000_01D_01S_MO.rnx"
-        fake_rinex.touch()
+        fake_rinex.write_text("dummy rinex content")
         _add_rinex4_entry(catalog, fake_rinex)
 
         config = SV3PipelineConfig()
         config.pride_config.cli.sample_frequency = 5
+        config.pride_config.override_products_download = True
         pipeline = _make_pipeline(tmp_path, catalog, config=config)
 
         mock_processor = MagicMock()
@@ -897,6 +905,7 @@ class TestProcessRinex:
 
         assert mock_cls.call_args.kwargs["cli_config"] is config.pride_config.cli
         assert mock_cls.call_args.kwargs["cli_config"].sample_frequency == 5
+        assert mock_cls.call_args.kwargs["override_products_download"] is True
 
 
 # ---------------------------------------------------------------------------

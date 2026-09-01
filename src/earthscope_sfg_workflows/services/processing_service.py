@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal
 
 from pride_ppp import PrideCLIConfig
 
-from earthscope_sfg_workflows.logging import GarposLogger as logger, change_all_logger_dirs
-from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
+from earthscope_sfg_workflows.logging import GarposLogger as logger
+from earthscope_sfg_workflows.logging import change_all_logger_dirs
 from earthscope_sfg_workflows.pipelines.config import (
     DFOP00Config,
     NovatelConfig,
@@ -19,6 +19,7 @@ from earthscope_sfg_workflows.pipelines.config import (
 )
 from earthscope_sfg_workflows.pipelines.qc_pipeline import QC_JOBS, QCPipeline
 from earthscope_sfg_workflows.pipelines.sv3_pipeline import SV3_JOBS, SV3Pipeline
+from earthscope_sfg_workflows.utils.model_update import validate_and_merge_config
 
 if TYPE_CHECKING:
     from earthscope_sfg_workflows.workflows.session import StationSession
@@ -60,7 +61,7 @@ class ProcessingService:
         Parse surveys and write CSVs into survey directories.
     """
 
-    def __init__(self, session: "StationSession", config=None) -> None:
+    def __init__(self, session: StationSession, config=None) -> None:
         """Initialize the service.
 
         Parameters
@@ -74,8 +75,8 @@ class ProcessingService:
         """
         self._s = session
         self.config = config
-        self._sv3_pipeline: Optional[SV3Pipeline] = None
-        self._qc_pipeline: Optional[QCPipeline] = None
+        self._sv3_pipeline: SV3Pipeline | None = None
+        self._qc_pipeline: QCPipeline | None = None
 
     def _ensure_log_dir(self) -> None:
         """Route all loggers to the active campaign's logs directory, if set.
@@ -91,7 +92,7 @@ class ProcessingService:
     # ------------------------------------------------------------------
 
     def get_sv3(
-        self, config: "_Config | None" = None, secondary_config: "_Config | None" = None
+        self, config: _Config | None = None, secondary_config: _Config | None = None
     ) -> SV3Pipeline:
         """Return a configured ``SV3Pipeline`` for the current scope.
 
@@ -149,8 +150,8 @@ class ProcessingService:
             "refine_shotdata",
             "process_svp",
         ] = "all",
-        config: "_Config | None" = None,
-        secondary_config: "_Config | None" = None,
+        config: _Config | None = None,
+        secondary_config: _Config | None = None,
     ) -> None:
         """Run an ``SV3Pipeline`` *job* for the current scope.
 
@@ -188,7 +189,7 @@ class ProcessingService:
     # ------------------------------------------------------------------
 
     def get_qc(
-        self, config: "QCPipelineConfig | None" = None, secondary_config: "_Config | None" = None
+        self, config: QCPipelineConfig | None = None, secondary_config: _Config | None = None
     ) -> QCPipeline:
         """Return a configured ``QCPipeline`` for the current scope.
 
@@ -238,7 +239,7 @@ class ProcessingService:
             "process_kinematic",
             "refine_shotdata",
         ] = "all",
-        config: "QCPipelineConfig | None" = None,
+        config: QCPipelineConfig | None = None,
     ) -> None:
         """Run a ``QCPipeline`` *job* for the current scope.
 
@@ -301,12 +302,12 @@ class ProcessingService:
             If *survey_id* is specified but not found in the campaign metadata.
         """
         self._ensure_log_dir()
+        from earthscope_sfg_tools.datamodels.metadata import Survey
         from earthscope_sfg_tools.tiledb_integration import (
             TDBIMUPositionArray,
             TDBKinPositionArray,
             TDBShotDataArray,
         )
-        from earthscope_sfg_tools.datamodels.metadata import Survey
 
         if self._s.site is None:
             raise ValueError(

@@ -6,20 +6,14 @@ import datetime
 import json
 import multiprocessing
 import os
-import sys
 import threading
+from collections.abc import Callable
 from functools import partial, wraps
 from pathlib import Path
-from typing import Callable
 
 # third-party
 from earthscope_sfg_tools import tiledb_integration as novb_ops
 from earthscope_sfg_tools.novatel_tools.utils import get_metadata, get_metadatav2
-from earthscope_sfg_tools.seafloor_site_tools.soundspeed_operations import (
-    CTD_to_svp_v1,
-    CTD_to_svp_v2,
-    seabird_to_soundvelocity,
-)
 from earthscope_sfg_tools.sonardyne_tools import sv3_operations as sv3_ops
 from earthscope_sfg_tools.tiledb_integration import (
     TDBIMUPositionArray,
@@ -28,15 +22,16 @@ from earthscope_sfg_tools.tiledb_integration import (
     rinex_qc,
     tdb2rnx,
 )
-from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
-from earthscope_sfg_workflows.logging import ProcessLogger
 from pride_ppp import (
-    ProcessingMode,
     PrideProcessor,
+    ProcessingMode,
     kin_to_kin_position_df,
     rinex_get_time_range,
 )
 from rich.progress import track
+
+from earthscope_sfg_workflows.data_mgmt.ports import AssetCatalogPort
+from earthscope_sfg_workflows.logging import ProcessLogger
 
 # local
 from ..data_mgmt.model import (
@@ -59,6 +54,7 @@ from .exceptions import (
     NoSVPFound,
 )
 from .shotdata_gnss_refinement import merge_shotdata_kinposition
+from .svp_processing import process_svp_for_scope
 
 
 def _pipeline_method(fn):
@@ -67,14 +63,14 @@ def _pipeline_method(fn):
     @wraps(fn)
     def wrapper(self, *args, **kwargs):
         if not self._lock.acquire(blocking=False):
-            raise Exception(
+            raise RuntimeError(
                 f"Pipeline is busy: cannot call '{fn.__name__}' while another method is running."
             )
-        _t0 = datetime.datetime.now()
+        _t0 = datetime.datetime.now(tz=datetime.UTC)
         try:
             return fn(self, *args, **kwargs)
         finally:
-            elapsed = (datetime.datetime.now() - _t0).total_seconds()
+            elapsed = (datetime.datetime.now(tz=datetime.UTC) - _t0).total_seconds()
             ProcessLogger.debug(f"{fn.__name__} completed in {elapsed:.1f}s")
             self._lock.release()
 
@@ -285,7 +281,7 @@ class SV3Pipeline:
                     self.catalog.add_merge_job(**merge_signature)
                     response = f"Added merge job for {len(novatel_770_entries)} Novatel 770 Entries to the catalog"
                     ProcessLogger.info(response)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     ProcessLogger.error(f"Error processing Novatel 770 files: {e}")
 
             else:
@@ -333,9 +329,8 @@ class SV3Pipeline:
                     ProcessLogger.info(
                         f"Added merge job for {len(novatel_000_entries)} Novatel 000 Entries to the catalog"
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     ProcessLogger.error(f"Error processing Novatel 000 files: {e}")
-                    sys.exit(1)
 
         else:
             ProcessLogger.info(
@@ -448,7 +443,7 @@ class SV3Pipeline:
             merge_signature, dates = get_merge_signature_shotdata(
                 self.shotDataPreTDB, self.kinPositionTDB
             )
-        except Exception as e:
+        except ValueError as e:
             ProcessLogger.error(e)
             return
         merge_job = {
@@ -482,7 +477,8 @@ class SV3Pipeline:
            ``seabird_to_soundvelocity``.
 
         The first successful SVP is written to
-        ``<campaign_root>/<station>_svp.csv`` and processing stops.
+        :attr:`CampaignLayout.svp_file` (``<campaign_root>/processed/svp.csv``)
+        and processing stops.
 
         Parameters
         ----------
@@ -495,69 +491,12 @@ class SV3Pipeline:
         NoSVPFound
             If no CTD or Seabird files are cataloged for the active campaign.
         """
-        svp_df_destination = self._campaign_layout.root / f"{self.scope.station}_svp.csv"
-        if svp_df_destination.exists() and not override:
-            return
-
-        # Get the CTD and Seabird files to process
-        ctd_entries: list[AssetEntry] = self.catalog.assets_for(
-            network=self.scope.network,
-            station=self.scope.station,
-            campaign=self.scope.campaign,
-            kind=AssetKind.CTD,
+        process_svp_for_scope(
+            catalog=self.catalog,
+            scope=self.scope,
+            destination=self._campaign_layout.svp_file,
+            override=override,
         )
-        seabird_entries: list[AssetEntry] = self.catalog.assets_for(
-            network=self.scope.network,
-            station=self.scope.station,
-            campaign=self.scope.campaign,
-            kind=AssetKind.SEABIRD,
-        )
-
-        if not ctd_entries and not seabird_entries:
-            response = f"No CTD or SEABIRD Files Found to Process for {self.scope.network} {self.scope.station} {self.scope.campaign}"
-            ProcessLogger.error(response)
-            raise NoSVPFound(response)
-
-        ctd_processing_functions = [CTD_to_svp_v2, CTD_to_svp_v1]
-
-        # Try processing CTD files first
-        for ctd_entry in ctd_entries:
-            for function in ctd_processing_functions:
-                try:
-                    svp_df = function(ctd_entry.local_path)
-                    if not svp_df.empty:
-                        svp_df.to_csv(svp_df_destination, index=False)
-                        ctd_entry = dataclasses.replace(ctd_entry, is_processed=True)
-                        self.catalog.update(ctd_entry)  # mark as processed
-                        ProcessLogger.info(
-                            f"Processed SVP data from CTD file {ctd_entry.local_path} to dataframe with {function.__name__}"
-                        )
-                        ProcessLogger.info(f"Saved SVP dataframe to {str(svp_df_destination)}")
-                        return
-                except Exception as e:
-                    ProcessLogger.error(
-                        f"Error processing CTD file {ctd_entry.local_path} with {function.__name__}: {e}"
-                    )
-                    continue
-
-        # If no CTD files produced SVP, try Seabird files
-        for seabird_entry in seabird_entries:
-            try:
-                svp_df = seabird_to_soundvelocity(seabird_entry.local_path, ProcessLogger.logger)
-                if not svp_df.empty:
-                    svp_df.to_csv(svp_df_destination, index=False)
-                    seabird_entry = dataclasses.replace(seabird_entry, is_processed=True)
-                    self.catalog.update(seabird_entry)  # mark as processed
-
-                    ProcessLogger.info(
-                        f"Processed SVP data from Seabird file {seabird_entry.local_path} and saved to {str(svp_df_destination)}"
-                    )
-                    return
-            except Exception as e:
-                ProcessLogger.error(
-                    f"Error processing Seabird file {seabird_entry.local_path}: {e}"
-                )
-                continue
 
     def _build_rinex_meta(self) -> str:
         """Create RINEX metadata JSON files for the current campaign if absent.
@@ -784,6 +723,7 @@ class SV3Pipeline:
             output_dir=intermediate_dir,
             cli_config=pride_cfg.cli,
             mode=ProcessingMode.DEFAULT,
+            override_products_download=pride_cfg.override_products_download,
         )
         rinex_path_map = {e.local_path: e for e in rinex_entries}
         kin_count = res_count = upload_count = 0
@@ -867,7 +807,7 @@ class SV3Pipeline:
             station=self.scope.station,
             campaign=self.scope.campaign,
             kind=AssetKind.KIN,
-            override=self.config.rinex_config.override,  # use RINEX override to control KIN processing
+            override=self.config.kin_config.override,
         )
         if not kin_entries:
             msg = (
@@ -893,7 +833,7 @@ class SV3Pipeline:
                     self.kinPositionTDB.write_df(df)
                     processed_count += 1
                     self.catalog.update(dataclasses.replace(entry, is_processed=True))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 ProcessLogger.error(f"Error processing {entry.local_path}: {e}")
 
         ProcessLogger.info(
@@ -1016,5 +956,5 @@ SV3_JOBS: dict[str, Callable[["SV3Pipeline"], None]] = {
     "process_kinematic": lambda p: p.process_kin(),
     "process_dfop00": lambda p: p.process_dfop00(),
     "refine_shotdata": lambda p: p.update_shotdata(),
-    "process_svp": lambda p: p.process_svp(),
+    "process_svp": lambda p: p.process_svp(override=p.config.svp_config.override),
 }
