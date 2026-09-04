@@ -25,7 +25,7 @@ dependencies = [
   "typer>=0.9",
   "rich>=13.0",
   "pyyaml>=6.0",
-  "pride-ppp @ git+https://github.com/EarthScope/GNSSommelier.git@8d12b2e85852b7f87a6ac7c48749a70ba6f96622#subdirectory=packages/pride-ppp"
+  "pride-ppp @ git+https://github.com/EarthScope/GNSSommelier.git@d46c39cf893937ac271af1198b308d8679023f3c#subdirectory=packages/pride-ppp"
 ]
 
 [project.optional-dependencies]
@@ -78,8 +78,8 @@ earthscope_sfg_tools = { git = "https://github.com/EarthScope/earthscope-sfg-too
 # pride-ppp's own metadata requests them unpinned (default-branch HEAD), which
 # fails `pixi install --locked` validation in CI. Pin them to the same
 # GNSSommelier rev as pride-ppp; keep all three in sync when re-locking.
-gpm-specs = { git = "https://github.com/EarthScope/GNSSommelier.git", subdirectory = "packages/gpm-specs", rev = "8d12b2e85852b7f87a6ac7c48749a70ba6f96622" }
-gnss-product-management = { git = "https://github.com/EarthScope/GNSSommelier.git", subdirectory = "packages/gnss-product-management", rev = "8d12b2e85852b7f87a6ac7c48749a70ba6f96622" }
+gpm-specs = { git = "https://github.com/EarthScope/GNSSommelier.git", subdirectory = "packages/gpm-specs", rev = "d46c39cf893937ac271af1198b308d8679023f3c" }
+gnss-product-management = { git = "https://github.com/EarthScope/GNSSommelier.git", subdirectory = "packages/gnss-product-management", rev = "d46c39cf893937ac271af1198b308d8679023f3c" }
 
 [tool.pixi.feature.tiledb.dependencies]
 tiledb = ">=2.27"
