@@ -99,7 +99,6 @@ geolab = { features = ["jupyter", "tiledb"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
-validate-gnatss = { cmd = "python scripts/validate_gnatss_campaign.py examples/gnatss/ncc1_2026.yaml", description = "Validate the local NCC1 GNATSS pilot" }
 test = { cmd = "pytest tests/ -v", description = "Run workflow test suite" }
 lint = { cmd = "ruff check src/ tests/", description = "Lint source and tests" }
 format-check = { cmd = "ruff format --check src/ tests/", description = "Check formatting" }
