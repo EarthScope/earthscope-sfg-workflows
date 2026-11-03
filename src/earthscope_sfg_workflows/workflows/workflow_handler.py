@@ -256,6 +256,17 @@ class WorkflowHandler:
             os.environ["LOG_FILE_PATH"] = str(session._campaign_layout.logs)
             logger.info(f"Active context: {network_id} / {station_id} / {campaign_id}")
 
+    @staticmethod
+    def run_gnatss_campaign(config_path: Path, stages=None) -> None:
+        """Run a configured local GNATSS campaign, or selected restart stages.
+
+        The configuration explicitly selects metadata, raw input, checkout,
+        survey, and output paths independently of the active GARPOS session.
+        """
+        from ..modeling.gnatss_tools.runner import STAGES, GnatssRun
+
+        GnatssRun(config_path).run(STAGES if stages is None else stages)
+
     def list_campaign_directories(self) -> list[Path]:
         """List campaign subdirectories for the current station.
 
@@ -585,6 +596,39 @@ class WorkflowHandler:
         write_intermediate: bool = False,
         survey_id: str | None = None,
     ) -> None:
+        """Download required arrays and write survey shotdata CSVs.
+
+        Uses site/campaign metadata already loaded on the session. With S3
+        configured, downloads missing shotdata files without replacing local
+        files. ``write_intermediate=True`` additionally downloads kinematic
+        and IMU position arrays. Campaign files are also synchronized for
+        supporting inputs such as the sound-speed profile.
+
+        ``override`` regenerates survey CSVs; it does not overwrite input
+        arrays. ``site_metadata`` is retained for call compatibility; metadata
+        is owned by the session. ``survey_id=None`` processes all surveys.
+        Use ``midprocess_parse_surveys_legacy`` for the full station pull.
+        """
+        arrays = ("shotdata",)
+        if write_intermediate:
+            arrays += ("kin_position", "imu_position")
+        if self._workspace.s3_sync_bucket is not None:
+            self.sync_from_s3(
+                overwrite=False, arrays=arrays, include_campaign=True
+            )
+        self._session.pipeline.parse_surveys(
+            survey_id=survey_id,
+            override=override,
+            write_intermediate=write_intermediate,
+        )
+
+    def midprocess_parse_surveys_legacy(
+        self,
+        site_metadata: "Site | str | None" = None,
+        override: bool = False,
+        write_intermediate: bool = False,
+        survey_id: str | None = None,
+    ) -> None:
         """Parse surveys for the active campaign and write shot-data CSVs.
 
         When an S3 sync bucket is configured, a pull from S3 is performed
@@ -641,7 +685,7 @@ class WorkflowHandler:
             When ``True``, write intermediate CSV files during survey parsing.
             Default is ``False``.
         """
-        self._session.pipeline.parse_surveys(
+        self.midprocess_parse_surveys(
             survey_id=survey_id,
             override=override_survey_parsing,
             write_intermediate=write_intermediate,
@@ -692,7 +736,13 @@ class WorkflowHandler:
         if self._ensure_remote():
             self._session.sync.push_campaign(overwrite=overwrite)
 
-    def sync_from_s3(self, overwrite: bool = False) -> None:
+    def sync_from_s3(
+        self,
+        overwrite: bool = False,
+        *,
+        arrays: tuple[str, ...] | None = None,
+        include_campaign: bool = True,
+    ) -> None:
         """Mirror data from the remote S3 prefix into the local workspace.
 
         Parameters
@@ -701,13 +751,20 @@ class WorkflowHandler:
             When ``True``, overwrite local files that already exist.
             Default is ``False``.
 
+        arrays : tuple[str, ...] or None, optional
+            TileDB layout field names to download; ``None`` downloads all arrays.
+        include_campaign : bool, optional
+            Also download campaign files. Default ``True``.
+
         Raises
         ------
         RuntimeError
             When ``S3_SYNC_BUCKET`` is not configured.
         """
         self._ensure_remote(require=True)
-        self._session.sync.pull(overwrite=overwrite)
+        self._session.sync.pull(
+            overwrite=overwrite, arrays=arrays, include_campaign=include_campaign
+        )
 
     # ------------------------------------------------------------------
     # Modeling — GARPOS

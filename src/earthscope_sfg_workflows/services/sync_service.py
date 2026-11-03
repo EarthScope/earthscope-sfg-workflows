@@ -149,7 +149,7 @@ class SyncService:
         if not self._has_remote:
             logger.warning("push_station: no remote configured, skipping.")
             return
-        tiledb = self._s.tiledb_layout()
+        tiledb = self._s.tiledb_layout
         for path in tiledb.all_paths:
             count = self._push_dir(UPath(path), overwrite=overwrite)
             logger.info(f"Pushed {count} files from {path}")
@@ -176,7 +176,13 @@ class SyncService:
     # Pull
     # ------------------------------------------------------------------
 
-    def pull(self, overwrite: bool = False) -> None:
+    def pull(
+        self,
+        overwrite: bool = False,
+        *,
+        arrays: tuple[str, ...] | None = None,
+        include_campaign: bool = True,
+    ) -> None:
         """Download TileDB arrays and active campaign files from the remote mirror.
 
         Parameters
@@ -184,15 +190,30 @@ class SyncService:
         overwrite : bool, optional
             When ``True``, overwrite files that already exist locally.
             Default is ``False``.
+        arrays : tuple[str, ...] or None, optional
+            Layout field names to download, such as ``("shotdata",)``.
+            ``None`` retains the full station pull; an empty tuple skips arrays.
+        include_campaign : bool, optional
+            Also download the active campaign tree. Default ``True``.
         """
         if not self._has_remote:
             logger.warning("pull: no remote configured, skipping.")
             return
-        tiledb = self._s.tiledb_layout()
-        for path in tiledb.all_paths:
+        tiledb = self._s.tiledb_layout
+        if arrays is None:
+            paths = tiledb.all_paths
+        else:
+            # Never include the TileDB root in a selective pull: it would
+            # recursively download every array beneath it.
+            allowed = set(tiledb.__dataclass_fields__) - {"root"}
+            unknown = set(arrays) - allowed
+            if unknown:
+                raise ValueError(f"Unknown TileDB arrays: {sorted(unknown)}")
+            paths = tuple(getattr(tiledb, name) for name in dict.fromkeys(arrays))
+        for path in paths:
             count = self._pull_dir(UPath(path), overwrite=overwrite)
             logger.info(f"Pulled {count} files to {path}")
-        if self._s.scope.campaign:
+        if include_campaign and self._s.scope.campaign:
             campaign = self._s.ensure_campaign()
             count = self._pull_dir(UPath(campaign.root), overwrite=overwrite)
             logger.info(f"Pulled {count} campaign files to {campaign.root}")

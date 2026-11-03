@@ -174,9 +174,12 @@ class FsspecFileStore:
         """
         url = UPath(directory)
         fs = self._get_fs(directory)
-        if not fs.isdir(url):
+        if not fs.isdir(str(url)):
             return []
-        entries = {e["name"]: e for e in fs.ls(url, detail=True, recursive=recursive)}
+        if recursive:
+            entries = fs.find(str(url), detail=True)
+        else:
+            entries = {e["name"]: e for e in fs.ls(str(url), detail=True)}
         out: list[FileInfo] = []
         for fpath, info in entries.items():
             fname = fpath.rstrip("/").rsplit("/", 1)[-1]
@@ -185,7 +188,8 @@ class FsspecFileStore:
             if info.get("type") == "directory":
                 continue
             size: int | None = info.get("size")
-            out.append(FileInfo(path=UPath(fpath), size_bytes=size, is_file=True))
+            file_url = fs.unstrip_protocol(fpath)
+            out.append(FileInfo(path=UPath(file_url), size_bytes=size, is_file=True))
         return out
 
     def write_bytes(self, path: UPath | str, data: bytes) -> None:
@@ -231,7 +235,11 @@ class FsspecFileStore:
         target : UPath
             Local path to write the downloaded file to.
         """
-        self._get_fs(source).get(source, str(target))
+        source = _normalize_url(source)
+        source_fs = _open_fs(source, self._storage_options)
+        target = UPath(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source_fs.get(source, str(target))
 
     def put_remote(self, source: UPath, target: str) -> None:
         """Upload a local file to a remote path.
