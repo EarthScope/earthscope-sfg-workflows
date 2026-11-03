@@ -599,22 +599,23 @@ class WorkflowHandler:
         """Download required arrays and write survey shotdata CSVs.
 
         Uses site/campaign metadata already loaded on the session. With S3
-        configured, downloads missing shotdata files without replacing local
-        files. ``write_intermediate=True`` additionally downloads kinematic
-        and IMU position arrays. Campaign files are also synchronized for
-        supporting inputs such as the sound-speed profile.
+        configured, downloads missing shotdata and kinematic-position files
+        without replacing local files. ``write_intermediate=True`` additionally
+        downloads the IMU position array. Campaign files are not synchronized;
+        obtain CTD data with ``ingest_ctd_only`` and generate the sound-speed
+        profile with ``preprocess_run_pipeline_sv3(job="process_svp")``.
 
         ``override`` regenerates survey CSVs; it does not overwrite input
         arrays. ``site_metadata`` is retained for call compatibility; metadata
         is owned by the session. ``survey_id=None`` processes all surveys.
         Use ``midprocess_parse_surveys_legacy`` for the full station pull.
         """
-        arrays = ("shotdata",)
+        arrays = ("shotdata", "kin_position")
         if write_intermediate:
-            arrays += ("kin_position", "imu_position")
+            arrays += ("imu_position",)
         if self._workspace.s3_sync_bucket is not None:
             self.sync_from_s3(
-                overwrite=False, arrays=arrays, include_campaign=True
+                overwrite=False, arrays=arrays, include_campaign=False
             )
         self._session.pipeline.parse_surveys(
             survey_id=survey_id,

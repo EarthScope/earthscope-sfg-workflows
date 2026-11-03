@@ -211,8 +211,9 @@ class SyncService:
                 raise ValueError(f"Unknown TileDB arrays: {sorted(unknown)}")
             paths = tuple(getattr(tiledb, name) for name in dict.fromkeys(arrays))
         for path in paths:
-            count = self._pull_dir(UPath(path), overwrite=overwrite)
-            logger.info(f"Pulled {count} files to {path}")
+            self._pull_dir(UPath(path), overwrite=overwrite)
+            array_name = UPath(path).name.removesuffix(".tdb")
+            logger.info(f"Successfully sync'd {array_name} from S3")
         if include_campaign and self._s.scope.campaign:
             campaign = self._s.ensure_campaign()
             count = self._pull_dir(UPath(campaign.root), overwrite=overwrite)
